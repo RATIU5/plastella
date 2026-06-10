@@ -20,20 +20,20 @@ when ODIN_OS == .Windows {
 // Empty: the host chdirs to its own directory on startup, and the build places
 // the DLL right next to the executable (build/hot_reload/), so the DLL is found
 // relative to the exe regardless of where the project lives.
-GAME_DLL_DIR :: ""
-GAME_DLL_PATH :: GAME_DLL_DIR + "game" + DLL_EXT
+APP_DLL_DIR :: ""
+APP_DLL_PATH :: APP_DLL_DIR + "app" + DLL_EXT
 
 copy_dll :: proc(to: string) -> bool {
-	copy_err := os.copy_file(to, GAME_DLL_PATH)
+	copy_err := os.copy_file(to, APP_DLL_PATH)
 
 	if copy_err != nil {
-		fmt.printfln("Failed to copy " + GAME_DLL_PATH + " to {0}: %v", to, copy_err)
+		fmt.printfln("Failed to copy " + APP_DLL_PATH + " to {0}: %v", to, copy_err)
 		return false
 	}
 	return true
 }
 
-Game_API :: struct {
+App_API :: struct {
 	lib:               dynlib.Library,
 	init_window:       proc(),
 	init:              proc(),
@@ -50,20 +50,20 @@ Game_API :: struct {
 	api_version:       int,
 }
 
-load_game_api :: proc(api_version: int) -> (api: Game_API, ok: bool) {
-	mod_time, mod_time_err := os.last_write_time_by_name(GAME_DLL_PATH)
+load_app_api :: proc(api_version: int) -> (api: App_API, ok: bool) {
+	mod_time, mod_time_err := os.last_write_time_by_name(APP_DLL_PATH)
 	if mod_time_err != os.ERROR_NONE {
 		fmt.printfln(
-			"Failed getting last write time of " + GAME_DLL_PATH + ", error code: {1}",
+			"Failed getting last write time of " + APP_DLL_PATH + ", error code: {1}",
 			mod_time_err,
 		)
 		return
 	}
 
-	game_dll_name := fmt.tprintf(GAME_DLL_DIR + "game_{0}" + DLL_EXT, api_version)
-	copy_dll(game_dll_name) or_return
+	app_dll_name := fmt.tprintf(APP_DLL_DIR + "app_{0}" + DLL_EXT, api_version)
+	copy_dll(app_dll_name) or_return
 
-	_, ok = dynlib.initialize_symbols(&api, game_dll_name, "game_", "lib")
+	_, ok = dynlib.initialize_symbols(&api, app_dll_name, "app_", "lib")
 	if !ok {
 		fmt.printfln("Failed initializing symbols: {0}", dynlib.last_error())
 	}
@@ -75,17 +75,17 @@ load_game_api :: proc(api_version: int) -> (api: Game_API, ok: bool) {
 	return
 }
 
-unload_game_api :: proc(api: ^Game_API) {
+unload_app_api :: proc(api: ^App_API) {
 	if api.lib != nil {
 		if !dynlib.unload_library(api.lib) {
 			fmt.printfln("Failed unloading lib: {0}", dynlib.last_error())
 		}
 	}
 
-	if os.remove(fmt.tprintf(GAME_DLL_DIR + "game_{0}" + DLL_EXT, api.api_version)) != nil {
+	if os.remove(fmt.tprintf(APP_DLL_DIR + "app_{0}" + DLL_EXT, api.api_version)) != nil {
 		fmt.printfln(
-			"Failed to remove {0}game_{1}" + DLL_EXT + " copy",
-			GAME_DLL_DIR,
+			"Failed to remove {0}app_{1}" + DLL_EXT + " copy",
+			APP_DLL_DIR,
 			api.api_version,
 		)
 	}
@@ -115,60 +115,59 @@ main :: proc() {
 		return err
 	}
 
-	game_api_version := 0
-	game_api, game_api_ok := load_game_api(game_api_version)
+	app_api_version := 0
+	app_api, app_api_ok := load_app_api(app_api_version)
 
-	if !game_api_ok {
-		fmt.printfln("Failed to load game api")
+	if !app_api_ok {
+		fmt.printfln("Failed to load app api")
 		return
 	}
 
-	game_api_version += 1
-	game_api.init_window()
-	game_api.init()
+	app_api_version += 1
+	app_api.init_window()
+	app_api.init()
 
-	old_game_apis := make([dynamic]Game_API, default_allocator)
+	old_app_apis := make([dynamic]App_API, default_allocator)
 
-	for game_api.should_run() {
-		game_api.update()
-		force_reload := game_api.force_reload()
-		force_restart := game_api.force_restart()
+	for app_api.should_run() {
+		app_api.update()
+		force_reload := app_api.force_reload()
+		force_restart := app_api.force_restart()
 		reload := force_reload || force_restart
-		game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(GAME_DLL_PATH)
+		app_dll_mod, app_dll_mod_err := os.last_write_time_by_name(APP_DLL_PATH)
 
-		if game_dll_mod_err == os.ERROR_NONE && game_api.modification_time != game_dll_mod {
+		if app_dll_mod_err == os.ERROR_NONE && app_api.modification_time != app_dll_mod {
 			reload = true
 		}
 
 		if reload {
-			new_game_api, new_game_api_ok := load_game_api(game_api_version)
+			new_app_api, new_app_api_ok := load_app_api(app_api_version)
 
-			if new_game_api_ok {
-				force_restart =
-					force_restart || game_api.memory_size() != new_game_api.memory_size()
+			if new_app_api_ok {
+				force_restart = force_restart || app_api.memory_size() != new_app_api.memory_size()
 
 				if !force_restart {
 					// Normal hot reload
-					append(&old_game_apis, game_api)
-					game_memory := game_api.memory()
-					game_api = new_game_api
-					game_api.hot_reloaded(game_memory)
+					append(&old_app_apis, app_api)
+					app_memory := app_api.memory()
+					app_api = new_app_api
+					app_api.hot_reloaded(app_memory)
 				} else {
 					// Full restart without restarting executable
-					game_api.shutdown()
+					app_api.shutdown()
 					reset_tracking_allocator(&tracking_allocator)
 
-					for &g in old_game_apis {
-						unload_game_api(&g)
+					for &a in old_app_apis {
+						unload_app_api(&a)
 					}
 
-					clear(&old_game_apis)
-					unload_game_api(&game_api)
-					game_api = new_game_api
-					game_api.init()
+					clear(&old_app_apis)
+					unload_app_api(&app_api)
+					app_api = new_app_api
+					app_api.init()
 				}
 
-				game_api_version += 1
+				app_api_version += 1
 			}
 		}
 
@@ -183,19 +182,19 @@ main :: proc() {
 	}
 
 	free_all(context.temp_allocator)
-	game_api.shutdown()
+	app_api.shutdown()
 	if reset_tracking_allocator(&tracking_allocator) {
 		libc.getchar()
 	}
 
-	for &g in old_game_apis {
-		unload_game_api(&g)
+	for &a in old_app_apis {
+		unload_app_api(&a)
 	}
 
-	delete(old_game_apis)
+	delete(old_app_apis)
 
-	game_api.shutdown_window()
-	unload_game_api(&game_api)
+	app_api.shutdown_window()
+	unload_app_api(&app_api)
 	mem.tracking_allocator_destroy(&tracking_allocator)
 }
 

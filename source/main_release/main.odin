@@ -1,6 +1,6 @@
 package main
 
-import game ".."
+import app ".."
 import "core:log"
 import "core:mem"
 import "core:os"
@@ -35,16 +35,16 @@ main :: proc() {
 		context.allocator = mem.tracking_allocator(&tracking_allocator)
 	}
 
-	game.game_init_window()
-	game.game_init()
+	app.app_init_window()
+	app.app_init()
 
-	for game.game_should_run() {
-		game.game_update()
+	for app.app_should_run() {
+		app.app_update()
 	}
 
 	free_all(context.temp_allocator)
-	game.game_shutdown()
-	game.game_shutdown_window()
+	app.app_shutdown()
+	app.app_shutdown_window()
 
 	when USE_TRACKING_ALLOCATOR {
 		for _, value in tracking_allocator.allocator_map {
@@ -59,7 +59,7 @@ main :: proc() {
 	}
 }
 
-// make game use good GPU on laptops etc
+// make app use good GPU on laptops etc
 
 @(export)
 NvOptimusEnablement: u32 = 1

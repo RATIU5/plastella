@@ -1,15 +1,15 @@
-package game
+package app
 
 import rl "vendor:raylib"
 
-Game_Memory :: struct {
+App_Memory :: struct {
 	run: bool,
 }
 
-g: ^Game_Memory
+a: ^App_Memory
 
 @(export)
-game_update :: proc() {
+app_update :: proc() {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
 	rl.EndDrawing()
@@ -18,7 +18,7 @@ game_update :: proc() {
 }
 
 @(export)
-game_init_window :: proc() {
+app_init_window :: proc() {
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
 	rl.InitWindow(1280, 720, "Plastella")
 	rl.SetWindowPosition(200, 200)
@@ -27,58 +27,58 @@ game_init_window :: proc() {
 }
 
 @(export)
-game_init :: proc() {
-	g = new(Game_Memory)
+app_init :: proc() {
+	a = new(App_Memory)
 
-	g^ = Game_Memory {
+	a^ = App_Memory {
 		run = true,
 	}
 
-	game_hot_reloaded(g)
+	app_hot_reloaded(a)
 }
 
 @(export)
-game_should_run :: proc() -> bool {
+app_should_run :: proc() -> bool {
 	when ODIN_OS != .JS {
 		if rl.WindowShouldClose() {
 			return false
 		}
 	}
 
-	return g.run
+	return a.run
 }
 
 @(export)
-game_shutdown :: proc() {
-	free(g)
+app_shutdown :: proc() {
+	free(a)
 }
 
 @(export)
-game_shutdown_window :: proc() {
+app_shutdown_window :: proc() {
 	rl.CloseWindow()
 }
 
 @(export)
-game_memory :: proc() -> rawptr {
-	return g
+app_memory :: proc() -> rawptr {
+	return a
 }
 
 @(export)
-game_memory_size :: proc() -> int {
-	return size_of(Game_Memory)
+app_memory_size :: proc() -> int {
+	return size_of(App_Memory)
 }
 
 @(export)
-game_hot_reloaded :: proc(mem: rawptr) {
-	g = (^Game_Memory)(mem)
+app_hot_reloaded :: proc(mem: rawptr) {
+	a = (^App_Memory)(mem)
 }
 
 @(export)
-game_force_reload :: proc() -> bool {
+app_force_reload :: proc() -> bool {
 	return rl.IsKeyPressed(.F5)
 }
 
 @(export)
-game_force_restart :: proc() -> bool {
+app_force_restart :: proc() -> bool {
 	return rl.IsKeyPressed(.F6)
 }
