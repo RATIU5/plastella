@@ -11,12 +11,12 @@ DLL_EXT = "{% if os() == 'macos' %}.dylib{% else %}.so{% endif %}"
 [tasks.build-app]
 description = "Compile source/ into a reloadable app DLL (triggers a live hot reload)"
 alias = "reload"
-sources = ["source/*.odin"]
+sources = ["source/app/*.odin", "source/platform/*.odin", "source/api/*.odin"]
 outputs = ["{{ env.OUT_DIR }}/app{{ env.DLL_EXT }}"]
 run = [
   "mkdir -p $OUT_DIR",
   "{% if os() == 'linux' %}mkdir -p $OUT_DIR/linux && cp -rn $(odin root)/vendor/raylib/linux/libraylib*.so* $OUT_DIR/linux{% else %}true{% endif %}",
-  "odin build source -extra-linker-flags:\"{% if os() == 'macos' %}-Wl,-rpath $(odin root)/vendor/raylib/macos{% else %}'-Wl,-rpath=$ORIGIN/linux'{% endif %}\" -define:RAYLIB_SHARED=true -build-mode:dll -out:$OUT_DIR/app_tmp$DLL_EXT -strict-style -vet -debug",
+  "odin build source/app -extra-linker-flags:\"{% if os() == 'macos' %}-Wl,-rpath $(odin root)/vendor/raylib/macos{% else %}'-Wl,-rpath=$ORIGIN/linux'{% endif %}\" -define:RAYLIB_SHARED=true -build-mode:dll -out:$OUT_DIR/app_tmp$DLL_EXT -strict-style -vet -debug",
   # atomic swap — never load a half-written DLL
   "mv $OUT_DIR/app_tmp$DLL_EXT $OUT_DIR/app$DLL_EXT",
 ]
@@ -58,7 +58,7 @@ run = [
 [tasks.build]
 description = "Build an optimized release into build/release/"
 alias = "b"
-sources = ["source/*.odin", "source/main_release/*.odin", "assets/**/*"]
+sources = ["source/app/*.odin", "source/platform/*.odin", "source/api/*.odin", "source/main_release/*.odin", "assets/**/*"]
 outputs = ["build/release/plastella.bin"]
 run = [
   "rm -rf build/release",

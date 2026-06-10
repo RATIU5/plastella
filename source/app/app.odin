@@ -1,12 +1,9 @@
 package app
 
-import rl "vendor:raylib"
+import api "../api"
+import platform "../platform"
 
-App_Memory :: struct {
-	run: bool,
-}
-
-am: ^App_Memory
+am: ^api.App_Memory
 
 @(export)
 app_update :: proc() {
@@ -15,18 +12,14 @@ app_update :: proc() {
 
 @(export)
 app_init_window :: proc() {
-	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
-	rl.InitWindow(1280, 720, "Plastella")
-	rl.SetWindowPosition(200, 200)
-	rl.SetTargetFPS(200)
-	rl.SetExitKey(nil)
+	platform.init_window()
 }
 
 @(export)
 app_init :: proc() {
-	am = new(App_Memory)
+	am = new(api.App_Memory)
 
-	am^ = App_Memory {
+	am^ = api.App_Memory {
 		run = true,
 	}
 
@@ -36,7 +29,7 @@ app_init :: proc() {
 @(export)
 app_should_run :: proc() -> bool {
 	when ODIN_OS != .JS {
-		if rl.WindowShouldClose() {
+		if platform.window_should_close() {
 			return false
 		}
 	}
@@ -51,7 +44,7 @@ app_shutdown :: proc() {
 
 @(export)
 app_shutdown_window :: proc() {
-	rl.CloseWindow()
+	platform.shutdown_window()
 }
 
 @(export)
@@ -61,20 +54,20 @@ app_memory :: proc() -> rawptr {
 
 @(export)
 app_memory_size :: proc() -> int {
-	return size_of(App_Memory)
+	return size_of(api.App_Memory)
 }
 
 @(export)
 app_hot_reloaded :: proc(mem: rawptr) {
-	am = (^App_Memory)(mem)
+	am = (^api.App_Memory)(mem)
 }
 
 @(export)
 app_force_reload :: proc() -> bool {
-	return rl.IsKeyPressed(.F5)
+	return platform.is_force_reload_pressed()
 }
 
 @(export)
 app_force_restart :: proc() -> bool {
-	return rl.IsKeyPressed(.F6)
+	return platform.is_force_restart_pressed()
 }

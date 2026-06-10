@@ -1,6 +1,6 @@
 package main
 
-import app ".."
+import app "../app"
 import "core:log"
 import "core:mem"
 import "core:os"
