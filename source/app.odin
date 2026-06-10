@@ -6,14 +6,10 @@ App_Memory :: struct {
 	run: bool,
 }
 
-a: ^App_Memory
+am: ^App_Memory
 
 @(export)
 app_update :: proc() {
-	rl.BeginDrawing()
-	rl.ClearBackground(rl.BLACK)
-	rl.EndDrawing()
-
 	free_all(context.temp_allocator)
 }
 
@@ -28,13 +24,13 @@ app_init_window :: proc() {
 
 @(export)
 app_init :: proc() {
-	a = new(App_Memory)
+	am = new(App_Memory)
 
-	a^ = App_Memory {
+	am^ = App_Memory {
 		run = true,
 	}
 
-	app_hot_reloaded(a)
+	app_hot_reloaded(am)
 }
 
 @(export)
@@ -45,12 +41,12 @@ app_should_run :: proc() -> bool {
 		}
 	}
 
-	return a.run
+	return am.run
 }
 
 @(export)
 app_shutdown :: proc() {
-	free(a)
+	free(am)
 }
 
 @(export)
@@ -60,7 +56,7 @@ app_shutdown_window :: proc() {
 
 @(export)
 app_memory :: proc() -> rawptr {
-	return a
+	return am
 }
 
 @(export)
@@ -70,7 +66,7 @@ app_memory_size :: proc() -> int {
 
 @(export)
 app_hot_reloaded :: proc(mem: rawptr) {
-	a = (^App_Memory)(mem)
+	am = (^App_Memory)(mem)
 }
 
 @(export)
