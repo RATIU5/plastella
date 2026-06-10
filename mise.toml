@@ -2,17 +2,12 @@
 odin = "dev-2026-05"
 watchexec = "latest"
 
-# Static + platform-aware values. os() resolves at parse time (linux/macos/windows).
-# odin root is resolved at task runtime instead (see below) so it uses the
-# mise-pinned odin from [tools], not whatever odin happens to be on PATH now.
+# os() resolves at parse time; $(odin root) at runtime so it uses mise's pinned odin.
 [env]
 OUT_DIR = "build/hot_reload"
 EXE = "game_hot_reload.bin"
 DLL_EXT = "{% if os() == 'macos' %}.dylib{% else %}.so{% endif %}"
 
-# Build the game as a hot-reloadable shared library.
-# `sources`/`outputs` let mise skip this when nothing changed (incremental build),
-# and rebuild + swap the DLL when it did — which is what triggers a live reload.
 [tasks.build-game]
 description = "Compile source/ into a reloadable game DLL (triggers a live hot reload)"
 alias = "reload"
@@ -20,18 +15,12 @@ sources = ["source/*.odin"]
 outputs = ["{{ env.OUT_DIR }}/game{{ env.DLL_EXT }}"]
 run = [
   "mkdir -p $OUT_DIR",
-  # On Linux, vendor the raylib .so libs once so the DLL can find them at runtime.
   "{% if os() == 'linux' %}mkdir -p $OUT_DIR/linux && cp -rn $(odin root)/vendor/raylib/linux/libraylib*.so* $OUT_DIR/linux{% else %}true{% endif %}",
-  # os() picks the rpath flag; $(odin root) runs at build time using mise's odin.
   "odin build source -extra-linker-flags:\"{% if os() == 'macos' %}-Wl,-rpath $(odin root)/vendor/raylib/macos{% else %}'-Wl,-rpath=$ORIGIN/linux'{% endif %}\" -define:RAYLIB_SHARED=true -build-mode:dll -out:$OUT_DIR/game_tmp$DLL_EXT -strict-style -vet -debug",
-  # Write to a temp file first, then atomically swap, so the running game never
-  # loads a half-written DLL.
+  # atomic swap — never load a half-written DLL
   "mv $OUT_DIR/game_tmp$DLL_EXT $OUT_DIR/game$DLL_EXT",
 ]
 
-# Build the host executable that loads + watches the game DLL, into build/ next to
-# the DLL. A symlink makes assets/ reachable by relative path from the exe's dir
-# (the host chdirs there at startup), without copying.
 [tasks.build-exe]
 description = "Compile the hot-reload host executable"
 sources = ["source/main_hot_reload/*.odin"]
@@ -39,37 +28,23 @@ outputs = ["{{ env.OUT_DIR }}/{{ env.EXE }}"]
 run = [
   "mkdir -p $OUT_DIR",
   "odin build source/main_hot_reload -out:$OUT_DIR/$EXE -strict-style -vet -debug",
+  # symlink so assets/ is reachable by relative path (exe chdirs to its own dir)
   "rm -rf $OUT_DIR/assets && ln -s ../../assets $OUT_DIR/assets",
 ]
 
-# Main entry point. depends run in parallel and are cached:
-#   - editing game code rebuilds the DLL -> running exe hot-reloads it
-#   - the host exe is only rebuilt when main_hot_reload/ changes
-# Then launch the exe only if it isn't already running.
-# Auto hot-reload loop: a background watcher rebuilds the DLL whenever an .odin
-# file under source/ changes, and the running game picks up the new DLL by polling
-# its mtime. The game itself runs in the FOREGROUND (this is the part that must not
-# be backgrounded — a backgrounded GUI app whose terminal gets taken over trips
-# job control with SIGTTOU/HUP and freezes the window).
-#
-# The watcher is a background child of this task; the trap kills it when the game
-# exits (window closed / Ctrl+C) so it isn't left orphaned and rebuilding forever.
-# Watching only source/ (not build/) avoids a rebuild feeding back into itself.
+# Game runs foreground — backgrounding a GUI app trips SIGTTOU/HUP and freezes the window.
+# Watcher runs in the background; trap kills it on exit so it doesn't keep rebuilding.
 [tasks.dev]
 description = "Build + run with automatic hot reload (watches source/)"
 depends = ["build-game", "build-exe"]
 run = '''
 watchexec --watch source --exts odin --debounce 200ms -- mise run build-game &
 watcher=$!
-# On exit: stop the watcher and delete the per-reload DLL copies (game_0.dylib,
-# game_1.dylib, ...). The host only cleans these up on a clean window-close; if it
-# was killed (Ctrl+C / mise stop) they'd otherwise linger. Never touch game.dylib.
+# kill watcher; remove numbered DLL copies left behind by unclean exits
 trap 'kill $watcher 2>/dev/null; rm -f "$OUT_DIR"/game_*.dylib' EXIT INT TERM
 ./"$OUT_DIR/$EXE"
 '''
 
-# Quick, unoptimized run of the non-hot-reload build, into build/debug/. The exe
-# chdirs to its own dir, so the assets symlink lets it find assets/ there.
 [tasks.run]
 description = "Build + run the standalone (non-hot-reload) game"
 alias = "r"
@@ -80,7 +55,6 @@ run = [
   "./build/debug/plastella.bin",
 ]
 
-# Optimized release build, bundled with assets into a self-contained folder.
 [tasks.build]
 description = "Build an optimized release into build/release/"
 alias = "b"
@@ -93,7 +67,6 @@ run = [
   "cp -R assets build/release/",
 ]
 
-# Stop a running hot-reload session.
 [tasks.stop]
 description = "Kill the running hot-reload game and clean up per-reload DLL copies"
 run = '''
@@ -101,7 +74,6 @@ pkill -f "$EXE" || true
 rm -f "$OUT_DIR"/game_*.dylib
 '''
 
-# Remove all build artifacts and generated files (everything lives under build/).
 [tasks.clean]
 description = "Delete build artifacts, binaries, and logs"
 run = "rm -rf build log.txt"
