@@ -2,11 +2,16 @@ package app
 
 import api "../api"
 import platform "../platform"
+import rl "vendor:raylib"
 
 am: ^api.App_Memory
 
 @(export)
 app_update :: proc() {
+	rl.BeginDrawing()
+	rl.ClearBackground(rl.BLACK)
+	rl.EndDrawing()
+
 	free_all(context.temp_allocator)
 }
 
