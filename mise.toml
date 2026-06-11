@@ -28,8 +28,8 @@ outputs = ["{{ env.OUT_DIR }}/{{ env.EXE }}"]
 run = [
   "mkdir -p $OUT_DIR",
   "odin build source/main_hot_reload -out:$OUT_DIR/$EXE -strict-style -vet -debug",
-  # symlink so assets/ is reachable by relative path (exe chdirs to its own dir)
-  "rm -rf $OUT_DIR/assets && ln -s ../../assets $OUT_DIR/assets",
+  # symlink so resources/ is reachable by relative path (exe chdirs to its own dir)
+  "rm -rf $OUT_DIR/resources && ln -s ../../resources $OUT_DIR/resources",
 ]
 
 # App runs foreground — backgrounding a GUI app trips SIGTTOU/HUP and freezes the window.
@@ -51,20 +51,20 @@ alias = "r"
 run = [
   "mkdir -p build/debug",
   "odin build source/main_release -out:build/debug/plastella.bin -strict-style -vet",
-  "rm -rf build/debug/assets && ln -s ../../assets build/debug/assets",
+  "rm -rf build/debug/resources && ln -s ../../resources build/debug/resources",
   "./build/debug/plastella.bin",
 ]
 
 [tasks.build]
 description = "Build an optimized release into build/release/"
 alias = "b"
-sources = ["source/app/*.odin", "source/platform/*.odin", "source/api/*.odin", "source/main_release/*.odin", "assets/**/*"]
+sources = ["source/app/*.odin", "source/platform/*.odin", "source/api/*.odin", "source/main_release/*.odin", "resources/**/*"]
 outputs = ["build/release/plastella.bin"]
 run = [
   "rm -rf build/release",
   "mkdir -p build/release",
   "odin build source/main_release -out:build/release/plastella.bin -strict-style -vet -no-bounds-check -o:speed",
-  "cp -R assets build/release/",
+  "cp -R resources build/release/",
 ]
 
 [tasks.stop]

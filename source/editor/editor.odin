@@ -16,6 +16,9 @@ draw :: proc() {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
 
+	clay.SetLayoutDimensions({cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()})
+
+	clay.BeginLayout()
 	if clay.UI(clay.ID("HelloText"))(
 	{
 		layout = {
@@ -37,6 +40,8 @@ draw :: proc() {
 			},
 		)
 	}
+	commands := clay.EndLayout(rl.GetFrameTime())
+	ui.clay_render(&commands)
 
 
 	rl.EndDrawing()

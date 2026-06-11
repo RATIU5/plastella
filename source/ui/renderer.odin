@@ -32,6 +32,11 @@ measure_text_ascii :: proc "c" (
 	text_str := string(text.chars[:text.length])
 
 	for i in 0 ..< len(text_str) {
+		c := text_str[i]
+		if c < 32 || int(c - 32) >= int(font.glyphCount) {
+			continue
+		}
+
 		glyph_index := text_str[i] - 32
 
 		glyph := font.glyphs[glyph_index]

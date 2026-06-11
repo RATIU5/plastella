@@ -1,5 +1,8 @@
 package platform
 
+import "base:intrinsics"
+import "core:c/libc"
+import CF "core:sys/darwin/CoreFoundation"
 import NS "core:sys/darwin/Foundation"
 import rl "vendor:raylib"
 
@@ -13,6 +16,74 @@ when ODIN_OS == .Darwin {
 		NS.Window_setTitlebarAppearsTransparent(nswindow, true)
 		NS.Window_setTitleVisibility(nswindow, .Hidden)
 		NS.Window_setMovableByWindowBackground(nswindow, true)
+	}
+
+	CFRunLoopRef :: distinct rawptr
+	CFRunLoopObserverRef :: distinct rawptr
+	CFAllocatorRef :: distinct rawptr
+
+	CFRunLoopActivity_BeforeWaiting :: CF.OptionFlags(1 << 5)
+	CFRunLoopActivity_AfterWaiting :: CF.OptionFlags(1 << 6)
+
+	CFRunLoopObserverCallBack :: #type proc "c" (
+		observer: CFRunLoopObserverRef,
+		activity: CF.OptionFlags,
+		info: rawptr,
+	)
+
+	foreign import CF_lib "system:CoreFoundation.framework"
+	@(default_calling_convention = "c")
+	foreign CF_lib {
+		kCFRunLoopCommonModes: CF.String
+		CFRunLoopGetCurrent :: proc() -> CFRunLoopRef ---
+
+		CFRunLoopObserverCreate :: proc(allocator: CFAllocatorRef, activities: CF.OptionFlags, repeats: b8, order: CF.Index, callout: CFRunLoopObserverCallBack, ctx: rawptr) -> CFRunLoopObserverRef ---
+
+		CFRunLoopAddObserver :: proc(rl_loop: CFRunLoopRef, observer: CFRunLoopObserverRef, mode: CF.String) ---
+	}
+
+	window_in_live_resize :: proc "contextless" () -> bool {
+		handle := rl.GetWindowHandle()
+		if handle == nil {
+			return false
+		}
+		nswindow := (^NS.Window)(handle)
+		return intrinsics.objc_send(bool, nswindow, "inLiveResize")
+	}
+
+	@(private)
+	resize_render_cb: proc "c" () = nil
+
+	set_resize_render_callback :: proc(cb: proc "c" ()) {
+		resize_render_cb = cb
+	}
+
+	@(private)
+	run_loop_observer_cb :: proc "c" (
+		observer: CFRunLoopObserverRef,
+		activity: CF.OptionFlags,
+		info: rawptr,
+	) {
+		libc.printf("observer fired, inLiveResize=%d\n", i32(window_in_live_resize()))
+		if resize_render_cb != nil && window_in_live_resize() {
+			resize_render_cb()
+		}
+	}
+
+	setup_live_resize_rendering :: proc() {
+		observer := CFRunLoopObserverCreate(
+			nil,
+			CFRunLoopActivity_BeforeWaiting | CFRunLoopActivity_AfterWaiting,
+			true,
+			0,
+			run_loop_observer_cb,
+			nil,
+		)
+		loop := CFRunLoopGetCurrent()
+		CFRunLoopAddObserver(loop, observer, kCFRunLoopCommonModes)
+
+		tracking_mode := CF.StringMakeConstantString("NSEventTrackingRunLoopMode")
+		CFRunLoopAddObserver(CFRunLoopGetCurrent(), observer, tracking_mode)
 	}
 }
 

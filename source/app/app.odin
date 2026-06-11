@@ -4,6 +4,18 @@ import api "../api"
 import editor "../editor"
 import platform "../platform"
 import ui "../ui"
+import "base:runtime"
+
+@(private)
+g_ctx: runtime.Context
+
+when ODIN_OS == .Darwin {
+	app_render_during_resize :: proc "c" () {
+		context = g_ctx
+		editor.draw()
+		free_all(context.temp_allocator)
+	}
+}
 
 am: ^api.App_Memory
 
@@ -27,6 +39,13 @@ app_init :: proc() {
 	am = new(api.App_Memory)
 	ui.init_clay()
 	editor.init()
+
+	when ODIN_OS == .Darwin {
+		g_ctx = context
+		platform.set_resize_render_callback(app_render_during_resize)
+		platform.setup_live_resize_rendering()
+	}
+
 	am^ = api.App_Memory {
 		run = true,
 	}
@@ -47,6 +66,7 @@ app_should_run :: proc() -> bool {
 
 @(export)
 app_shutdown :: proc() {
+	ui.shutdown_clay()
 	free(am)
 }
 
