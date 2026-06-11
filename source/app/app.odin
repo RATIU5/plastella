@@ -8,6 +8,8 @@ am: ^api.App_Memory
 
 @(export)
 app_update :: proc() {
+	platform.handle_window_drag()
+
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
 	rl.EndDrawing()

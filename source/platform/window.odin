@@ -16,6 +16,32 @@ when ODIN_OS == .Darwin {
 	}
 }
 
+handle_window_drag :: proc() {
+	DRAG_ZONE :: f32(28)
+	@(static) dragging := false
+	@(static) drag_offset: rl.Vector2
+
+	mouse_screen := rl.GetMousePosition()
+	win_pos := rl.GetWindowPosition()
+
+	// mouse position in screen space
+	mouse_screen_abs := rl.Vector2{win_pos.x + mouse_screen.x, win_pos.y + mouse_screen.y}
+
+	if mouse_screen.y < DRAG_ZONE && rl.IsMouseButtonPressed(.LEFT) {
+		dragging = true
+		drag_offset = {mouse_screen_abs.x - win_pos.x, mouse_screen_abs.y - win_pos.y}
+	}
+	if rl.IsMouseButtonReleased(.LEFT) {
+		dragging = false
+	}
+	if dragging {
+		rl.SetWindowPosition(
+			i32(mouse_screen_abs.x - drag_offset.x),
+			i32(mouse_screen_abs.y - drag_offset.y),
+		)
+	}
+}
+
 init_window :: proc() {
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
 	rl.InitWindow(1280, 720, "Plastella")
