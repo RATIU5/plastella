@@ -1,8 +1,9 @@
 package app
 
 import api "../api"
+import editor "../editor"
 import platform "../platform"
-import rl "vendor:raylib"
+import ui "../ui"
 
 am: ^api.App_Memory
 
@@ -10,9 +11,8 @@ am: ^api.App_Memory
 app_update :: proc() {
 	platform.handle_window_drag()
 
-	rl.BeginDrawing()
-	rl.ClearBackground(rl.BLACK)
-	rl.EndDrawing()
+	editor.update()
+	editor.draw()
 
 	free_all(context.temp_allocator)
 }
@@ -25,7 +25,8 @@ app_init_window :: proc() {
 @(export)
 app_init :: proc() {
 	am = new(api.App_Memory)
-
+	ui.init_clay()
+	editor.init()
 	am^ = api.App_Memory {
 		run = true,
 	}
