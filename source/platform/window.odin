@@ -1,5 +1,6 @@
 package platform
 
+import api "../api"
 import NS "core:sys/darwin/Foundation"
 import rl "vendor:raylib"
 
@@ -16,25 +17,29 @@ when ODIN_OS == .Darwin {
 	}
 }
 
-handle_window_drag :: proc() {
-	DRAG_ZONE :: f32(28)
-	@(static) dragging := false
-	@(static) drag_offset: rl.Vector2
+WINDOW_DRAG_CAPTURE :: api.Capture(1)
 
-	mouse_screen := rl.GetMousePosition()
+// Runs after editor.update so UI interactions (e.g. a panel resize starting in
+// the titlebar zone) win the click; we only drag the window if nothing else
+// captured the mouse.
+handle_window_drag :: proc(input: ^api.Input) {
+	DRAG_ZONE :: f32(28)
+	@(static) drag_offset: rl.Vector2 // transient, ok to lose on hot reload
+
 	win_pos := rl.GetWindowPosition()
 
 	// mouse position in screen space
-	mouse_screen_abs := rl.Vector2{win_pos.x + mouse_screen.x, win_pos.y + mouse_screen.y}
+	mouse_screen_abs := rl.Vector2{win_pos.x + input.mouse.x, win_pos.y + input.mouse.y}
 
-	if mouse_screen.y < DRAG_ZONE && rl.IsMouseButtonPressed(.LEFT) {
-		dragging = true
+	if input.mouse.y < DRAG_ZONE &&
+	   input.left_pressed &&
+	   api.capture_mouse(input, WINDOW_DRAG_CAPTURE) {
 		drag_offset = {mouse_screen_abs.x - win_pos.x, mouse_screen_abs.y - win_pos.y}
 	}
-	if rl.IsMouseButtonReleased(.LEFT) {
-		dragging = false
+	if input.left_released {
+		api.release_capture(input, WINDOW_DRAG_CAPTURE)
 	}
-	if dragging {
+	if api.has_capture(input, WINDOW_DRAG_CAPTURE) {
 		rl.SetWindowPosition(
 			i32(mouse_screen_abs.x - drag_offset.x),
 			i32(mouse_screen_abs.y - drag_offset.y),

@@ -1,12 +1,13 @@
 package editor
 
+import api "../api"
 import ui "../ui"
 
 // Panel convention and hot-reload state rules: see docs/architecture.md.
 
+// One field per panel; each panel defines its own state struct in its file.
 Editor_State :: struct {
-	sidebar_width:    f32,
-	sidebar_resizing: bool,
+	sidebar: Sidebar_State,
 }
 
 editor_ctx: ^Editor_State
@@ -14,15 +15,14 @@ editor_ctx: ^Editor_State
 init :: proc() -> ^Editor_State {
 	editor_ctx = new(Editor_State)
 	editor_ctx^ = {
-		sidebar_width    = 250,
-		sidebar_resizing = false,
+		sidebar = {width = 250},
 	}
 	return editor_ctx
 }
 
 
-update :: proc() {
-	sidebar_update()
+update :: proc(input: ^api.Input) {
+	sidebar_update(input)
 }
 
 // The frame loop: open a UI frame, declare each panel, then present. As panels
@@ -37,4 +37,9 @@ draw :: proc() {
 
 reload :: proc(ctx: rawptr) {
 	editor_ctx = (^Editor_State)(ctx)
+}
+
+shutdown :: proc() {
+	free(editor_ctx)
+	editor_ctx = nil
 }

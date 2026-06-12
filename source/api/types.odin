@@ -6,4 +6,6 @@ App_Memory :: struct {
 	// survives hot reloads, which reset the DLL's globals to zero.
 	ui_ctx: rawptr,
 	editor: rawptr,
+	// Per-frame input snapshot + cross-frame mouse capture (see input.odin).
+	input:  Input,
 }

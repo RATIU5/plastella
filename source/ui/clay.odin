@@ -1,7 +1,9 @@
 package ui
 
 import clay "../../vendor/clay"
+import "base:runtime"
 import c "core:c/libc"
+import "core:fmt"
 import rl "vendor:raylib"
 
 FONT :: enum u16 {
@@ -20,10 +22,12 @@ UI_State :: struct {
 
 state: ^UI_State
 
+// Surface clay errors instead of swallowing them; layout bugs (duplicate ids,
+// arena exhaustion) are silent corruption otherwise.
 error_handler :: proc "c" (error_data: clay.ErrorData) {
-	if (error_data.errorType == clay.ErrorType.DuplicateId) {
-		// etc
-	}
+	context = runtime.default_context()
+	msg := string(([^]u8)(error_data.errorText.chars)[:error_data.errorText.length])
+	fmt.eprintfln("clay error: %v: %s", error_data.errorType, msg)
 }
 
 load_font :: proc(font_id: u16, font_size: u16, path: cstring) {

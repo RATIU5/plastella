@@ -30,7 +30,7 @@ main :: proc() {
 
 	when USE_TRACKING_ALLOCATOR {
 		default_allocator := context.allocator
-		tracking_allocator := mem.Tracking_Allocator
+		tracking_allocator: mem.Tracking_Allocator
 		mem.tracking_allocator_init(&tracking_allocator, default_allocator)
 		context.allocator = mem.tracking_allocator(&tracking_allocator)
 	}
@@ -47,7 +47,7 @@ main :: proc() {
 	app.app_shutdown_window()
 
 	when USE_TRACKING_ALLOCATOR {
-		for _, value in tracking_allocator.allocator_map {
+		for _, value in tracking_allocator.allocation_map {
 			log.errorf("%v: Leaked %v bytes\n", value.location, value.size)
 		}
 

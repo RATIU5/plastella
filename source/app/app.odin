@@ -9,9 +9,14 @@ am: ^api.App_Memory
 
 @(export)
 app_update :: proc() {
-	platform.handle_window_drag()
+	platform.poll_input(&am.input)
 
-	editor.update()
+	// UI gets first claim on the mouse; window drag only fires if nothing
+	// in the editor captured it (cf. Dear ImGui's io.WantCaptureMouse).
+	editor.update(&am.input)
+	platform.handle_window_drag(&am.input)
+	platform.apply_cursor(&am.input)
+
 	editor.draw()
 
 	free_all(context.temp_allocator)
@@ -45,6 +50,7 @@ app_should_run :: proc() -> bool {
 
 @(export)
 app_shutdown :: proc() {
+	editor.shutdown()
 	ui.shutdown_clay()
 	free(am)
 }
