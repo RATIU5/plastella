@@ -21,5 +21,7 @@ apply_cursor :: proc(input: ^api.Input) {
 		rl.SetMouseCursor(.DEFAULT)
 	case .Resize_EW:
 		rl.SetMouseCursor(.RESIZE_EW)
+	case .Pointer:
+		rl.SetMouseCursor(.POINTING_HAND)
 	}
 }

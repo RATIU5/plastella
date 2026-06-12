@@ -35,7 +35,7 @@ sidebar_update :: proc(input: ^api.Input) {
 	}
 }
 
-sidebar_draw :: proc() {
+sidebar_draw :: proc(input: ^api.Input) {
 	if clay.UI(clay.ID("Sidebar"))(
 	{
 		layout = {
@@ -50,9 +50,6 @@ sidebar_draw :: proc() {
 		border = {color = ui.COLOR_SIDEBAR_BORDER, width = {right = 1}},
 	},
 	) {
-		clay.Text(
-			"Hello, World",
-			{fontSize = 14, fontId = u16(ui.FONT.BODY_REG_14), textColor = ui.COLOR_TEXT},
-		)
+		ui.button("Button", "Click Me", ui.PRIMARY_BUTTON, input)
 	}
 }

@@ -17,7 +17,7 @@ app_update :: proc() {
 	platform.handle_window_drag(&am.input)
 	platform.apply_cursor(&am.input)
 
-	editor.draw()
+	editor.draw(&am.input)
 
 	free_all(context.temp_allocator)
 }

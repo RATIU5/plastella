@@ -86,10 +86,11 @@ shutdown_clay :: proc() {
 // Begin a UI frame: clear the backbuffer and open a clay layout. Panels are
 // declared between `frame_begin` and `frame_end`, keeping the clay/raylib frame
 // plumbing in `ui` so callers only describe *what* to draw, not *how*.
-frame_begin :: proc() {
+frame_begin :: proc(mouse: [2]f32, down: bool) {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
 	clay.SetLayoutDimensions({cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()})
+	clay.SetPointerState(mouse, down)
 	clay.BeginLayout()
 }
 

@@ -14,6 +14,7 @@ CAPTURE_NONE :: Capture(0)
 Cursor :: enum {
 	Default,
 	Resize_EW,
+	Pointer,
 }
 
 Input :: struct {

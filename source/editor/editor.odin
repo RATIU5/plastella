@@ -27,10 +27,10 @@ update :: proc(input: ^api.Input) {
 
 // The frame loop: open a UI frame, declare each panel, then present. As panels
 // multiply this stays the single place that lists what gets drawn, in order.
-draw :: proc() {
-	ui.frame_begin()
+draw :: proc(input: ^api.Input) {
+	ui.frame_begin(input.mouse, input.left_pressed)
 
-	sidebar_draw()
+	sidebar_draw(input)
 
 	ui.frame_end()
 }
