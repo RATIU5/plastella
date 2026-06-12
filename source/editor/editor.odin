@@ -4,45 +4,40 @@ import clay "../../vendor/clay"
 import ui "../ui"
 import rl "vendor:raylib"
 
-init :: proc() {
-
+Editor_State :: struct {
+	sidebar_width:    f32,
+	sidebar_resizing: bool,
 }
 
-update :: proc() {
+editor_ctx: ^Editor_State
 
+init :: proc() -> ^Editor_State {
+	editor_ctx = new(Editor_State)
+	editor_ctx^ = {
+		sidebar_width    = 250,
+		sidebar_resizing = false,
+	}
+	return editor_ctx
+}
+
+
+update :: proc() {
+	sidebar_update()
 }
 
 draw :: proc() {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
-
 	clay.SetLayoutDimensions({cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()})
-
 	clay.BeginLayout()
-	if clay.UI(clay.ID("HelloText"))(
-	{
-		layout = {
-			sizing = {
-				width = clay.SizingGrow(),
-				height = clay.SizingFit({min = cast(f32)rl.GetScreenHeight() - 70}),
-			},
-			childAlignment = {y = .Center},
-			padding = {left = 50, right = 50},
-		},
-	},
-	) {
-		clay.Text(
-			"Hello, World",
-			{
-				fontSize = 14,
-				fontId = u16(ui.FONT.BODY_REG_14),
-				textColor = ui.rl_color_to_clay_color(rl.WHITE),
-			},
-		)
-	}
+
+	sidebar_draw()
+
 	commands := clay.EndLayout(rl.GetFrameTime())
 	ui.clay_render(&commands)
-
-
 	rl.EndDrawing()
+}
+
+reload :: proc(ctx: rawptr) {
+	editor_ctx = (^Editor_State)(ctx)
 }

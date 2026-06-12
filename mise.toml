@@ -11,7 +11,13 @@ DLL_EXT = "{% if os() == 'macos' %}.dylib{% else %}.so{% endif %}"
 [tasks.build-app]
 description = "Compile source/ into a reloadable app DLL (triggers a live hot reload)"
 alias = "reload"
-sources = ["source/app/*.odin", "source/platform/*.odin", "source/api/*.odin"]
+sources = [
+  "source/app/*.odin",
+  "source/platform/*.odin",
+  "source/api/*.odin",
+  "source/editor/*.odin",
+  "source/ui/*.odin",
+]
 outputs = ["{{ env.OUT_DIR }}/app{{ env.DLL_EXT }}"]
 run = [
   "mkdir -p $OUT_DIR",
@@ -58,7 +64,13 @@ run = [
 [tasks.build]
 description = "Build an optimized release into build/release/"
 alias = "b"
-sources = ["source/app/*.odin", "source/platform/*.odin", "source/api/*.odin", "source/main_release/*.odin", "resources/**/*"]
+sources = [
+  "source/app/*.odin",
+  "source/platform/*.odin",
+  "source/api/*.odin",
+  "source/main_release/*.odin",
+  "resources/**/*",
+]
 outputs = ["build/release/plastella.bin"]
 run = [
   "rm -rf build/release",

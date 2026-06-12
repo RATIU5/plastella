@@ -1,0 +1,4 @@
+package ui
+
+COLOR_SIDEBAR: [4]f32 = {17, 17, 17, 255}
+COLOR_SIDEBAR_BORDER: [4]f32 = {255, 255, 255, 15}

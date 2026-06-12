@@ -4,19 +4,6 @@ import api "../api"
 import editor "../editor"
 import platform "../platform"
 import ui "../ui"
-import "base:runtime"
-
-@(private)
-g_ctx: runtime.Context
-
-when ODIN_OS == .Darwin {
-	app_render_during_resize :: proc "c" () {
-		context = g_ctx
-		editor.update()
-		editor.draw()
-		free_all(context.temp_allocator)
-	}
-}
 
 am: ^api.App_Memory
 
@@ -38,14 +25,11 @@ app_init_window :: proc() {
 @(export)
 app_init :: proc() {
 	am = new(api.App_Memory)
-	ui.init_clay()
-	editor.init()
-
 	am^ = api.App_Memory {
 		run = true,
 	}
-
-	app_hot_reloaded(am)
+	am.ui_ctx = ui.init_clay()
+	am.editor = editor.init()
 }
 
 @(export)
@@ -83,6 +67,9 @@ app_memory_size :: proc() -> int {
 @(export)
 app_hot_reloaded :: proc(mem: rawptr) {
 	am = (^api.App_Memory)(mem)
+	// Re-point clay's context and font tables, which the new DLL zeroed out.
+	ui.reload(am.ui_ctx)
+	editor.reload(am.editor)
 }
 
 @(export)

@@ -16,8 +16,6 @@ rl_color_to_clay_color :: proc(color: rl.Color) -> clay.Color {
 	return {f32(color.r), f32(color.g), f32(color.b), f32(color.a)}
 }
 
-raylib_fonts := [dynamic]Raylib_Font{}
-
 measure_text :: measure_text_ascii
 
 
@@ -28,7 +26,7 @@ measure_text_ascii :: proc "c" (
 ) -> clay.Dimensions {
 	line_width: f32 = 0
 
-	font := raylib_fonts[config.fontId].font
+	font := state.fonts[config.fontId].font
 	text_str := string(text.chars[:text.length])
 
 	for i in 0 ..< len(text_str) {
