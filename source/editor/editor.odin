@@ -1,8 +1,8 @@
 package editor
 
-import clay "../../vendor/clay"
 import ui "../ui"
-import rl "vendor:raylib"
+
+// Panel convention and hot-reload state rules: see docs/architecture.md.
 
 Editor_State :: struct {
 	sidebar_width:    f32,
@@ -25,17 +25,14 @@ update :: proc() {
 	sidebar_update()
 }
 
+// The frame loop: open a UI frame, declare each panel, then present. As panels
+// multiply this stays the single place that lists what gets drawn, in order.
 draw :: proc() {
-	rl.BeginDrawing()
-	rl.ClearBackground(rl.BLACK)
-	clay.SetLayoutDimensions({cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()})
-	clay.BeginLayout()
+	ui.frame_begin()
 
 	sidebar_draw()
 
-	commands := clay.EndLayout(rl.GetFrameTime())
-	ui.clay_render(&commands)
-	rl.EndDrawing()
+	ui.frame_end()
 }
 
 reload :: proc(ctx: rawptr) {

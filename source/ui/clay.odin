@@ -79,6 +79,23 @@ shutdown_clay :: proc() {
 	state = nil
 }
 
+// Begin a UI frame: clear the backbuffer and open a clay layout. Panels are
+// declared between `frame_begin` and `frame_end`, keeping the clay/raylib frame
+// plumbing in `ui` so callers only describe *what* to draw, not *how*.
+frame_begin :: proc() {
+	rl.BeginDrawing()
+	rl.ClearBackground(rl.BLACK)
+	clay.SetLayoutDimensions({cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()})
+	clay.BeginLayout()
+}
+
+// Close the clay layout, render the resulting commands, and present the frame.
+frame_end :: proc() {
+	commands := clay.EndLayout(rl.GetFrameTime())
+	clay_render(&commands)
+	rl.EndDrawing()
+}
+
 clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
 	for i in 0 ..< commands.length {
 		cmd := clay.RenderCommandArray_Get(commands, i)
@@ -97,7 +114,6 @@ clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
 			)
 		case .Text:
 			t := cmd.renderData.text
-			text_str := string(t.stringContents.chars[:t.stringContents.length])
 			ctext := rl.TextFormat("%.*s", t.stringContents.length, t.stringContents.chars)
 			font := state.fonts[t.fontId].font
 			rl.DrawTextEx(
@@ -108,7 +124,6 @@ clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
 				f32(t.letterSpacing),
 				clay_color_to_rl_color(t.textColor),
 			)
-			_ = text_str
 		case .Border:
 			b := cmd.renderData.border
 			color := clay_color_to_rl_color(b.color)
