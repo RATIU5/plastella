@@ -13,9 +13,10 @@ Sidebar_State :: struct {
 	width: f32,
 }
 
-sidebar_update :: proc(input: ^api.Input) {
+sidebar :: proc(input: ^api.Input) {
 	assert(editor_ctx != nil, "editor_ctx not initialized")
 	sb := &editor_ctx.sidebar
+
 	near := abs(input.mouse.x - sb.width) <= RESIZE_HANDLE
 	resizing := api.has_capture(input, SIDEBAR_RESIZE_CAPTURE)
 
@@ -33,9 +34,7 @@ sidebar_update :: proc(input: ^api.Input) {
 	if resizing {
 		sb.width = clamp(input.mouse.x, SIDEBAR_MIN, SIDEBAR_MAX)
 	}
-}
 
-sidebar_draw :: proc(input: ^api.Input) {
 	if clay.UI(clay.ID("Sidebar"))(
 	{
 		layout = {

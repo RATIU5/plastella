@@ -21,16 +21,10 @@ init :: proc() -> ^Editor_State {
 }
 
 
-update :: proc(input: ^api.Input) {
-	sidebar_update(input)
-}
+frame :: proc(input: ^api.Input) {
+	ui.frame_begin(input.mouse, input.left_down)
 
-// The frame loop: open a UI frame, declare each panel, then present. As panels
-// multiply this stays the single place that lists what gets drawn, in order.
-draw :: proc(input: ^api.Input) {
-	ui.frame_begin(input.mouse, input.left_pressed)
-
-	sidebar_draw(input)
+	sidebar(input)
 
 	ui.frame_end()
 }

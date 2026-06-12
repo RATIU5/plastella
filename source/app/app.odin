@@ -11,13 +11,14 @@ am: ^api.App_Memory
 app_update :: proc() {
 	platform.poll_input(&am.input)
 
-	// UI gets first claim on the mouse; window drag only fires if nothing
-	// in the editor captured it (cf. Dear ImGui's io.WantCaptureMouse).
-	editor.update(&am.input)
+	// Game simulation (fixed timestep) will go here, before the UI frame.
+
+	// Single-pass UI: builds, handles input, and draws in one go. Runs before
+	// window drag so UI gets first claim on the mouse; window drag only fires
+	// if nothing in the editor captured it (cf. Dear ImGui's io.WantCaptureMouse).
+	editor.frame(&am.input)
 	platform.handle_window_drag(&am.input)
 	platform.apply_cursor(&am.input)
-
-	editor.draw(&am.input)
 
 	free_all(context.temp_allocator)
 }

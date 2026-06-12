@@ -54,7 +54,7 @@ init_window :: proc() {
 		setup_fullsize_titlebar()
 	}
 	rl.SetWindowPosition(200, 200)
-	rl.SetTargetFPS(200)
+	rl.SetTargetFPS(90)
 	rl.SetExitKey(nil)
 }
 
