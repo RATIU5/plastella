@@ -33,7 +33,7 @@ sources = ["source/main_hot_reload/*.odin"]
 outputs = ["{{ env.OUT_DIR }}/{{ env.EXE }}"]
 run = [
   "mkdir -p $OUT_DIR",
-  "odin build source/main_hot_reload -out:$OUT_DIR/$EXE -strict-style -vet -debug",
+  "odin build source/main_hot_reload -out:$OUT_DIR/$EXE{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -debug",
   # symlink so resources/ is reachable by relative path (exe chdirs to its own dir)
   "rm -rf $OUT_DIR/resources && ln -s ../../resources $OUT_DIR/resources",
 ]
@@ -56,7 +56,7 @@ description = "Build + run the standalone (non-hot-reload) app"
 alias = "r"
 run = [
   "mkdir -p build/debug",
-  "odin build source/main_release -out:build/debug/plastella.bin -strict-style -vet",
+  "odin build source/main_release -out:build/debug/plastella.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet",
   "rm -rf build/debug/resources && ln -s ../../resources build/debug/resources",
   "./build/debug/plastella.bin",
 ]
@@ -75,7 +75,7 @@ outputs = ["build/release/plastella.bin"]
 run = [
   "rm -rf build/release",
   "mkdir -p build/release",
-  "odin build source/main_release -out:build/release/plastella.bin -strict-style -vet -no-bounds-check -o:speed",
+  "odin build source/main_release -out:build/release/plastella.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -no-bounds-check -o:speed",
   "cp -R resources build/release/",
 ]
 
