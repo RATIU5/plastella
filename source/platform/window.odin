@@ -48,7 +48,7 @@ handle_window_drag :: proc(input: ^api.Input) {
 }
 
 init_window :: proc() {
-	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
+	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT, .MSAA_4X_HINT, .WINDOW_HIGHDPI})
 	rl.InitWindow(1280, 720, "Plastella")
 	when ODIN_OS == .Darwin {
 		setup_fullsize_titlebar()
