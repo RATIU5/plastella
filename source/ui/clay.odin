@@ -102,9 +102,16 @@ frame_end :: proc() {
 }
 
 clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
+	dpi := rl.GetWindowScaleDPI().x
+
 	for i in 0 ..< commands.length {
 		cmd := clay.RenderCommandArray_Get(commands, i)
-		bbox := cmd.boundingBox
+		bbox := clay.BoundingBox {
+			x      = dpi * cmd.boundingBox.x,
+			y      = dpi * cmd.boundingBox.y,
+			width  = dpi * cmd.boundingBox.width,
+			height = dpi * cmd.boundingBox.height,
+		}
 
 		switch cmd.commandType {
 		case .None:
@@ -113,8 +120,8 @@ clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
 			rect := cmd.renderData.rectangle
 			rl.DrawRectangleRounded(
 				{bbox.x, bbox.y, bbox.width, bbox.height},
-				0,
-				0,
+				cmd.renderData.rectangle.cornerRadius.bottomLeft,
+				4,
 				clay_color_to_rl_color(rect.backgroundColor),
 			)
 		case .Text:
@@ -125,36 +132,25 @@ clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
 				font,
 				ctext,
 				{bbox.x, bbox.y},
-				f32(t.fontSize),
+				f32(t.fontSize) * dpi,
 				f32(t.letterSpacing),
 				clay_color_to_rl_color(t.textColor),
 			)
 		case .Border:
 			b := cmd.renderData.border
 			color := clay_color_to_rl_color(b.color)
-			wl := f32(b.width.left)
-			wr := f32(b.width.right)
-			wt := f32(b.width.top)
-			wb := f32(b.width.bottom)
-			// Each side drawn independently so per-side widths are honored
-			// (DrawRectangleLinesEx only supports one uniform width). Left/right
-			// own the full height; top/bottom are inset between them so corners
-			// never overlap (correct even for semi-transparent border colors).
-			if wl > 0 {
-				rl.DrawRectangleRec({bbox.x, bbox.y, wl, bbox.height}, color)
-			}
-			if wr > 0 {
-				rl.DrawRectangleRec({bbox.x + bbox.width - wr, bbox.y, wr, bbox.height}, color)
-			}
-			if wt > 0 {
-				rl.DrawRectangleRec({bbox.x + wl, bbox.y, bbox.width - wl - wr, wt}, color)
-			}
-			if wb > 0 {
-				rl.DrawRectangleRec(
-					{bbox.x + wl, bbox.y + bbox.height - wb, bbox.width - wl - wr, wb},
-					color,
-				)
-			}
+			rl.DrawRectangleRoundedLinesEx(
+				{
+					x = bbox.x + f32(b.width.left) / 1,
+					y = bbox.y + f32(b.width.left) / 1,
+					width = bbox.width - (f32(b.width.left) + f32(b.width.left)),
+					height = bbox.height - (f32(b.width.left) + f32(b.width.left)),
+				},
+				cmd.renderData.rectangle.cornerRadius.bottomLeft,
+				4,
+				f32(b.width.left),
+				color,
+			)
 		case .ScissorStart:
 			rl.BeginScissorMode(i32(bbox.x), i32(bbox.y), i32(bbox.width), i32(bbox.height))
 		case .ScissorEnd:

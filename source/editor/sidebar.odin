@@ -43,7 +43,7 @@ sidebar :: proc(input: ^api.Input) {
 				height = clay.SizingGrow({}),
 			},
 			childAlignment = {y = .Center},
-			padding = {left = 50, right = 50},
+			padding = {left = 12, right = 12},
 		},
 		backgroundColor = ui.COLOR_SIDEBAR,
 		border = {color = ui.COLOR_SIDEBAR_BORDER, width = {right = 1}},
