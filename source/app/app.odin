@@ -9,6 +9,13 @@ am: ^api.App_Memory
 
 @(export)
 app_update :: proc() {
+	// Nothing visible: skip the whole UI frame but keep the OS event queue
+	// serviced so the window can be restored.
+	if platform.window_minimized() {
+		platform.idle_pump_events()
+		return
+	}
+
 	platform.poll_input(&am.input)
 
 	// Game simulation (fixed timestep) will go here, before the UI frame.

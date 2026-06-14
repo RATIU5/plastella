@@ -39,11 +39,11 @@ PRIMARY_BUTTON :: Button_Style {
 	bg_selected = COLOR_BUTTON_ACCENT_SELECTED,
 	text = COLOR_BUTTON_TEXT,
 	border = COLOR_BUTTON_BORDER,
-	padding = {left = 16, right = 16, top = 8, bottom = 8},
+	padding = {left = 10, right = 10, top = 5, bottom = 5},
 	radius = 0.5,
 	border_width = 1,
 	font = .BODY_REG_14,
-	font_size = 14,
+	font_size = 12,
 	width_type = .FIT,
 }
 
@@ -91,7 +91,10 @@ button :: proc(
 		input.cursor = .Pointer
 	}
 
-	sizing: clay.Sizing = {height = clay.SizingFit(), width = clay.SizingFit()}
+	sizing: clay.Sizing = {
+		height = clay.SizingFit(),
+		width  = clay.SizingFit(),
+	}
 	if style.width_type == .GROW {
 		sizing.width = clay.SizingGrow()
 	}
@@ -142,7 +145,9 @@ button_group :: proc(
 	style: Button_Style,
 	input: ^api.Input,
 	gap: u16 = 0,
-) -> (clicked: int) {
+) -> (
+	clicked: int,
+) {
 	clicked = -1
 
 	// Anonymous container: its auto id stays clear of the buttons' explicit

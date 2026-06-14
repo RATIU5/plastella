@@ -46,7 +46,10 @@ sidebar :: proc(input: ^api.Input) {
 			padding = {left = 12, right = 12},
 		},
 		backgroundColor = ui.COLOR_SIDEBAR,
-		border = {color = ui.COLOR_SIDEBAR_BORDER, width = {right = 1}},
+		border = {
+			color = near || resizing ? resizing ? ui.COLOR_SIDEBAR_BORDER_ACTIVE : ui.COLOR_SIDEBAR_BORDER_HOVER : ui.COLOR_SIDEBAR_BORDER,
+			width = {right = 1},
+		},
 	},
 	) {
 		ui.button("Button", "Click Me", ui.PRIMARY_BUTTON, input)

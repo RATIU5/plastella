@@ -101,6 +101,17 @@ frame_end :: proc() {
 	rl.EndDrawing()
 }
 
+// cornerRadius is authored as a raylib roundness fraction (0..1 of the shorter
+// side), not absolute pixels — this is how the Rectangle case feeds it to
+// DrawRectangleRounded. corner_radius_px converts it the same way so borders
+// land concentric with the background. Shared segment count keeps the two arcs
+// aligned.
+CORNER_SEGMENTS :: 16
+
+corner_radius_px :: proc(frac, w, h: f32) -> f32 {
+	return clamp(frac, 0, 1) * min(w, h) * 0.5
+}
+
 clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
 	for i in 0 ..< commands.length {
 		cmd := clay.RenderCommandArray_Get(commands, i)
@@ -114,7 +125,7 @@ clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
 			rl.DrawRectangleRounded(
 				{bbox.x, bbox.y, bbox.width, bbox.height},
 				rect.cornerRadius.bottomLeft,
-				4,
+				CORNER_SEGMENTS,
 				clay_color_to_rl_color(rect.backgroundColor),
 			)
 		case .Text:
@@ -130,19 +141,75 @@ clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
 				clay_color_to_rl_color(t.textColor),
 			)
 		case .Border:
+			// Draw each side independently so partial borders (e.g. right-only)
+			// render, and fill each rounded corner with a ring arc so borders
+			// follow the element's cornerRadius. Mirrors clay's reference renderer.
 			b := cmd.renderData.border
 			color := clay_color_to_rl_color(b.color)
-			w := f32(b.width.left)
-			rl.DrawRectangleRoundedLinesEx(
-				{
-					x = bbox.x + w,
-					y = bbox.y + w,
-					width = bbox.width - 2 * w,
-					height = bbox.height - 2 * w,
-				},
-				b.cornerRadius.bottomLeft,
-				4,
-				w,
+			x, y, w, h := bbox.x, bbox.y, bbox.width, bbox.height
+
+			// Corner radii in pixels, matching how the background rounds.
+			r := clay.CornerRadius {
+				topLeft     = corner_radius_px(b.cornerRadius.topLeft, w, h),
+				topRight    = corner_radius_px(b.cornerRadius.topRight, w, h),
+				bottomLeft  = corner_radius_px(b.cornerRadius.bottomLeft, w, h),
+				bottomRight = corner_radius_px(b.cornerRadius.bottomRight, w, h),
+			}
+
+			// Sides: each straight segment is shortened by the corner radii at its ends.
+			if b.width.left > 0 {
+				lw := f32(b.width.left)
+				rl.DrawRectangleRec({x, y + r.topLeft, lw, h - r.topLeft - r.bottomLeft}, color)
+			}
+			if b.width.right > 0 {
+				rw := f32(b.width.right)
+				rl.DrawRectangleRec(
+					{x + w - rw, y + r.topRight, rw, h - r.topRight - r.bottomRight},
+					color,
+				)
+			}
+			if b.width.top > 0 {
+				tw := f32(b.width.top)
+				rl.DrawRectangleRec({x + r.topLeft, y, w - r.topLeft - r.topRight, tw}, color)
+			}
+			if b.width.bottom > 0 {
+				bw := f32(b.width.bottom)
+				rl.DrawRectangleRec(
+					{x + r.bottomLeft, y + h - bw, w - r.bottomLeft - r.bottomRight, bw},
+					color,
+				)
+			}
+
+			// Corners: ring arc from (cornerRadius - side width) out to cornerRadius.
+			ring :: proc(center: rl.Vector2, inner, outer, start, end: f32, color: rl.Color) {
+				if outer <= 0 {
+					return
+				}
+				rl.DrawRing(center, max(inner, 0), outer, start, end, CORNER_SEGMENTS, color)
+			}
+			ring({x + r.topLeft, y + r.topLeft}, r.topLeft - f32(b.width.top), r.topLeft, 180, 270, color)
+			ring(
+				{x + w - r.topRight, y + r.topRight},
+				r.topRight - f32(b.width.top),
+				r.topRight,
+				270,
+				360,
+				color,
+			)
+			ring(
+				{x + r.bottomLeft, y + h - r.bottomLeft},
+				r.bottomLeft - f32(b.width.bottom),
+				r.bottomLeft,
+				90,
+				180,
+				color,
+			)
+			ring(
+				{x + w - r.bottomRight, y + h - r.bottomRight},
+				r.bottomRight - f32(b.width.bottom),
+				r.bottomRight,
+				0,
+				90,
 				color,
 			)
 		case .ScissorStart:
