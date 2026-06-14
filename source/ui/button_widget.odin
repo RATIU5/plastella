@@ -6,6 +6,7 @@ import api "../api"
 Button_Style :: struct {
 	bg:           clay.Color,
 	bg_hover:     clay.Color,
+	bg_active:    clay.Color,
 	text:         clay.Color,
 	border:       clay.Color,
 	padding:      clay.Padding,
@@ -20,6 +21,7 @@ Button_Style :: struct {
 PRIMARY_BUTTON :: Button_Style {
 	bg = COLOR_BUTTON_ACCENT,
 	bg_hover = COLOR_BUTTON_ACCENT_HOVER,
+	bg_active = COLOR_BUTTON_ACCENT_ACTIVE,
 	text = COLOR_BUTTON_TEXT,
 	border = COLOR_BUTTON_BORDER,
 	padding = {left = 16, right = 16, top = 8, bottom = 8},
@@ -49,7 +51,9 @@ button :: proc(id: string, label: string, style: Button_Style, input: ^api.Input
 			sizing = sizing,
 		},
 		border = {width = border_width, color = style.border},
-		backgroundColor = clay.Hovered() ? style.bg_hover : style.bg,
+		backgroundColor = clay.Hovered() \
+		? (input.left_down ? style.bg_active : style.bg_hover) \
+		: style.bg,
 		cornerRadius = clay.CornerRadius{style.radius, style.radius, style.radius, style.radius},
 	},
 	) {
