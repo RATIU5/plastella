@@ -4,8 +4,8 @@ import clay "../../vendor/clay"
 import api "../api"
 import "../ui"
 
-SIDEBAR_MIN: f32 : 150
-SIDEBAR_MAX: f32 : 500
+SIDEBAR_MIN: f32 : 200
+SIDEBAR_MAX: f32 : 400
 RESIZE_HANDLE: f32 : 8
 SIDEBAR_RESIZE_CAPTURE :: api.Capture(100)
 

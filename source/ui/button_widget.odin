@@ -43,7 +43,7 @@ PRIMARY_BUTTON :: Button_Style {
 	radius = 0.5,
 	border_width = 1,
 	font = .BODY_REG_14,
-	font_size = 12,
+	font_size = 14,
 	width_type = .FIT,
 }
 
