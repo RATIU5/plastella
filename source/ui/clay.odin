@@ -21,6 +21,8 @@ UI_State :: struct {
 	fonts:        [dynamic]Raylib_Font,
 	icon_sheet:   rl.Texture2D,
 	icons:        [ICON]Icon,
+	tooltip:      Tooltip_State,
+	mouse:        clay.Vector2,
 }
 
 state: ^UI_State
@@ -117,11 +119,13 @@ frame_begin :: proc(mouse: [2]f32, down: bool) {
 	rl.ClearBackground(rl.BLACK)
 	clay.SetLayoutDimensions(canvas_dims())
 	clay.SetPointerState(mouse, down)
+	state.mouse = mouse
 	clay.BeginLayout()
 }
 
 // Close the clay layout, render the resulting commands, and present the frame.
 frame_end :: proc() {
+	tooltip_flush()
 	commands := clay.EndLayout(rl.GetFrameTime())
 	clay_render(&commands)
 	rl.EndDrawing()

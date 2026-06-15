@@ -20,7 +20,6 @@ init :: proc() -> ^Editor_State {
 	return editor_ctx
 }
 
-
 frame :: proc(input: ^api.Input) {
 	ui.frame_begin(input.mouse, input.left_down)
 

@@ -8,6 +8,7 @@ SIDEBAR_MIN: f32 : 250
 SIDEBAR_MAX: f32 : 400
 RESIZE_HANDLE: f32 : 4
 SIDEBAR_RESIZE_CAPTURE :: api.Capture(100)
+SIDEBAR_HEADER_HEIGHT: f32 : 32
 
 Sidebar_State :: struct {
 	width: f32,
@@ -40,11 +41,9 @@ sidebar :: proc(input: ^api.Input) {
 		layout = {
 			sizing = {
 				width = clay.SizingFixed(editor_ctx.sidebar.width),
-				height = clay.SizingGrow({}),
+				height = clay.SizingGrow(),
 			},
-			childGap = 5,
-			childAlignment = {y = .Center},
-			padding = {left = 12, right = 12},
+			layoutDirection = clay.LayoutDirection.TopToBottom,
 		},
 		backgroundColor = ui.COLOR_SIDEBAR,
 		border = {
@@ -53,6 +52,39 @@ sidebar :: proc(input: ^api.Input) {
 		},
 	},
 	) {
+		if clay.UI(clay.ID("Sidebar:Header"))(
+		{
+			layout = {
+				sizing = {
+					width = clay.SizingGrow(),
+					height = clay.SizingFixed(SIDEBAR_HEADER_HEIGHT),
+				},
+				childAlignment = {clay.LayoutAlignmentX.Left, clay.LayoutAlignmentY.Center},
+				padding = {left = 82},
+			},
+			clip = {horizontal = true},
+		},
+		) {
+			text_cfg := clay.TextElementConfig {
+				fontSize  = 14,
+				fontId    = u16(ui.FONT.BODY_BLD_14),
+				textColor = ui.COLOR_TEXT,
+				wrapMode  = clay.TextWrapMode.None,
+			}
+
+			project_name_id := clay.ID("Sidebar:ProjectName")
+			if clay.UI(project_name_id)(
+			{layout = {sizing = {width = clay.SizingFit(), height = clay.SizingFit()}}},
+			) {
+				clay.TextDynamic(
+					ui.ellipsize_text("A Very Super Long Project Name", sb.width - 88, text_cfg),
+					text_cfg,
+				)
+			}
+			if clay.PointerOver(project_name_id) {
+				ui.tooltip_set(project_name_id, "A Very Super Long Project Name")
+			}
+		}
 		ui.button("Button", "Click Me", ui.PRIMARY_BUTTON, input)
 		ui.button("ButtonIcon", ui.get_icon(.MAP), ui.ICON_BUTTON, input)
 	}
