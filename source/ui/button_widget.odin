@@ -10,21 +10,22 @@ import "core:strings"
 CAPTURE_BUTTON_BIT :: u64(1) << 32
 
 Button_Style :: struct {
-	bg:            clay.Color,
-	bg_hover:      clay.Color,
-	bg_active:     clay.Color,
-	bg_selected:   clay.Color,
-	text:          clay.Color,
-	text_hover:    clay.Color,
-	text_active:   clay.Color,
-	text_selected: clay.Color,
-	border:        clay.Color,
-	padding:       clay.Padding,
-	radius:        f32,
-	border_width:  u16,
-	font:          FONT,
-	font_size:     u16,
-	width_type:    WIDTH_TYPE,
+	bg:                  clay.Color,
+	bg_hover:            clay.Color,
+	bg_active:           clay.Color,
+	bg_selected:         clay.Color,
+	text:                clay.Color,
+	text_hover:          clay.Color,
+	text_active:         clay.Color,
+	text_selected:       clay.Color,
+	text_selected_hover: clay.Color,
+	border:              clay.Color,
+	padding:             clay.Padding,
+	radius:              f32,
+	border_width:        u16,
+	font:                FONT,
+	font_size:           u16,
+	width_type:          WIDTH_TYPE,
 }
 
 // What the button did this frame. `held` is true only while a press that
@@ -53,6 +54,8 @@ button_bg :: proc(style: Button_Style, active, hovered, selected: bool) -> clay.
 
 button_fg :: proc(style: Button_Style, active, hovered, selected: bool) -> clay.Color {
 	switch {
+	case selected && hovered:
+		return style.text_selected_hover
 	case active:
 		return style.text_active
 	case hovered:
@@ -73,6 +76,7 @@ PRIMARY_BUTTON :: Button_Style {
 	text_hover = COLOR_BUTTON_TEXT,
 	text_active = COLOR_BUTTON_TEXT,
 	text_selected = COLOR_BUTTON_TEXT,
+	text_selected_hover = COLOR_BUTTON_TEXT,
 	border = COLOR_BUTTON_BORDER,
 	padding = {left = 10, right = 10, top = 5, bottom = 5},
 	radius = 0.5,
@@ -91,6 +95,26 @@ ICON_BUTTON :: Button_Style {
 	text_hover = COLOR_BUTTON_ICON_HOVER,
 	text_active = COLOR_BUTTON_ICON_ACTIVE,
 	text_selected = COLOR_BUTTON_ICON,
+	text_selected_hover = COLOR_BUTTON_ICON_HOVER,
+	border = COLOR_TRANSPARENT,
+	padding = {left = 5, right = 5, top = 5, bottom = 5},
+	radius = 0.5,
+	border_width = 0,
+	font = .BODY_REG_14,
+	font_size = 18,
+	width_type = .FIT,
+}
+
+SIDEBAR_TAB_BUTTON :: Button_Style {
+	bg = COLOR_TRANSPARENT,
+	bg_hover = COLOR_BUTTON_ACCENT_HOVER,
+	bg_active = COLOR_BUTTON_ACCENT_ACTIVE,
+	bg_selected = COLOR_TRANSPARENT,
+	text = COLOR_TAB_FG_BASE,
+	text_hover = COLOR_TAB_FG_HOVER,
+	text_active = COLOR_TAB_FG_ACTIVE,
+	text_selected = COLOR_TAB_FG_SELECTED,
+	text_selected_hover = COLOR_TAB_FG_SELECTED_HOVER,
 	border = COLOR_TRANSPARENT,
 	padding = {left = 5, right = 5, top = 5, bottom = 5},
 	radius = 0.5,

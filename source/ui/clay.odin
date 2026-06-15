@@ -76,6 +76,11 @@ reload :: proc(ui_ctx: rawptr) {
 	state = (^UI_State)(ui_ctx)
 	clay.SetCurrentContext(state.clay_context)
 	clay.SetMeasureTextFunction(measure_text, nil)
+
+	// Re-read on-disk resources so edits to e.g. icon_sheet.png show up on a
+	// force reload (F5). The old GPU texture would otherwise stay loaded.
+	rl.UnloadTexture(state.icon_sheet)
+	load_icons()
 }
 
 shutdown_clay :: proc() {

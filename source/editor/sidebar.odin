@@ -11,8 +11,16 @@ SIDEBAR_RESIZE_CAPTURE :: api.Capture(100)
 SIDEBAR_HEADER_HEIGHT: f32 : 32
 SIDEBAR_FOOTER_HEIGHT: f32 : 38
 
+Sidebar_Tab :: enum {
+	Documents,
+	Map,
+	Layers,
+	Settings,
+}
+
 Sidebar_State :: struct {
 	width: f32,
+	tab:   Sidebar_Tab,
 }
 
 sidebar :: proc(input: ^api.Input) {
@@ -116,14 +124,24 @@ sidebar :: proc(input: ^api.Input) {
 				},
 				padding = {left = 5, right = 5, top = 5, bottom = 5},
 				childAlignment = {clay.LayoutAlignmentX.Left, clay.LayoutAlignmentY.Top},
+				childGap = 5,
 			},
+			backgroundColor = ui.COLOR_SIDEBAR_FOOTER,
 			border = {width = {top = 1}, color = ui.COLOR_SIDEBAR_BORDER},
 		},
 		) {
-			ui.button("ButtonIcon1", ui.get_icon(.MAP), ui.ICON_BUTTON, input)
-			ui.button("ButtonIcon2", ui.get_icon(.MAP), ui.ICON_BUTTON, input)
-			ui.button("ButtonIcon3", ui.get_icon(.MAP), ui.ICON_BUTTON, input)
-			ui.button("ButtonIcon4", ui.get_icon(.MAP), ui.ICON_BUTTON, input)
+			if ui.button("Button:Tab:Document", ui.get_icon(.DOCUMENT), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Documents).clicked {
+				sb.tab = .Documents
+			}
+			if ui.button("Button:Tab:Map", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Map).clicked {
+				sb.tab = .Map
+			}
+			if ui.button("Button:Tab:Layers", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Layers).clicked {
+				sb.tab = .Layers
+			}
+			if ui.button("Button:Tab:Editor", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Settings).clicked {
+				sb.tab = .Settings
+			}
 		}
 	}
 }
