@@ -6,7 +6,7 @@ import "../ui"
 
 SIDEBAR_MIN: f32 : 250
 SIDEBAR_MAX: f32 : 400
-RESIZE_HANDLE: f32 : 8
+RESIZE_HANDLE: f32 : 4
 SIDEBAR_RESIZE_CAPTURE :: api.Capture(100)
 
 Sidebar_State :: struct {
@@ -53,5 +53,6 @@ sidebar :: proc(input: ^api.Input) {
 	},
 	) {
 		ui.button("Button", "Click Me", ui.PRIMARY_BUTTON, input)
+		ui.button("ButtonIcon", ui.get_icon(.MAP), ui.ICON_BUTTON, input)
 	}
 }

@@ -5,6 +5,7 @@ import "base:runtime"
 import c "core:c/libc"
 import "core:fmt"
 import rl "vendor:raylib"
+import rlgl "vendor:raylib/rlgl"
 
 FONT :: enum u16 {
 	BODY_REG_14,
@@ -18,6 +19,8 @@ UI_State :: struct {
 	clay_context: ^clay.Context,
 	arena_memory: [^]u8,
 	fonts:        [dynamic]Raylib_Font,
+	icon_sheet:   rl.Texture2D,
+	icons:        [ICON]Icon,
 }
 
 state: ^UI_State
@@ -59,6 +62,8 @@ init_clay :: proc() -> rawptr {
 	load_font(u16(FONT.BODY_REG_14), 14, "resources/Inter-Medium.ttf")
 	load_font(u16(FONT.BODY_BLD_14), 14, "resources/Inter-Bold.ttf")
 
+	load_icons()
+
 	return state
 }
 
@@ -75,6 +80,7 @@ shutdown_clay :: proc() {
 	for f in state.fonts {
 		rl.UnloadFont(f.font)
 	}
+	rl.UnloadTexture(state.icon_sheet)
 	delete(state.fonts)
 	if state.arena_memory != nil {
 		free(state.arena_memory)
@@ -83,13 +89,33 @@ shutdown_clay :: proc() {
 	state = nil
 }
 
+// The canvas clay lays out into, in logical points. Must use the same source as
+// the projection (Ortho in frame_begin) so layout and rendering share one
+// coordinate space; GetMousePosition is logical too, so hit-testing matches.
+canvas_dims :: proc() -> clay.Dimensions {
+	return {cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()}
+}
+
 // Begin a UI frame: clear the backbuffer and open a clay layout. Panels are
 // declared between `frame_begin` and `frame_end`, keeping the clay/raylib frame
 // plumbing in `ui` so callers only describe *what* to draw, not *how*.
 frame_begin :: proc(mouse: [2]f32, down: bool) {
 	rl.BeginDrawing()
+
+	// After a display hot-plug, every DPI getter reads correct but raylib keeps
+	// drawing at the old scale — its internal viewport/projection is left stale.
+	// Rebuild the transform deterministically from the current sizes each frame:
+	// map logical screen coords across the full physical framebuffer. This makes
+	// us immune to raylib's stale internal state. See raylib issues #1982, #4834.
+	rlgl.Viewport(0, 0, rl.GetRenderWidth(), rl.GetRenderHeight())
+	rlgl.MatrixMode(rlgl.PROJECTION)
+	rlgl.LoadIdentity()
+	rlgl.Ortho(0, f64(rl.GetScreenWidth()), f64(rl.GetScreenHeight()), 0, 0, 1)
+	rlgl.MatrixMode(rlgl.MODELVIEW)
+	rlgl.LoadIdentity()
+
 	rl.ClearBackground(rl.BLACK)
-	clay.SetLayoutDimensions({cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()})
+	clay.SetLayoutDimensions(canvas_dims())
 	clay.SetPointerState(mouse, down)
 	clay.BeginLayout()
 }
@@ -187,7 +213,14 @@ clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
 				}
 				rl.DrawRing(center, max(inner, 0), outer, start, end, CORNER_SEGMENTS, color)
 			}
-			ring({x + r.topLeft, y + r.topLeft}, r.topLeft - f32(b.width.top), r.topLeft, 180, 270, color)
+			ring(
+				{x + r.topLeft, y + r.topLeft},
+				r.topLeft - f32(b.width.top),
+				r.topLeft,
+				180,
+				270,
+				color,
+			)
 			ring(
 				{x + w - r.topRight, y + r.topRight},
 				r.topRight - f32(b.width.top),
@@ -216,7 +249,20 @@ clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
 			rl.BeginScissorMode(i32(bbox.x), i32(bbox.y), i32(bbox.width), i32(bbox.height))
 		case .ScissorEnd:
 			rl.EndScissorMode()
-		case .Image, .Custom, .OverlayColorStart, .OverlayColorEnd:
+		case .Image:
+			img := cmd.renderData.image
+			icon := (^Icon)(img.imageData)
+			dest := rl.Rectangle{bbox.x, bbox.y, bbox.width, bbox.height}
+			rl.DrawTexturePro(
+				icon.texture,
+				icon.src,
+				dest,
+				{0, 0},
+				0,
+				// Tint set per-use on the Icon; white sheet glyph × tint recolors it.
+				clay_color_to_rl_color(icon.tint),
+			)
+		case .Custom, .OverlayColorStart, .OverlayColorEnd:
 		// not handled yet
 		}
 	}
