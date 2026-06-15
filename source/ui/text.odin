@@ -47,11 +47,12 @@ ellipsize_text :: proc(text: string, max_width: f32, cfg: clay.TextElementConfig
 	// Allocate from the temp allocator — freed at the end of each frame by
 	// free_all(context.temp_allocator), so Clay's stored pointer stays valid
 	// for exactly the frame it was created in.
-	buf := make([]u8, lo + 3, context.temp_allocator)
+	buf := make([]u8, lo + 4, context.temp_allocator)
 	mem.copy(raw_data(buf), raw_data(text), lo)
 	buf[lo]     = '.'
 	buf[lo + 1] = '.'
 	buf[lo + 2] = '.'
+	buf[lo + 3] = 0
 
-	return string(buf)
+	return string(buf[:lo + 3])
 }

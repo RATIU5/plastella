@@ -9,6 +9,7 @@ SIDEBAR_MAX: f32 : 400
 RESIZE_HANDLE: f32 : 4
 SIDEBAR_RESIZE_CAPTURE :: api.Capture(100)
 SIDEBAR_HEADER_HEIGHT: f32 : 32
+SIDEBAR_FOOTER_HEIGHT: f32 : 38
 
 Sidebar_State :: struct {
 	width: f32,
@@ -52,6 +53,8 @@ sidebar :: proc(input: ^api.Input) {
 		},
 	},
 	) {
+
+		// Sidebar:Header
 		if clay.UI(clay.ID("Sidebar:Header"))(
 		{
 			layout = {
@@ -72,6 +75,7 @@ sidebar :: proc(input: ^api.Input) {
 				wrapMode  = clay.TextWrapMode.None,
 			}
 
+			// Sidebar:Header
 			project_name_id := clay.ID("Sidebar:ProjectName")
 			if clay.UI(project_name_id)(
 			{layout = {sizing = {width = clay.SizingFit(), height = clay.SizingFit()}}},
@@ -85,7 +89,41 @@ sidebar :: proc(input: ^api.Input) {
 				ui.tooltip_set(project_name_id, "A Very Super Long Project Name")
 			}
 		}
-		ui.button("Button", "Click Me", ui.PRIMARY_BUTTON, input)
-		ui.button("ButtonIcon", ui.get_icon(.MAP), ui.ICON_BUTTON, input)
+
+		// Sidebar:Content
+		sidebar_content_id := clay.ID("Sidebar:Content")
+		if clay.UI(sidebar_content_id)(
+		{
+			layout = {
+				sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()},
+				childAlignment = {clay.LayoutAlignmentX.Left, clay.LayoutAlignmentY.Top},
+				layoutDirection = clay.LayoutDirection.TopToBottom,
+				padding = {left = 5, right = 5},
+			},
+		},
+		) {
+
+		}
+
+		// Sidebar:Footer
+		sidebar_footer_id := clay.ID("Sidebar:Footer")
+		if clay.UI(sidebar_footer_id)(
+		{
+			layout = {
+				sizing = {
+					width = clay.SizingGrow(),
+					height = clay.SizingFixed(SIDEBAR_FOOTER_HEIGHT),
+				},
+				padding = {left = 5, right = 5, top = 5, bottom = 5},
+				childAlignment = {clay.LayoutAlignmentX.Left, clay.LayoutAlignmentY.Top},
+			},
+			border = {width = {top = 1}, color = ui.COLOR_SIDEBAR_BORDER},
+		},
+		) {
+			ui.button("ButtonIcon1", ui.get_icon(.MAP), ui.ICON_BUTTON, input)
+			ui.button("ButtonIcon2", ui.get_icon(.MAP), ui.ICON_BUTTON, input)
+			ui.button("ButtonIcon3", ui.get_icon(.MAP), ui.ICON_BUTTON, input)
+			ui.button("ButtonIcon4", ui.get_icon(.MAP), ui.ICON_BUTTON, input)
+		}
 	}
 }

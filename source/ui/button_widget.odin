@@ -242,25 +242,27 @@ button_icon :: proc(
 	) {
 		id_icon := strings.concatenate([]string{id, "_icon"}, context.temp_allocator)
 
-		// Tint travels on the Icon (read back in clay_render). Element
-		// backgroundColor is avoided: clay would emit a filled rect behind the
-		// glyph, painting the transparent gaps solid.
-		icon.tint = fg
+		// Copy the icon so each button instance has its own tint. The shared
+		// *Icon pointer would otherwise let the last button overwrite all prior
+		// tints before clay_render reads them back.
+		icon_inst := new(Icon, context.temp_allocator)
+		icon_inst^ = icon^
+		icon_inst.tint = fg
 
 		// font_size is the style's single content size: it sets the icon's
 		// rendered height, with width derived from the source aspect so
 		// non-square glyphs aren't distorted. The Icon supplies pixels/aspect,
 		// the style owns the size.
 		icon_h := f32(style.font_size)
-		icon_w := icon_h * (icon.src.width / icon.src.height)
+		icon_w := icon_h * (icon_inst.src.width / icon_inst.src.height)
 
 		if clay.UI(clay.ID(id_icon, index))(
 		{
 			layout = {
 				sizing = {width = clay.SizingFixed(icon_w), height = clay.SizingFixed(icon_h)},
 			},
-			image = {imageData = rawptr(icon)},
-			aspectRatio = {icon.src.width / icon.src.height},
+			image = {imageData = rawptr(icon_inst)},
+			aspectRatio = {icon_inst.src.width / icon_inst.src.height},
 		},
 		) {}
 	}

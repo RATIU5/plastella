@@ -73,13 +73,14 @@ tooltip_flush :: proc() {
 		t.visible     = false
 	}
 
-	// Mouse moved too far → restart timer.
-	dx := mouse.x - t.timer_mouse.x
-	dy := mouse.y - t.timer_mouse.y
-	if dx*dx + dy*dy > TOOLTIP_MOVE_SLOP * TOOLTIP_MOVE_SLOP {
-		t.timer_start = now
-		t.timer_mouse = mouse
-		t.visible     = false
+	// Mouse moved too far → restart timer (only before the tooltip is visible).
+	if !t.visible {
+		dx := mouse.x - t.timer_mouse.x
+		dy := mouse.y - t.timer_mouse.y
+		if dx*dx + dy*dy > TOOLTIP_MOVE_SLOP * TOOLTIP_MOVE_SLOP {
+			t.timer_start = now
+			t.timer_mouse = mouse
+		}
 	}
 
 	// Delay elapsed → latch visible (don't un-latch while same anchor is hovered).
