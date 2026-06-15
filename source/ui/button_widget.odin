@@ -19,12 +19,12 @@ Button_Style :: struct {
 	text_active:   clay.Color,
 	text_selected: clay.Color,
 	border:        clay.Color,
-	padding:      clay.Padding,
-	radius:       f32,
-	border_width: u16,
-	font:         FONT,
-	font_size:    u16,
-	width_type:   WIDTH_TYPE,
+	padding:       clay.Padding,
+	radius:        f32,
+	border_width:  u16,
+	font:          FONT,
+	font_size:     u16,
+	width_type:    WIDTH_TYPE,
 }
 
 // What the button did this frame. `held` is true only while a press that
@@ -96,7 +96,7 @@ ICON_BUTTON :: Button_Style {
 	radius = 0.5,
 	border_width = 0,
 	font = .BODY_REG_14,
-	font_size = 14,
+	font_size = 18,
 	width_type = .FIT,
 }
 
@@ -167,10 +167,7 @@ button_text :: proc(
 		cornerRadius = clay.CornerRadiusAll(style.radius),
 	},
 	) {
-		clay.Text(
-			label,
-			{fontSize = style.font_size, fontId = u16(style.font), textColor = fg},
-		)
+		clay.Text(label, {fontSize = style.font_size, fontId = u16(style.font), textColor = fg})
 	}
 
 	return result
@@ -250,16 +247,20 @@ button_icon :: proc(
 		// glyph, painting the transparent gaps solid.
 		icon.tint = fg
 
+		// font_size is the style's single content size: it sets the icon's
+		// rendered height, with width derived from the source aspect so
+		// non-square glyphs aren't distorted. The Icon supplies pixels/aspect,
+		// the style owns the size.
+		icon_h := f32(style.font_size)
+		icon_w := icon_h * (icon.src.width / icon.src.height)
+
 		if clay.UI(clay.ID(id_icon, index))(
 		{
 			layout = {
-				sizing = {
-					width = clay.SizingFixed(icon.size.x),
-					height = clay.SizingFixed(icon.size.y),
-				},
+				sizing = {width = clay.SizingFixed(icon_w), height = clay.SizingFixed(icon_h)},
 			},
 			image = {imageData = rawptr(icon)},
-			aspectRatio = {icon.size.x / icon.size.y},
+			aspectRatio = {icon.src.width / icon.src.height},
 		},
 		) {}
 	}

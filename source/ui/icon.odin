@@ -11,10 +11,6 @@ ICON_SHEET_PATH :: "resources/icons/icon_sheet.png"
 ICON_CELL :: 64
 ICON_COLS :: 16
 
-// Logical (point) size icons render at. The sheet is authored at 64px and
-// scaled down on the GPU, mirroring how fonts bake larger and scale.
-ICON_SIZE :: [2]f32{16, 16}
-
 // Order MUST match the sheet's row-major cell order. Add names as you fill the
 // sheet; the integer value is the cell index.
 ICON :: enum u16 {
@@ -23,8 +19,7 @@ ICON :: enum u16 {
 
 Icon :: struct {
 	texture: rl.Texture2D, // handle into the shared sheet
-	src:     rl.Rectangle, // sub-rect of the cell within the sheet
-	size:    [2]f32, // logical render size
+	src:     rl.Rectangle, // sub-rect of the cell within the sheet (drives aspect)
 	tint:    clay.Color, // multiply color; set per-use before layout, read at render
 }
 
@@ -42,7 +37,6 @@ load_icons :: proc() {
 		state.icons[id] = Icon {
 			texture = state.icon_sheet,
 			src     = {f32(col * ICON_CELL), f32(row * ICON_CELL), ICON_CELL, ICON_CELL},
-			size    = ICON_SIZE,
 		}
 	}
 }

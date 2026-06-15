@@ -42,6 +42,7 @@ sidebar :: proc(input: ^api.Input) {
 				width = clay.SizingFixed(editor_ctx.sidebar.width),
 				height = clay.SizingGrow({}),
 			},
+			childGap = 5,
 			childAlignment = {y = .Center},
 			padding = {left = 12, right = 12},
 		},
