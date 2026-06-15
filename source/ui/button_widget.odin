@@ -240,7 +240,7 @@ button_icon :: proc(
 		cornerRadius = clay.CornerRadiusAll(style.radius),
 	},
 	) {
-		id_icon := strings.concatenate([]string{id, "_icon"}, context.allocator)
+		id_icon := strings.concatenate([]string{id, "_icon"}, context.temp_allocator)
 
 		// Tint travels on the Icon (read back in clay_render). Element
 		// backgroundColor is avoided: clay would emit a filled rect behind the
