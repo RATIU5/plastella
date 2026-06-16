@@ -5,7 +5,9 @@ import rl "vendor:raylib"
 
 TOOLTIP_MAX_WIDTH :: f32(220)
 TOOLTIP_EDGE_PAD :: f32(8) // min distance from screen edge before flipping
+TOOLTIP_GAP :: f32(4) // space between anchor and tooltip
 TOOLTIP_DELAY :: f64(0.8) // seconds of still hover before showing
+TOOLTIP_GRACE :: f64(0.5) // after a tooltip hides, the next one skips the delay for this long
 TOOLTIP_MOVE_SLOP :: f32(3) // px of mouse movement that resets the timer
 
 Tooltip_Content :: union {
@@ -20,15 +22,17 @@ Tooltip_Key_Hint :: struct {
 
 Tooltip_State :: struct {
 	// Written every frame by tooltip_set while something is hovered.
-	content:     Tooltip_Content,
-	anchor_id:   clay.ElementId,
-	active:      bool, // was tooltip_set called this frame?
+	content:      Tooltip_Content,
+	anchor_id:    clay.ElementId,
+	active:       bool, // was tooltip_set called this frame?
 
 	// Persistent across frames — tracks the delay timer.
-	timer_id:    clay.ElementId, // anchor we are currently timing
-	timer_start: f64, // rl.GetTime() when the current hover began
-	timer_mouse: clay.Vector2, // mouse position when timing started
-	visible:     bool, // delay has elapsed; show the tooltip
+	timer_id:     clay.ElementId, // anchor we are currently timing
+	timer_start:  f64, // rl.GetTime() when the current hover began
+	timer_mouse:  clay.Vector2, // mouse position when timing started
+	visible:      bool, // delay has elapsed; show the tooltip
+	last_visible: f64, // rl.GetTime() of the most recent frame a tooltip was shown
+	measured_id:  clay.ElementId, // anchor whose tooltip size clay has already laid out
 }
 
 tooltip_set :: proc(anchor_id: clay.ElementId, content: Tooltip_Content) {
@@ -37,17 +41,64 @@ tooltip_set :: proc(anchor_id: clay.ElementId, content: Tooltip_Content) {
 	state.tooltip.active = true
 }
 
+// Place the tooltip centered on a side of the anchor (below > above > right >
+// left, by available room) and then clamp the cross-axis with `offset` so the
+// box never spills past the window. clay's floating layout doesn't clip to the
+// viewport, so we do the clamping ourselves using the tooltip's measured size.
 @(private)
-tooltip_attach :: proc(bb: clay.BoundingBox, dims: clay.Dimensions) -> clay.FloatingAttachPoints {
-	below_fits := bb.y + bb.height + TOOLTIP_EDGE_PAD < dims.height
-	right_fits := bb.x + TOOLTIP_MAX_WIDTH + TOOLTIP_EDGE_PAD < dims.width
+tooltip_place :: proc(
+	bb: clay.BoundingBox,
+	tt: clay.Dimensions,
+	dims: clay.Dimensions,
+) -> (
+	attach: clay.FloatingAttachPoints,
+	offset: clay.Vector2,
+) {
+	anchor_cx := bb.x + bb.width / 2
+	anchor_cy := bb.y + bb.height / 2
 
-	if below_fits {
-		if right_fits do return {element = .LeftTop, parent = .LeftBottom}
-		return {element = .RightTop, parent = .RightBottom}
+	below_fits := bb.y + bb.height + TOOLTIP_GAP + tt.height + TOOLTIP_EDGE_PAD <= dims.height
+	above_fits := bb.y - TOOLTIP_GAP - tt.height - TOOLTIP_EDGE_PAD >= 0
+	right_fits := bb.x + bb.width + TOOLTIP_GAP + tt.width + TOOLTIP_EDGE_PAD <= dims.width
+
+	if below_fits || above_fits {
+		// Vertical side: center horizontally, clamp x into the viewport.
+		if below_fits {
+			attach = {
+				element = .CenterTop,
+				parent  = .CenterBottom,
+			}
+			offset.y = TOOLTIP_GAP
+		} else {
+			attach = {
+				element = .CenterBottom,
+				parent  = .CenterTop,
+			}
+			offset.y = -TOOLTIP_GAP
+		}
+		want_x := anchor_cx - tt.width / 2
+		clamped_x := clamp(want_x, TOOLTIP_EDGE_PAD, dims.width - tt.width - TOOLTIP_EDGE_PAD)
+		offset.x = clamped_x - want_x
+	} else {
+		// Horizontal side: center vertically, clamp y into the viewport.
+		if right_fits {
+			attach = {
+				element = .LeftCenter,
+				parent  = .RightCenter,
+			}
+			offset.x = TOOLTIP_GAP
+		} else {
+			attach = {
+				element = .RightCenter,
+				parent  = .LeftCenter,
+			}
+			offset.x = -TOOLTIP_GAP
+		}
+		want_y := anchor_cy - tt.height / 2
+		clamped_y := clamp(want_y, TOOLTIP_EDGE_PAD, dims.height - tt.height - TOOLTIP_EDGE_PAD)
+		offset.y = clamped_y - want_y
 	}
-	if right_fits do return {element = .LeftBottom, parent = .LeftTop}
-	return {element = .RightBottom, parent = .RightTop}
+	return
 }
 
 tooltip_flush :: proc() {
@@ -59,18 +110,26 @@ tooltip_flush :: proc() {
 		t.timer_id = {}
 		t.timer_start = 0
 		t.visible = false
+		t.measured_id = {}
 		return
 	}
 
 	now := rl.GetTime()
 	mouse := state.mouse
 
-	// Anchor changed → restart timer.
+	// Anchor changed → restart timer. But if another tooltip was visible within
+	// the grace window, the system is "warmed up": skip the delay and show the
+	// new tooltip immediately at its own position.
 	if t.anchor_id.id != t.timer_id.id {
 		t.timer_id = t.anchor_id
-		t.timer_start = now
 		t.timer_mouse = mouse
-		t.visible = false
+		if now - t.last_visible <= TOOLTIP_GRACE {
+			t.timer_start = now - TOOLTIP_DELAY // delay already satisfied
+			t.visible = true
+		} else {
+			t.timer_start = now
+			t.visible = false
+		}
 	}
 
 	// Mouse moved too far → restart timer (only before the tooltip is visible).
@@ -90,18 +149,42 @@ tooltip_flush :: proc() {
 
 	if !t.visible do return
 
+	// Remember we showed a tooltip this frame so a quick move to the next
+	// element keeps the warmed-up window alive.
+	t.last_visible = now
+
 	data := clay.GetElementData(t.anchor_id)
 	if !data.found do return
 
-	attach := tooltip_attach(data.boundingBox, canvas_dims())
+	// Read back last frame's measured tooltip size so we can center and clamp.
+	// We only learn the real size one frame *after* the content is laid out, so
+	// `tt_data` is trustworthy only when it was measured for the current anchor.
+	tt_id := clay.ID("__tooltip")
+	tt_data := clay.GetElementData(tt_id)
+	tt_dims := clay.Dimensions{TOOLTIP_MAX_WIDTH, 30}
+	if tt_data.found {
+		tt_dims = {tt_data.boundingBox.width, tt_data.boundingBox.height}
+	}
 
-	if clay.UI(clay.ID("__tooltip"))(
+	attach, offset := tooltip_place(data.boundingBox, tt_dims, canvas_dims())
+
+	// On the first frame for a new anchor the size above is stale/estimated, so
+	// the computed offset would place the box wrong for one frame (the visible
+	// "teleport" flash). Render it off-screen that single frame to let clay
+	// measure it, then position it correctly once measured matches the anchor.
+	measured := tt_data.found && t.measured_id.id == t.anchor_id.id
+	t.measured_id = t.anchor_id
+	if !measured {
+		offset = {-10000, -10000}
+	}
+
+	if clay.UI(tt_id)(
 	{
 		floating = {
 			parentId = t.anchor_id.id,
 			attachTo = .ElementWithId,
 			attachment = attach,
-			offset = {0, 4},
+			offset = offset,
 			zIndex = 9999,
 			pointerCaptureMode = .Passthrough,
 		},

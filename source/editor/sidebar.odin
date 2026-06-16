@@ -12,10 +12,11 @@ SIDEBAR_HEADER_HEIGHT: f32 : 32
 SIDEBAR_FOOTER_HEIGHT: f32 : 38
 
 Sidebar_Tab :: enum {
-	Documents,
+	Projects,
 	Map,
-	Layers,
-	Settings,
+	Tilesets,
+	Sprites,
+	LevelEditor,
 }
 
 Sidebar_State :: struct {
@@ -124,23 +125,26 @@ sidebar :: proc(input: ^api.Input) {
 				},
 				padding = {left = 5, right = 5, top = 5, bottom = 5},
 				childAlignment = {clay.LayoutAlignmentX.Left, clay.LayoutAlignmentY.Top},
-				childGap = 5,
+				childGap = 3,
 			},
 			backgroundColor = ui.COLOR_SIDEBAR_FOOTER,
 			border = {width = {top = 1}, color = ui.COLOR_SIDEBAR_BORDER},
 		},
 		) {
-			if ui.button("Button:Tab:Document", ui.get_icon(.DOCUMENT), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Documents).clicked {
-				sb.tab = .Documents
+			if ui.button("Button:Tab:Project", ui.get_icon(.PROJECT), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Projects, tooltip = "Projects").clicked {
+				sb.tab = .Projects
 			}
-			if ui.button("Button:Tab:Map", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Map).clicked {
+			if ui.button("Button:Tab:Map", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Map, tooltip = "Map").clicked {
 				sb.tab = .Map
 			}
-			if ui.button("Button:Tab:Layers", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Layers).clicked {
-				sb.tab = .Layers
+			if ui.button("Button:Tab:Tileset", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Tilesets, tooltip = "Tilesets").clicked {
+				sb.tab = .Tilesets
 			}
-			if ui.button("Button:Tab:Editor", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Settings).clicked {
-				sb.tab = .Settings
+			if ui.button("Button:Tab:Sprites", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Sprites, tooltip = "Sprites").clicked {
+				sb.tab = .Sprites
+			}
+			if ui.button("Button:Tab:Level_Editor", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .LevelEditor, tooltip = "Level Editor").clicked {
+				sb.tab = .LevelEditor
 			}
 		}
 	}

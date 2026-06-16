@@ -134,6 +134,7 @@ button_text :: proc(
 	input: ^api.Input,
 	index: u32 = 0,
 	selected := false,
+	tooltip: Tooltip_Content = nil,
 ) -> Button_Result {
 	result: Button_Result
 
@@ -166,6 +167,11 @@ button_text :: proc(
 
 	if hovered {
 		input.cursor = .Pointer
+		// The widget owns the element id, so it also owns the tooltip anchor.
+		// `nil` content (the default) means this button opted out.
+		if tooltip != nil {
+			tooltip_set(eid, tooltip)
+		}
 	}
 
 	sizing: clay.Sizing = {
@@ -207,6 +213,7 @@ button_icon :: proc(
 	input: ^api.Input,
 	index: u32 = 0,
 	selected := false,
+	tooltip: Tooltip_Content = nil,
 ) -> Button_Result {
 	result: Button_Result
 
@@ -239,6 +246,11 @@ button_icon :: proc(
 
 	if hovered {
 		input.cursor = .Pointer
+		// The widget owns the element id, so it also owns the tooltip anchor.
+		// `nil` content (the default) means this button opted out.
+		if tooltip != nil {
+			tooltip_set(eid, tooltip)
+		}
 	}
 
 	sizing: clay.Sizing = {
