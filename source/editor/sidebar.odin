@@ -121,7 +121,21 @@ sidebar :: proc(input: ^api.Input) {
 			},
 		},
 		) {
-
+			if !open_project &&
+			   clay.UI(clay.ID("Sidebar:Content:No_Project"))(
+			   {
+				   layout = {
+					   sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()},
+					   childAlignment = {
+						   clay.LayoutAlignmentX.Center,
+						   clay.LayoutAlignmentY.Center,
+					   },
+					   padding = {left = 5, right = 5, top = 5, bottom = 5},
+				   },
+			   },
+			   ) {
+				ui.text("Create a new project", .REG_14, ui.COLOR_NO_PROJECT_TEXT)
+			}
 		}
 
 		// Sidebar:Footer

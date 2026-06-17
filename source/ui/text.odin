@@ -1,12 +1,47 @@
 package ui
 
+import clay "../../vendor/clay"
 import "core:c"
 import "core:mem"
-import clay "../../vendor/clay"
+
+Font_Style :: struct {
+	size:           u16,
+	id:             u16,
+	line_height:    u16,
+	letter_spacing: u16,
+}
+
+text :: proc(
+	text: string,
+	style: Text_Style,
+	color: clay.Color,
+	text_alignment := clay.TextAlignment.Left,
+	wrap_mode := clay.TextWrapMode.None,
+	ellipsize_width: f32 = 0,
+	user_data: rawptr = nil,
+) {
+	font_style := text_styles[style]
+	font_cfg := clay.TextElementConfig {
+		userData      = user_data,
+		textColor     = color,
+		fontId        = font_style.id,
+		fontSize      = font_style.size,
+		letterSpacing = font_style.letter_spacing,
+		lineHeight    = font_style.line_height,
+		wrapMode      = wrap_mode,
+		textAlignment = text_alignment,
+	}
+
+	if ellipsize_width > 0 {
+		clay.Text(ellipsize_text(text, ellipsize_width, font_cfg), font_cfg)
+	} else {
+		clay.Text(text, font_cfg)
+	}
+}
 
 ellipsize_text :: proc(text: string, max_width: f32, cfg: clay.TextElementConfig) -> string {
 	cfg := cfg
-	ss := clay.StringSlice{
+	ss := clay.StringSlice {
 		length    = c.int32_t(len(text)),
 		chars     = ([^]c.char)(raw_data(text)),
 		baseChars = ([^]c.char)(raw_data(text)),
@@ -17,7 +52,7 @@ ellipsize_text :: proc(text: string, max_width: f32, cfg: clay.TextElementConfig
 	}
 
 	dots_str := "..."
-	dots := clay.StringSlice{
+	dots := clay.StringSlice {
 		length    = 3,
 		chars     = ([^]c.char)(raw_data(dots_str)),
 		baseChars = ([^]c.char)(raw_data(dots_str)),
@@ -27,7 +62,7 @@ ellipsize_text :: proc(text: string, max_width: f32, cfg: clay.TextElementConfig
 	lo, hi := 0, len(text)
 	for lo < hi {
 		mid := (lo + hi + 1) / 2
-		slice := clay.StringSlice{
+		slice := clay.StringSlice {
 			length    = c.int32_t(mid),
 			chars     = ss.chars,
 			baseChars = ss.baseChars,
@@ -49,7 +84,7 @@ ellipsize_text :: proc(text: string, max_width: f32, cfg: clay.TextElementConfig
 	// for exactly the frame it was created in.
 	buf := make([]u8, lo + 4, context.temp_allocator)
 	mem.copy(raw_data(buf), raw_data(text), lo)
-	buf[lo]     = '.'
+	buf[lo] = '.'
 	buf[lo + 1] = '.'
 	buf[lo + 2] = '.'
 	buf[lo + 3] = 0

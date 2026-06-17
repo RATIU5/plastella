@@ -40,6 +40,7 @@ WARN_TEXT :: [4]f32{232, 196, 188, 255}
 // as per-state ramps next to the styles in button_styles.odin.
 // ---------------------------------------------------------------------------
 COLOR_TEXT :: WHITE
+COLOR_NO_PROJECT_TEXT :: GREY_140
 
 COLOR_SIDEBAR :: GREY_17
 COLOR_SIDEBAR_FOOTER :: GREY_25

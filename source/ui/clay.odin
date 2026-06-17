@@ -4,6 +4,7 @@ import clay "../../vendor/clay"
 import "base:runtime"
 import c "core:c/libc"
 import "core:fmt"
+import "core:mem"
 import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
 
@@ -165,11 +166,16 @@ clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
 			)
 		case .Text:
 			t := cmd.renderData.text
-			ctext := rl.TextFormat("%.*s", t.stringContents.length, t.stringContents.chars)
 			font := state.fonts[t.fontId].font
+			// Copy exactly the slice clay handed us and NUL-terminate it. Don't go
+			// through TextFormat: its %.*s precision + C-varargs path has been the
+			// source of over-long / duplicated wrapped lines.
+			s := t.stringContents
+			buf := make([]u8, s.length + 1, context.temp_allocator)
+			mem.copy(raw_data(buf), s.chars, int(s.length))
 			rl.DrawTextEx(
 				font,
-				ctext,
+				cstring(raw_data(buf)),
 				{bbox.x, bbox.y},
 				f32(t.fontSize),
 				f32(t.letterSpacing),
