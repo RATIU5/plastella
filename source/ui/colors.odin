@@ -6,7 +6,7 @@ package ui
 // Role colors and button ramps below reference these instead of repeating RGBs.
 // ---------------------------------------------------------------------------
 TRANSPARENT :: [4]f32{0, 0, 0, 0}
-WHITE :: [4]f32{255, 255, 255, 255}
+WHITE :: [4]f32{225, 225, 225, 255}
 
 GREY_17 :: [4]f32{17, 17, 17, 255}
 GREY_24 :: [4]f32{24, 24, 24, 255}
@@ -40,7 +40,7 @@ WARN_TEXT :: [4]f32{232, 196, 188, 255}
 // as per-state ramps next to the styles in button_styles.odin.
 // ---------------------------------------------------------------------------
 COLOR_TEXT :: WHITE
-COLOR_NO_PROJECT_TEXT :: GREY_140
+COLOR_NO_PROJECT_TEXT :: GREY_90
 
 COLOR_SIDEBAR :: GREY_17
 COLOR_SIDEBAR_FOOTER :: GREY_25

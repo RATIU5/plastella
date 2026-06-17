@@ -24,7 +24,7 @@ PRIMARY_BUTTON :: Button_Style {
 		.Disabled = GREY_90,
 	},
 	border = GREY_50,
-	padding = {left = 10, right = 10, top = 5, bottom = 5},
+	padding = {left = 28, right = 28, top = 6, bottom = 6},
 	radius = 0.5,
 	border_width = 1,
 	font = .BODY_REG_14,

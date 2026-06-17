@@ -77,6 +77,8 @@ button_text :: proc(
 	selected := false,
 	tooltip: Tooltip_Content = nil,
 	disabled := false,
+	radius: Maybe(clay.CornerRadius) = nil,
+	border: Maybe(clay.BorderWidth) = nil,
 ) -> Button_Result {
 	result: Button_Result
 
@@ -139,6 +141,12 @@ button_text :: proc(
 	bg := style.bg[st]
 	fg := style.fg[st]
 
+	// Group members override per-corner radius and per-side border so each
+	// button's own element carries both — keeping border and background corners
+	// in lockstep. Standalone buttons use the uniform style values.
+	corner := radius.? or_else clay.CornerRadiusAll(style.radius)
+	bord := border.? or_else clay.BorderAll(style.border_width)
+
 	if clay.UI(clay.ID(id, index))(
 	{
 		layout = {
@@ -146,9 +154,9 @@ button_text :: proc(
 			childAlignment = {x = .Center, y = .Center},
 			sizing = sizing,
 		},
-		border = {width = clay.BorderAll(style.border_width), color = style.border},
+		border = {width = bord, color = style.border},
 		backgroundColor = bg,
-		cornerRadius = clay.CornerRadiusAll(style.radius),
+		cornerRadius = corner,
 	},
 	) {
 		clay.Text(label, {fontSize = style.font_size, fontId = u16(style.font), textColor = fg})
@@ -216,7 +224,7 @@ button_icon :: proc(
 		}
 	} else if clay.PointerOver(eid) {
 		// Inert, but signal non-interactivity while the cursor is over it.
-		input.cursor = .Not_Allowed
+		input.cursor = .Default
 	}
 
 	sizing: clay.Sizing = {
@@ -276,6 +284,7 @@ button_icon :: proc(
 button :: proc {
 	button_text,
 	button_icon,
+	button_group_bordered,
 }
 
 
@@ -302,6 +311,81 @@ button_group :: proc(
 	if clay.UI()({layout = {childGap = gap, childAlignment = {y = .Center}}}) {
 		for label, i in labels {
 			res := button(id, label, style, input, u32(i), selected == i)
+			if res.clicked {
+				clicked = i
+			}
+		}
+	}
+
+	return
+}
+
+// Buttons joined into one bordered block with no gaps: the container draws the
+// outer border plus a single `betweenChildren` line between adjacent buttons,
+// so neighbors share one border instead of stacking two. The buttons draw no
+// border of their own and the block has no corner radius. `vertical` stacks
+// top-to-bottom; otherwise left-to-right.
+button_group_bordered :: proc(
+	id: string,
+	labels: []string,
+	selected: int,
+	style: Button_Style,
+	input: ^api.Input,
+	vertical := false,
+) -> (
+	clicked: int,
+) {
+	clicked = -1
+
+	// Each button grows to fill the block and carries its own border + corner
+	// radius, so border and background corners always agree. The shared seam is
+	// drawn by one neighbor only (the leading edge of every non-first button),
+	// so adjacent buttons get one line, not two.
+	btn_style := style
+	btn_style.width_type = .GROW
+	dir: clay.LayoutDirection = vertical ? .TopToBottom : .LeftToRight
+	bw := style.border_width
+	r := style.radius
+	last := len(labels) - 1
+
+	// Container grows only when the buttons do, so a FIT group hugs its content.
+	csize: clay.Sizing
+	if style.width_type == .GROW do csize.width = clay.SizingGrow()
+
+	if clay.UI()({layout = {layoutDirection = dir, sizing = csize}}) {
+		for label, i in labels {
+			bord: clay.BorderWidth
+			corner: clay.CornerRadius
+			if vertical {
+				bord = {
+					left   = bw,
+					right  = bw,
+					top    = bw,
+					bottom = i == last ? bw : 0,
+				}
+				if i == 0 do corner.topLeft, corner.topRight = r, r
+				if i == last do corner.bottomLeft, corner.bottomRight = r, r
+			} else {
+				bord = {
+					top    = bw,
+					bottom = bw,
+					left   = bw,
+					right  = i == last ? bw : 0,
+				}
+				if i == 0 do corner.topLeft, corner.bottomLeft = r, r
+				if i == last do corner.topRight, corner.bottomRight = r, r
+			}
+
+			res := button(
+				id,
+				label,
+				btn_style,
+				input,
+				u32(i),
+				selected == i,
+				radius = corner,
+				border = bord,
+			)
 			if res.clicked {
 				clicked = i
 			}

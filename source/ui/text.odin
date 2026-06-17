@@ -6,7 +6,7 @@ import "core:mem"
 
 Font_Style :: struct {
 	size:           u16,
-	id:             u16,
+	id:             FONT,
 	line_height:    u16,
 	letter_spacing: u16,
 }
@@ -24,7 +24,7 @@ text :: proc(
 	font_cfg := clay.TextElementConfig {
 		userData      = user_data,
 		textColor     = color,
-		fontId        = font_style.id,
+		fontId        = u16(font_style.id),
 		fontSize      = font_style.size,
 		letterSpacing = font_style.letter_spacing,
 		lineHeight    = font_style.line_height,

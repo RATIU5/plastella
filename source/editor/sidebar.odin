@@ -130,11 +130,21 @@ sidebar :: proc(input: ^api.Input) {
 						   clay.LayoutAlignmentX.Center,
 						   clay.LayoutAlignmentY.Center,
 					   },
+					   layoutDirection = clay.LayoutDirection.TopToBottom,
+					   childGap = 15,
 					   padding = {left = 5, right = 5, top = 5, bottom = 5},
 				   },
 			   },
 			   ) {
-				ui.text("Create a new project", .REG_14, ui.COLOR_NO_PROJECT_TEXT)
+				ui.text("Create a new project", .REG_20, ui.COLOR_NO_PROJECT_TEXT)
+				ui.button_group_bordered(
+					"Button:Sidebar:Project_Commands",
+					[]string{"New Project", "Open Project"},
+					-1,
+					ui.PRIMARY_BUTTON,
+					input,
+					vertical = true,
+				)
 			}
 		}
 

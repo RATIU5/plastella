@@ -8,10 +8,6 @@ import "core:mem"
 import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
 
-FONT :: enum u16 {
-	BODY_REG_14,
-	BODY_BLD_14,
-}
 
 // All persistent UI state. Heap-allocated and stashed in App_Memory so it
 // survives hot reloads (which zero out the DLL's package globals). `state` is
@@ -36,15 +32,6 @@ error_handler :: proc "c" (error_data: clay.ErrorData) {
 	fmt.eprintfln("clay error: %v: %s", error_data.errorType, msg)
 }
 
-load_font :: proc(font_id: u16, font_size: u16, path: cstring) {
-	assign_at(
-		&state.fonts,
-		font_id,
-		Raylib_Font{font = rl.LoadFontEx(path, cast(i32)font_size * 2, nil, 0), fontId = font_id},
-	)
-	rl.SetTextureFilter(state.fonts[font_id].font.texture, rl.TextureFilter.TRILINEAR)
-}
-
 // Returns the persistent state pointer; the caller must stash it in App_Memory
 // and hand it back to `reload` after every hot reload.
 init_clay :: proc() -> rawptr {
@@ -62,9 +49,7 @@ init_clay :: proc() -> rawptr {
 	)
 	clay.SetMeasureTextFunction(measure_text, nil)
 
-	load_font(u16(FONT.BODY_REG_14), 14, "resources/Inter-Medium.ttf")
-	load_font(u16(FONT.BODY_BLD_14), 14, "resources/Inter-Bold.ttf")
-
+	load_fonts()
 	load_icons()
 
 	return state
@@ -157,13 +142,32 @@ clay_render :: proc(commands: ^clay.ClayArray(clay.RenderCommand)) {
 		case .None:
 		// no-op
 		case .Rectangle:
+			// DrawRectangleRounded only takes one radius for all four corners, so
+			// fill per-corner manually (a body cross + four sectors) to honor
+			// independent radii — needed for joined button groups where only the
+			// outer corners round. Assumes the two radii on each side are equal or
+			// one is zero (true for CornerRadiusAll and segmented groups); unequal
+			// nonzero pairs on a side could leave a sliver.
 			rect := cmd.renderData.rectangle
-			rl.DrawRectangleRounded(
-				{bbox.x, bbox.y, bbox.width, bbox.height},
-				rect.cornerRadius.bottomLeft,
-				CORNER_SEGMENTS,
-				clay_color_to_rl_color(rect.backgroundColor),
-			)
+			color := clay_color_to_rl_color(rect.backgroundColor)
+			x, y, w, h := bbox.x, bbox.y, bbox.width, bbox.height
+			tl := corner_radius_px(rect.cornerRadius.topLeft, w, h)
+			tr := corner_radius_px(rect.cornerRadius.topRight, w, h)
+			bl := corner_radius_px(rect.cornerRadius.bottomLeft, w, h)
+			br := corner_radius_px(rect.cornerRadius.bottomRight, w, h)
+			l, r := max(tl, bl), max(tr, br)
+
+			rl.DrawRectangleRec({x + l, y, w - l - r, h}, color) // center column, full height
+			rl.DrawRectangleRec({x, y + tl, l, h - tl - bl}, color) // left column between its corners
+			rl.DrawRectangleRec({x + w - r, y + tr, r, h - tr - br}, color) // right column
+
+			seg :: proc(center: rl.Vector2, radius, start, end: f32, color: rl.Color) {
+				if radius > 0 do rl.DrawCircleSector(center, radius, start, end, CORNER_SEGMENTS, color)
+			}
+			seg({x + tl, y + tl}, tl, 180, 270, color)
+			seg({x + w - tr, y + tr}, tr, 270, 360, color)
+			seg({x + bl, y + h - bl}, bl, 90, 180, color)
+			seg({x + w - br, y + h - br}, br, 0, 90, color)
 		case .Text:
 			t := cmd.renderData.text
 			font := state.fonts[t.fontId].font
