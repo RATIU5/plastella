@@ -43,6 +43,8 @@ App_API :: struct {
 	shutdown_window:   proc(),
 	memory:            proc() -> rawptr,
 	memory_size:       proc() -> int,
+	memory_layout_hash: proc() -> u64,
+	set_reload_status: proc(blocked: bool),
 	hot_reloaded:      proc(mem: rawptr),
 	force_reload:      proc() -> bool,
 	force_restart:     proc() -> bool,
@@ -128,6 +130,7 @@ main :: proc() {
 	app_api.init()
 
 	old_app_apis := make([dynamic]App_API, default_allocator)
+	reload_blocked := false
 
 	for app_api.should_run() {
 		app_api.update()
@@ -144,15 +147,31 @@ main :: proc() {
 			new_app_api, new_app_api_ok := load_app_api(app_api_version)
 
 			if new_app_api_ok {
-				force_restart = force_restart || app_api.memory_size() != new_app_api.memory_size()
+				// The persistent-state layout differs when the new DLL reports a
+				// different App_Memory size or a different layout fingerprint (the
+				// latter catches changes to heap structs reached through rawptr,
+				// which the size alone misses).
+				incompatible :=
+					app_api.memory_size() != new_app_api.memory_size() ||
+					app_api.memory_layout_hash() != new_app_api.memory_layout_hash()
 
-				if !force_restart {
-					// Normal hot reload
-					append(&old_app_apis, app_api)
-					app_memory := app_api.memory()
-					app_api = new_app_api
-					app_api.hot_reloaded(app_memory)
-				} else {
+				if incompatible && !force_restart {
+					// Can't hot-reload (stale bytes) and won't silently restart
+					// (would wipe unsaved in-memory state). Hold the OLD code +
+					// memory, raise the HUD, and wait for an explicit restart.
+					if !reload_blocked {
+						log.warn(
+							"App_Memory layout changed — clean hot reload impossible. " +
+							"Save, then press the force-restart key.",
+						)
+					}
+					reload_blocked = true
+					app_api.set_reload_status(true)
+					// Adopt the new mod time so this doesn't re-fire every frame,
+					// and drop the freshly loaded DLL: we keep running the old one.
+					app_api.modification_time = new_app_api.modification_time
+					unload_app_api(&new_app_api)
+				} else if force_restart {
 					// Full restart without restarting executable
 					app_api.shutdown()
 					reset_tracking_allocator(&tracking_allocator)
@@ -165,9 +184,18 @@ main :: proc() {
 					unload_app_api(&app_api)
 					app_api = new_app_api
 					app_api.init()
+					reload_blocked = false
+					app_api_version += 1
+				} else {
+					// Normal hot reload
+					append(&old_app_apis, app_api)
+					app_memory := app_api.memory()
+					app_api = new_app_api
+					app_api.hot_reloaded(app_memory)
+					app_api.set_reload_status(false)
+					reload_blocked = false
+					app_api_version += 1
 				}
-
-				app_api_version += 1
 			}
 		}
 

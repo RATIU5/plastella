@@ -15,6 +15,7 @@ Cursor :: enum {
 	Default,
 	Resize_EW,
 	Pointer,
+	Not_Allowed,
 }
 
 Input :: struct {

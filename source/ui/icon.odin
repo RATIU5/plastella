@@ -14,8 +14,13 @@ ICON_COLS :: 16
 // Order MUST match the sheet's row-major cell order. Add names as you fill the
 // sheet; the integer value is the cell index.
 ICON :: enum u16 {
-	PROJECT = 0,
-	MAP     = 1,
+	PROJECT      = 0,
+	MAP          = 1,
+	TILESETS     = 2,
+	SPRITES      = 3,
+	LEVEL_EDITOR = 4,
+	SETTINGS     = 5,
+	CLOSE        = 6,
 }
 
 Icon :: struct {

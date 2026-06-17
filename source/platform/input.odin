@@ -38,5 +38,7 @@ apply_cursor :: proc(input: ^api.Input) {
 		rl.SetMouseCursor(.RESIZE_EW)
 	case .Pointer:
 		rl.SetMouseCursor(.POINTING_HAND)
+	case .Not_Allowed:
+		rl.SetMouseCursor(.NOT_ALLOWED)
 	}
 }

@@ -17,6 +17,7 @@ Sidebar_Tab :: enum {
 	Tilesets,
 	Sprites,
 	LevelEditor,
+	Settings,
 }
 
 Sidebar_State :: struct {
@@ -27,6 +28,8 @@ Sidebar_State :: struct {
 sidebar :: proc(input: ^api.Input) {
 	assert(editor_ctx != nil, "editor_ctx not initialized")
 	sb := &editor_ctx.sidebar
+	pj := &editor_ctx.project
+	open_project := pj^ != nil
 
 	near := abs(input.mouse.x - sb.width) <= RESIZE_HANDLE
 	resizing := api.has_capture(input, SIDEBAR_RESIZE_CAPTURE)
@@ -86,16 +89,23 @@ sidebar :: proc(input: ^api.Input) {
 
 			// Sidebar:Header
 			project_name_id := clay.ID("Sidebar:ProjectName")
+			project_name: string
+			switch p in pj {
+			case Project_State:
+				project_name = p.name
+			case nil:
+				project_name = "Plastella"
+			}
 			if clay.UI(project_name_id)(
 			{layout = {sizing = {width = clay.SizingFit(), height = clay.SizingFit()}}},
 			) {
 				clay.TextDynamic(
-					ui.ellipsize_text("A Very Super Long Project Name", sb.width - 88, text_cfg),
+					ui.ellipsize_text(project_name, sb.width - 88, text_cfg),
 					text_cfg,
 				)
 			}
 			if clay.PointerOver(project_name_id) {
-				ui.tooltip_set(project_name_id, "A Very Super Long Project Name")
+				ui.tooltip_set(project_name_id, project_name)
 			}
 		}
 
@@ -134,17 +144,20 @@ sidebar :: proc(input: ^api.Input) {
 			if ui.button("Button:Tab:Project", ui.get_icon(.PROJECT), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Projects, tooltip = "Projects").clicked {
 				sb.tab = .Projects
 			}
-			if ui.button("Button:Tab:Map", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Map, tooltip = "Map").clicked {
+			if ui.button("Button:Tab:Map", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Map, tooltip = "Map", disabled = !open_project).clicked {
 				sb.tab = .Map
 			}
-			if ui.button("Button:Tab:Tileset", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Tilesets, tooltip = "Tilesets").clicked {
+			if ui.button("Button:Tab:Tileset", ui.get_icon(.TILESETS), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Tilesets, tooltip = "Tilesets", disabled = !open_project).clicked {
 				sb.tab = .Tilesets
 			}
-			if ui.button("Button:Tab:Sprites", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Sprites, tooltip = "Sprites").clicked {
+			if ui.button("Button:Tab:Sprites", ui.get_icon(.SPRITES), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Sprites, tooltip = "Sprites", disabled = !open_project).clicked {
 				sb.tab = .Sprites
 			}
-			if ui.button("Button:Tab:Level_Editor", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .LevelEditor, tooltip = "Level Editor").clicked {
+			if ui.button("Button:Tab:Level_Editor", ui.get_icon(.LEVEL_EDITOR), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .LevelEditor, tooltip = "Level Editor", disabled = !open_project).clicked {
 				sb.tab = .LevelEditor
+			}
+			if ui.button("Button:Tab:Settings", ui.get_icon(.SETTINGS), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Settings, tooltip = "Settings", disabled = !open_project).clicked {
+				sb.tab = .Settings
 			}
 		}
 	}

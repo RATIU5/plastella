@@ -9,23 +9,29 @@ import "core:strings"
 // 32 bits hold the clay element-id hash, making each button's claim unique.
 CAPTURE_BUTTON_BIT :: u64(1) << 32
 
+// The visual states a button can be in, in render-priority order. The widget
+// resolves exactly one per frame (see `button_state`) and indexes the style's
+// `bg`/`fg` ramps with it, so per-state colors live in plain arrays instead of a
+// dozen named fields.
+Button_State :: enum u8 {
+	Normal,
+	Hover,
+	Active,
+	Selected,
+	Selected_Hover,
+	Disabled,
+}
+
 Button_Style :: struct {
-	bg:                  clay.Color,
-	bg_hover:            clay.Color,
-	bg_active:           clay.Color,
-	bg_selected:         clay.Color,
-	text:                clay.Color,
-	text_hover:          clay.Color,
-	text_active:         clay.Color,
-	text_selected:       clay.Color,
-	text_selected_hover: clay.Color,
-	border:              clay.Color,
-	padding:             clay.Padding,
-	radius:              f32,
-	border_width:        u16,
-	font:                FONT,
-	font_size:           u16,
-	width_type:          WIDTH_TYPE,
+	bg:           [Button_State]clay.Color,
+	fg:           [Button_State]clay.Color,
+	border:       clay.Color,
+	padding:      clay.Padding,
+	radius:       f32,
+	border_width: u16,
+	font:         FONT,
+	font_size:    u16,
+	width_type:   WIDTH_TYPE,
 }
 
 // What the button did this frame. `held` is true only while a press that
@@ -37,92 +43,27 @@ Button_Result :: struct {
 	held:    bool,
 }
 
-// Resolve the state-dependent colors once so the label/icon and background
-// stay in sync. active > hover > selected > base, matching the visual priority.
-button_bg :: proc(style: Button_Style, active, hovered, selected: bool) -> clay.Color {
+// Resolve the single visual state for this frame so the label/icon and the
+// background stay in sync (both index the same state). Priority: disabled and
+// active (pressed) dominate; hovering an already-selected control gets its own
+// state so the label can take an emphasized tint.
+button_state :: proc(active, hovered, selected, disabled: bool) -> Button_State {
 	switch {
+	case disabled:
+		return .Disabled
 	case active:
-		return style.bg_active
-	case hovered:
-		return style.bg_hover
-	case selected:
-		return style.bg_selected
-	case:
-		return style.bg
-	}
-}
-
-button_fg :: proc(style: Button_Style, active, hovered, selected: bool) -> clay.Color {
-	switch {
+		return .Active
 	case selected && hovered:
-		return style.text_selected_hover
-	case active:
-		return style.text_active
+		return .Selected_Hover
 	case hovered:
-		return style.text_hover
+		return .Hover
 	case selected:
-		return style.text_selected
+		return .Selected
 	case:
-		return style.text
+		return .Normal
 	}
 }
 
-PRIMARY_BUTTON :: Button_Style {
-	bg = COLOR_BUTTON_ACCENT,
-	bg_hover = COLOR_BUTTON_ACCENT_HOVER,
-	bg_active = COLOR_BUTTON_ACCENT_ACTIVE,
-	bg_selected = COLOR_BUTTON_ACCENT_SELECTED,
-	text = COLOR_BUTTON_TEXT,
-	text_hover = COLOR_BUTTON_TEXT,
-	text_active = COLOR_BUTTON_TEXT,
-	text_selected = COLOR_BUTTON_TEXT,
-	text_selected_hover = COLOR_BUTTON_TEXT,
-	border = COLOR_BUTTON_BORDER,
-	padding = {left = 10, right = 10, top = 5, bottom = 5},
-	radius = 0.5,
-	border_width = 1,
-	font = .BODY_REG_14,
-	font_size = 14,
-	width_type = .FIT,
-}
-
-ICON_BUTTON :: Button_Style {
-	bg = COLOR_TRANSPARENT,
-	bg_hover = COLOR_BUTTON_ACCENT_HOVER,
-	bg_active = COLOR_BUTTON_ACCENT_ACTIVE,
-	bg_selected = COLOR_BUTTON_ACCENT_SELECTED,
-	text = COLOR_BUTTON_ICON,
-	text_hover = COLOR_BUTTON_ICON_HOVER,
-	text_active = COLOR_BUTTON_ICON_ACTIVE,
-	text_selected = COLOR_BUTTON_ICON,
-	text_selected_hover = COLOR_BUTTON_ICON_HOVER,
-	border = COLOR_TRANSPARENT,
-	padding = {left = 5, right = 5, top = 5, bottom = 5},
-	radius = 0.5,
-	border_width = 0,
-	font = .BODY_REG_14,
-	font_size = 18,
-	width_type = .FIT,
-}
-
-SIDEBAR_TAB_BUTTON :: Button_Style {
-	bg = COLOR_TRANSPARENT,
-	bg_hover = COLOR_BUTTON_ACCENT_HOVER,
-	bg_active = COLOR_BUTTON_ACCENT_ACTIVE,
-	bg_selected = COLOR_TRANSPARENT,
-	text = COLOR_TAB_FG_BASE,
-	text_hover = COLOR_TAB_FG_HOVER,
-	text_active = COLOR_TAB_FG_ACTIVE,
-	text_selected = COLOR_TAB_FG_SELECTED,
-	text_selected_hover = COLOR_TAB_FG_SELECTED_HOVER,
-	border = COLOR_TRANSPARENT,
-	padding = {left = 5, right = 5, top = 5, bottom = 5},
-	radius = 0.5,
-	border_width = 0,
-	font = .BODY_REG_14,
-	font_size = 18,
-	width_type = .FIT,
-}
 
 // `index` disambiguates the clay id when the same `id` is reused (loops,
 // groups); `selected` paints the persistent selected color (segmented
@@ -135,6 +76,7 @@ button_text :: proc(
 	index: u32 = 0,
 	selected := false,
 	tooltip: Tooltip_Content = nil,
+	disabled := false,
 ) -> Button_Result {
 	result: Button_Result
 
@@ -142,36 +84,47 @@ button_text :: proc(
 	// *before* opening the element, keeping the visuals lag-free.
 	eid := clay.ID(id, index)
 	cap := api.Capture(u64(eid.id) | CAPTURE_BUTTON_BIT)
-	hovered := clay.PointerOver(eid)
-	result.hovered = hovered
 
-	// Claim the mouse only when the press *begins* over the button. A press
-	// that started elsewhere never owns this capture, so dragging onto the
-	// button while held does not activate it.
-	if hovered && input.left_pressed {
-		api.capture_mouse(input, cap)
-	}
+	// A disabled button is inert: it never hit-tests, captures, clicks, or
+	// shows a tooltip. Skip all interaction so `result` stays zeroed and the
+	// visuals resolve to the muted disabled palette below.
+	hovered := !disabled && clay.PointerOver(eid)
+	active := false
 
-	owns := api.has_capture(input, cap)
-	result.held = owns && input.left_down
-	active := result.held && hovered // drag off -> not active, drag back -> active
+	if !disabled {
+		result.hovered = hovered
 
-	// Resolve the press on mouse-up: a click counts only if we still own the
-	// press and the cursor is over the button. Release the capture either way.
-	if owns && input.left_released {
+		// Claim the mouse only when the press *begins* over the button. A press
+		// that started elsewhere never owns this capture, so dragging onto the
+		// button while held does not activate it.
+		if hovered && input.left_pressed {
+			api.capture_mouse(input, cap)
+		}
+
+		owns := api.has_capture(input, cap)
+		result.held = owns && input.left_down
+		active = result.held && hovered // drag off -> not active, drag back -> active
+
+		// Resolve the press on mouse-up: a click counts only if we still own the
+		// press and the cursor is over the button. Release the capture either way.
+		if owns && input.left_released {
+			if hovered {
+				result.clicked = true
+			}
+			api.release_capture(input, cap)
+		}
+
 		if hovered {
-			result.clicked = true
+			input.cursor = .Pointer
+			// The widget owns the element id, so it also owns the tooltip anchor.
+			// `nil` content (the default) means this button opted out.
+			if tooltip != nil {
+				tooltip_set(eid, tooltip)
+			}
 		}
-		api.release_capture(input, cap)
-	}
-
-	if hovered {
-		input.cursor = .Pointer
-		// The widget owns the element id, so it also owns the tooltip anchor.
-		// `nil` content (the default) means this button opted out.
-		if tooltip != nil {
-			tooltip_set(eid, tooltip)
-		}
+	} else if clay.PointerOver(eid) {
+		// Inert, but signal non-interactivity while the cursor is over it.
+		input.cursor = .Not_Allowed
 	}
 
 	sizing: clay.Sizing = {
@@ -182,8 +135,9 @@ button_text :: proc(
 		sizing.width = clay.SizingGrow()
 	}
 
-	bg := button_bg(style, active, hovered, selected)
-	fg := button_fg(style, active, hovered, selected)
+	st := button_state(active, hovered, selected, disabled)
+	bg := style.bg[st]
+	fg := style.fg[st]
 
 	if clay.UI(clay.ID(id, index))(
 	{
@@ -214,6 +168,7 @@ button_icon :: proc(
 	index: u32 = 0,
 	selected := false,
 	tooltip: Tooltip_Content = nil,
+	disabled := false,
 ) -> Button_Result {
 	result: Button_Result
 
@@ -221,36 +176,47 @@ button_icon :: proc(
 	// *before* opening the element, keeping the visuals lag-free.
 	eid := clay.ID(id, index)
 	cap := api.Capture(u64(eid.id) | CAPTURE_BUTTON_BIT)
-	hovered := clay.PointerOver(eid)
-	result.hovered = hovered
 
-	// Claim the mouse only when the press *begins* over the button. A press
-	// that started elsewhere never owns this capture, so dragging onto the
-	// button while held does not activate it.
-	if hovered && input.left_pressed {
-		api.capture_mouse(input, cap)
-	}
+	// A disabled button is inert: it never hit-tests, captures, clicks, or
+	// shows a tooltip. Skip all interaction so `result` stays zeroed and the
+	// visuals resolve to the muted disabled palette below.
+	hovered := !disabled && clay.PointerOver(eid)
+	active := false
 
-	owns := api.has_capture(input, cap)
-	result.held = owns && input.left_down
-	active := result.held && hovered // drag off -> not active, drag back -> active
+	if !disabled {
+		result.hovered = hovered
 
-	// Resolve the press on mouse-up: a click counts only if we still own the
-	// press and the cursor is over the button. Release the capture either way.
-	if owns && input.left_released {
+		// Claim the mouse only when the press *begins* over the button. A press
+		// that started elsewhere never owns this capture, so dragging onto the
+		// button while held does not activate it.
+		if hovered && input.left_pressed {
+			api.capture_mouse(input, cap)
+		}
+
+		owns := api.has_capture(input, cap)
+		result.held = owns && input.left_down
+		active = result.held && hovered // drag off -> not active, drag back -> active
+
+		// Resolve the press on mouse-up: a click counts only if we still own the
+		// press and the cursor is over the button. Release the capture either way.
+		if owns && input.left_released {
+			if hovered {
+				result.clicked = true
+			}
+			api.release_capture(input, cap)
+		}
+
 		if hovered {
-			result.clicked = true
+			input.cursor = .Pointer
+			// The widget owns the element id, so it also owns the tooltip anchor.
+			// `nil` content (the default) means this button opted out.
+			if tooltip != nil {
+				tooltip_set(eid, tooltip)
+			}
 		}
-		api.release_capture(input, cap)
-	}
-
-	if hovered {
-		input.cursor = .Pointer
-		// The widget owns the element id, so it also owns the tooltip anchor.
-		// `nil` content (the default) means this button opted out.
-		if tooltip != nil {
-			tooltip_set(eid, tooltip)
-		}
+	} else if clay.PointerOver(eid) {
+		// Inert, but signal non-interactivity while the cursor is over it.
+		input.cursor = .Not_Allowed
 	}
 
 	sizing: clay.Sizing = {
@@ -261,8 +227,9 @@ button_icon :: proc(
 		sizing.width = clay.SizingGrow()
 	}
 
-	bg := button_bg(style, active, hovered, selected)
-	fg := button_fg(style, active, hovered, selected)
+	st := button_state(active, hovered, selected, disabled)
+	bg := style.bg[st]
+	fg := style.fg[st]
 
 	if clay.UI(clay.ID(id, index))(
 	{
