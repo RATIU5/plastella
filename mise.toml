@@ -17,6 +17,7 @@ sources = [
   "source/api/*.odin",
   "source/editor/*.odin",
   "source/ui/*.odin",
+  "source/project/*.odin",
 ]
 outputs = ["{{ env.OUT_DIR }}/app{{ env.DLL_EXT }}"]
 run = [

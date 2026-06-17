@@ -19,6 +19,7 @@ Button_State :: enum u8 {
 	Active,
 	Selected,
 	Selected_Hover,
+	Selected_Active,
 	Disabled,
 }
 
@@ -43,6 +44,25 @@ Button_Result :: struct {
 	held:    bool,
 }
 
+// Max gap (seconds) between two clicks on the same button to count as a double.
+DOUBLE_CLICK_S :: 0.4
+
+// ponytail: single global slot — only one pointer, so only one button can be
+// mid-double-click. Make this a small map if multi-pointer ever matters.
+@(private)
+last_click: struct {
+	eid: u32,
+	t:   f64,
+}
+
+// Record a click and report whether it completes a double-click on `eid`.
+register_click :: proc(eid: u32, t: f64) -> (double: bool) {
+	double = eid == last_click.eid && t - last_click.t <= DOUBLE_CLICK_S
+	// Reset on a double so a triple click isn't read as two doubles.
+	last_click = double ? {} : {eid, t}
+	return
+}
+
 // Resolve the single visual state for this frame so the label/icon and the
 // background stay in sync (both index the same state). Priority: disabled and
 // active (pressed) dominate; hovering an already-selected control gets its own
@@ -51,14 +71,16 @@ button_state :: proc(active, hovered, selected, disabled: bool) -> Button_State 
 	switch {
 	case disabled:
 		return .Disabled
-	case active:
-		return .Active
+	case selected && active:
+		return .Selected_Active
 	case selected && hovered:
 		return .Selected_Hover
-	case hovered:
-		return .Hover
+	case active:
+		return .Active
 	case selected:
 		return .Selected
+	case hovered:
+		return .Hover
 	case:
 		return .Normal
 	}

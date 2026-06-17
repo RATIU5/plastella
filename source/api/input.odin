@@ -20,6 +20,7 @@ Cursor :: enum {
 
 Input :: struct {
 	mouse:         [2]f32, // window-relative, pixels
+	time:          f64, // seconds since start; for click timing
 	left_pressed:  bool,
 	left_released: bool,
 	left_down:     bool,

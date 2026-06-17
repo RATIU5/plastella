@@ -1,6 +1,7 @@
 package editor
 
 import api "../api"
+import project "../project"
 import ui "../ui"
 
 // Panel convention and hot-reload state rules: see docs/architecture.md.
@@ -8,7 +9,7 @@ import ui "../ui"
 // One field per panel; each panel defines its own state struct in its file.
 Editor_State :: struct {
 	sidebar: Sidebar_State,
-	project: Maybe(Project_State),
+	project: ^project.Project_State,
 }
 
 editor_ctx: ^Editor_State
@@ -37,6 +38,7 @@ reload :: proc(ctx: rawptr) {
 }
 
 shutdown :: proc() {
+	project.project_shutdown(editor_ctx.project)
 	free(editor_ctx)
 	editor_ctx = nil
 }

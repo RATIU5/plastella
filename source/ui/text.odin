@@ -1,6 +1,7 @@
 package ui
 
 import clay "../../vendor/clay"
+import api "../api"
 import "core:c"
 import "core:mem"
 
@@ -37,6 +38,32 @@ text :: proc(
 	} else {
 		clay.Text(text, font_cfg)
 	}
+}
+
+// Clickable text: wraps `text` in a hit-testable element (raw clay text has no
+// id) and reports a double-click on it. `id` must be unique per instance.
+text_clickable :: proc(
+	id: string,
+	label: string,
+	style: Text_Style,
+	color: clay.Color,
+	input: ^api.Input,
+	index: u32 = 0,
+) -> (
+	double_clicked: bool,
+) {
+	eid := clay.ID(id, index)
+	hovered := clay.PointerOver(eid)
+	if hovered {
+		input.cursor = .Pointer
+		if input.left_released {
+			double_clicked = register_click(eid.id, input.time)
+		}
+	}
+	if clay.UI(eid)({layout = {sizing = {clay.SizingFit(), clay.SizingFit()}}}) {
+		text(label, style, color)
+	}
+	return
 }
 
 ellipsize_text :: proc(text: string, max_width: f32, cfg: clay.TextElementConfig) -> string {

@@ -13,6 +13,7 @@ PRIMARY_BUTTON :: Button_Style {
 		.Active = GREY_28,
 		.Selected = GREY_46,
 		.Selected_Hover = GREY_35,
+		.Selected_Active = GREY_35,
 		.Disabled = GREY_24,
 	},
 	fg = {
@@ -21,6 +22,7 @@ PRIMARY_BUTTON :: Button_Style {
 		.Active = GREY_218,
 		.Selected = GREY_218,
 		.Selected_Hover = GREY_218,
+		.Selected_Active = GREY_218,
 		.Disabled = GREY_90,
 	},
 	border = GREY_50,
@@ -39,6 +41,7 @@ DEV_NOTICE_CLOSE_BUTTON :: Button_Style {
 		.Active = GREY_28,
 		.Selected = GREY_46,
 		.Selected_Hover = WARN_BG_HOVER,
+		.Selected_Active = WARN_BG_HOVER,
 		.Disabled = TRANSPARENT,
 	},
 	fg = {
@@ -47,6 +50,7 @@ DEV_NOTICE_CLOSE_BUTTON :: Button_Style {
 		.Active = GREY_160,
 		.Selected = GREY_140,
 		.Selected_Hover = GREY_180,
+		.Selected_Active = GREY_180,
 		.Disabled = GREY_90,
 	},
 	border = TRANSPARENT,
@@ -65,6 +69,7 @@ SIDEBAR_TAB_BUTTON :: Button_Style {
 		.Active = GREY_28,
 		.Selected = TRANSPARENT,
 		.Selected_Hover = GREY_35,
+		.Selected_Active = GREY_28,
 		.Disabled = TRANSPARENT,
 	},
 	fg = {
@@ -73,6 +78,7 @@ SIDEBAR_TAB_BUTTON :: Button_Style {
 		.Active = GREY_160,
 		.Selected = ACCENT,
 		.Selected_Hover = ACCENT,
+		.Selected_Active = ACCENT,
 		.Disabled = GREY_90,
 	},
 	border = TRANSPARENT,

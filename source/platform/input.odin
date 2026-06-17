@@ -21,6 +21,7 @@ poll_input :: proc(input: ^api.Input) {
 		return
 	}
 
+	input.time = rl.GetTime()
 	m := rl.GetMousePosition()
 	input.mouse = {m.x, m.y}
 	input.left_pressed = rl.IsMouseButtonPressed(.LEFT)
