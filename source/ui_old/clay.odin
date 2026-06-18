@@ -1,4 +1,4 @@
-package ui
+package ui_old
 
 import clay "../../vendor/clay"
 import "base:runtime"
@@ -14,13 +14,13 @@ import rlgl "vendor:raylib/rlgl"
 // survives hot reloads (which zero out the DLL's package globals). `state` is
 // re-pointed at this struct on every reload via `reload`.
 UI_State :: struct {
-	clay_context: ^clay.Context,
-	arena_memory: [^]u8,
-	fonts:        [dynamic]Raylib_Font,
-	icon_sheet:   rl.Texture2D,
-	icons:        [ICON]Icon,
-	tooltip:      Tooltip_State,
-	mouse:        clay.Vector2,
+	clay_context:  ^clay.Context,
+	arena_memory:  [^]u8,
+	fonts:         [dynamic]Raylib_Font,
+	icon_sheet:    rl.Texture2D,
+	icons:         [ICON]Icon,
+	tooltip:       Tooltip_State,
+	mouse:         clay.Vector2,
 	// Which input_text currently holds keyboard focus, by clay element id.
 	// 0 means none. Only one input can be focused at a time; set on mouse
 	// press inside an input, cleared when a press lands elsewhere.

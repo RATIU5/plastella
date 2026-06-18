@@ -1,4 +1,4 @@
-package ui
+package ui_old
 
 import clay "../../vendor/clay"
 import "core:math"

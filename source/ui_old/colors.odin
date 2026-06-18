@@ -1,4 +1,4 @@
-package ui
+package ui_old
 
 // ---------------------------------------------------------------------------
 // Base palette. Every raw color literal is defined exactly once here; greys are

@@ -1,4 +1,4 @@
-package ui
+package ui_old
 
 WIDTH_TYPE :: enum u8 {
 	FIT,
