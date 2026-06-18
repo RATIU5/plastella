@@ -40,6 +40,10 @@ Input :: struct {
 	// Backspace modifiers (Mac): CMD = delete whole input, CTRL = delete word.
 	backspace_all:  bool,
 	backspace_word: bool,
+	// Forward delete (the Delete key, not Backspace): erases right of the caret.
+	delete_forward: bool,
+	// Escape pressed this frame: inputs drop focus and clear their selection.
+	escape:         bool,
 }
 
 // Claim the mouse for `id`. Succeeds if the mouse is free or already ours.

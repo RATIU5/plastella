@@ -43,6 +43,43 @@ Input_Text_Result :: struct {
 	focused: bool,
 }
 
+// Selection span of the focused input, low..high byte offsets (anchor/caret
+// ordered). Equal ends mean an empty selection (just a caret).
+@(private)
+sel_range :: proc() -> (lo, hi: int) {
+	lo, hi = state.sel_anchor, state.sel_caret
+	if lo > hi do lo, hi = hi, lo
+	return
+}
+
+// Collapse the selection to a caret at byte offset `idx`.
+@(private)
+selection_clear :: proc(idx: int) {
+	state.sel_anchor = idx
+	state.sel_caret = idx
+}
+
+// Drop bytes [lo, hi) from a buffer, shifting the tail down.
+@(private)
+remove_bytes :: proc(buf: ^[dynamic]u8, lo, hi: int) {
+	n := len(buf^)
+	a, b := clamp(lo, 0, n), clamp(hi, 0, n)
+	if b <= a do return
+	copy(buf[a:], buf[b:])
+	resize(buf, n - (b - a))
+}
+
+// Insert `data` at byte offset `at`, shifting the tail up. copy handles the
+// overlapping move (memmove semantics).
+@(private)
+insert_bytes :: proc(buf: ^[dynamic]u8, at: int, data: []u8) {
+	if len(data) == 0 do return
+	n := len(buf^)
+	resize(buf, n + len(data))
+	copy(buf[at + len(data):], buf[at:n])
+	copy(buf[at:], data)
+}
+
 @(private)
 input_text_state :: proc(hovered, focused, disabled: bool) -> Input_Text_State {
 	switch {
@@ -93,6 +130,11 @@ input_text :: proc(
 				state.focused_input = 0
 			}
 		}
+		// Escape drops focus and clears the selection, leaving the buffer as-is.
+		if input.escape && state.focused_input == eid.id {
+			state.focused_input = 0
+			selection_clear(0)
+		}
 		focused = state.focused_input == eid.id
 
 		if hovered && input.left_pressed {
@@ -107,6 +149,26 @@ input_text :: proc(
 				result.clicked = true
 			}
 			api.release_capture(input, cap)
+		}
+
+		// Map mouse x to a caret slot in the text. A press sets both ends
+		// (collapsed caret); dragging with the mouse held moves only the caret,
+		// growing the selection from the anchor.
+		if focused && owns {
+			data := clay.GetElementData(eid)
+			if data.found {
+				cur := strings.to_string(value^)
+				local_x := input.mouse.x - data.boundingBox.x - f32(style.padding.left)
+				idx := text_index_at(cur, .REG_16, local_x)
+				if input.left_pressed {
+					state.sel_anchor = idx
+					state.sel_caret = idx
+					state.focus_time = input.time // keep caret solid on click
+				} else if input.left_down && idx != state.sel_caret {
+					state.sel_caret = idx
+					state.focus_time = input.time // and while dragging
+				}
+			}
 		}
 
 		if hovered {
@@ -130,46 +192,84 @@ input_text :: proc(
 
 	result.focused = focused
 
-	// Edit the caller's buffer while focused. Typing or deleting resets the
-	// blink so the caret stays solid through the keystroke.
+	// Edit the caller's buffer at the caret while focused. Typing or deleting
+	// resets the blink so the caret stays solid through the keystroke.
 	if focused {
+		caret := clamp(state.sel_caret, 0, len(value.buf))
+
+		// Any edit first removes the active selection, leaving the caret at its
+		// start — so typing replaces it and backspace just clears it.
+		lo, hi := sel_range()
+		edited := input.char_count > 0 || input.backspace || input.delete_forward
+		if edited && hi > lo {
+			remove_bytes(&value.buf, lo, hi)
+			caret = lo
+		}
+
+		// Insert typed runes at the caret, advancing past each.
 		for r in input.chars[:input.char_count] {
-			strings.write_rune(value, r)
+			b, n := utf8.encode_rune(r)
+			insert_bytes(&value.buf, caret, b[:n])
+			caret += n
 		}
-		if input.backspace {
+
+		// Backspace deletes left of the caret: whole, word, or one rune.
+		if input.backspace && hi <= lo && caret > 0 {
 			s := strings.to_string(value^)
-			if len(s) > 0 {
-				switch {
-				case input.backspace_all:
-					resize(&value.buf, 0)
-				case input.backspace_word:
-					// Drop trailing spaces, then the word before the caret.
-					end := len(s)
-					for end > 0 && s[end - 1] == ' ' do end -= 1
-					for end > 0 && s[end - 1] != ' ' do end -= 1
-					resize(&value.buf, end)
-				case:
-					_, w := utf8.decode_last_rune_in_string(s)
-					resize(&value.buf, len(value.buf) - w)
-				}
+			start := caret
+			switch {
+			case input.backspace_all:
+				start = 0
+			case input.backspace_word:
+				for start > 0 && s[start - 1] == ' ' do start -= 1
+				for start > 0 && s[start - 1] != ' ' do start -= 1
+			case:
+				_, w := utf8.decode_last_rune_in_string(s[:caret])
+				start = caret - w
 			}
+			remove_bytes(&value.buf, start, caret)
+			caret = start
 		}
-		if input.char_count > 0 || input.backspace {
+
+		// Forward delete erases the rune to the right of the caret (caret stays).
+		if input.delete_forward && hi <= lo && caret < len(value.buf) {
+			s := strings.to_string(value^)
+			_, w := utf8.decode_rune_in_string(s[caret:])
+			remove_bytes(&value.buf, caret, caret + w)
+		}
+
+		if edited {
 			state.focus_time = input.time
+			selection_clear(caret) // collapse selection to the new caret
 		}
 	}
 
 	str := strings.to_string(value^)
 
-	// Queue the caret just past the text. Box is last frame's (GetElementData
-	// lags layout by a frame) — fine for a blinking caret. .found guards the
-	// first frame before this id is laid out.
-	if focused && cursor_visible(input.time - state.focus_time) {
+	// Queue the selection highlight + caret. Box is last frame's (GetElementData
+	// lags layout by a frame) — fine here. .found guards the first frame before
+	// this id is laid out. Both are painted after clay in cursor_flush.
+	if focused {
 		data := clay.GetElementData(eid)
 		if data.found {
-			box := data.boundingBox
-			x := box.x + f32(style.padding.left) + text_width(str, .REG_16)
-			cursor_set(x, box.y + f32(style.padding.top), f32(style.font_size))
+			tx := data.boundingBox.x + f32(style.padding.left)
+			ty := data.boundingBox.y + f32(style.padding.top)
+			lo, hi := sel_range()
+			lo, hi = clamp(lo, 0, len(str)), clamp(hi, 0, len(str))
+
+			// Mirror the highlighted substring into the staging buffer.
+			strings.builder_reset(&state.selection)
+			strings.write_string(&state.selection, str[lo:hi])
+
+			if hi > lo {
+				x0 := tx + text_width(str[:lo], .REG_16)
+				x1 := tx + text_width(str[:hi], .REG_16)
+				selection_set(x0, ty, x1 - x0, f32(style.font_size))
+			}
+			if cursor_visible(input.time - state.focus_time) {
+				caret := clamp(state.sel_caret, 0, len(str))
+				cursor_set(tx + text_width(str[:caret], .REG_16), ty, f32(style.font_size))
+			}
 		}
 	}
 

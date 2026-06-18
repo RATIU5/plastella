@@ -5,6 +5,7 @@ import "base:runtime"
 import c "core:c/libc"
 import "core:fmt"
 import "core:mem"
+import "core:strings"
 import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
 
@@ -28,6 +29,14 @@ UI_State :: struct {
 	// measured from here so the caret shows solid the instant it's focused.
 	focus_time:    f64,
 	cursor:        Cursor_State,
+	// Text selection in the focused input, as byte offsets into its buffer.
+	// anchor is where the drag began, caret where it is now; equal = no
+	// selection (just a caret). Only meaningful while `focused_input` != 0.
+	sel_anchor:    int,
+	sel_caret:     int,
+	// Snapshot of the currently highlighted substring, refreshed each frame.
+	// Staging buffer for a future copy/cut.
+	selection:     strings.Builder,
 }
 
 state: ^UI_State
@@ -83,6 +92,7 @@ shutdown_clay :: proc() {
 	}
 	rl.UnloadTexture(state.icon_sheet)
 	delete(state.fonts)
+	strings.builder_destroy(&state.selection)
 	if state.arena_memory != nil {
 		free(state.arena_memory)
 	}

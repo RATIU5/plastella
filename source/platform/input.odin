@@ -15,6 +15,8 @@ poll_input :: proc(input: ^api.Input) {
 	input.backspace = false
 	input.backspace_all = false
 	input.backspace_word = false
+	input.delete_forward = false
+	input.escape = false
 
 	if !rl.IsWindowFocused() {
 		input.left_pressed = false
@@ -41,6 +43,8 @@ poll_input :: proc(input: ^api.Input) {
 		input.backspace_all = rl.IsKeyDown(.LEFT_SUPER) || rl.IsKeyDown(.RIGHT_SUPER)
 		input.backspace_word = rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
 	}
+	input.delete_forward = rl.IsKeyPressed(.DELETE) || rl.IsKeyPressedRepeat(.DELETE)
+	input.escape = rl.IsKeyPressed(.ESCAPE)
 
 	input.time = rl.GetTime()
 	m := rl.GetMousePosition()

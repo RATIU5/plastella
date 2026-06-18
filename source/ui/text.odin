@@ -57,6 +57,22 @@ text_width :: proc(s: string, style: Text_Style) -> f32 {
 	return measure_text(slice, &cfg, nil).width
 }
 
+// Byte offset in `s` whose rune boundary is nearest `local_x` (x measured from
+// the text's left edge, in points). Used to map a mouse click to a caret slot.
+// ponytail: O(n²) — re-measures each prefix; fine for single-line input fields.
+text_index_at :: proc(s: string, style: Text_Style, local_x: f32) -> int {
+	if local_x <= 0 do return 0
+	prev_w: f32 = 0
+	prev_i := 0
+	for i := 1; i <= len(s); i += 1 {
+		if i < len(s) && (s[i] & 0xC0) == 0x80 do continue // mid-rune byte
+		w := text_width(s[:i], style)
+		if local_x < (prev_w + w) / 2 do return prev_i
+		prev_w, prev_i = w, i
+	}
+	return len(s)
+}
+
 // Clickable text: wraps `text` in a hit-testable element (raw clay text has no
 // id) and reports a double-click on it. `id` must be unique per instance.
 text_clickable :: proc(
