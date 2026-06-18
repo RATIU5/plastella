@@ -126,8 +126,8 @@ sidebar :: proc(input: ^api.Input) {
 				case 0:
 					editor_ctx.project = project.project_init()
 				case 1:
-
 				}
+				ui.input_text("test:input", "", "Enter a name", ui.PRIMARY_INPUT_TEXT, input)
 			}
 		}
 

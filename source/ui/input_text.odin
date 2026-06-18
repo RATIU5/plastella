@@ -57,6 +57,8 @@ input_text_state :: proc(hovered, focused, disabled: bool) -> Input_Text_State {
 
 input_text :: proc(
 	id: string,
+	default_value: string,
+	placeholder: string,
 	style: Input_Text_Style,
 	input: ^api.Input,
 	index: u32 = 0,
@@ -104,6 +106,29 @@ input_text :: proc(
 		height = clay.SizingFit(),
 		width  = clay.SizingFit(),
 	}
+	if style.width_type == .GROW {
+		sizing.width = clay.SizingGrow()
+	}
 
-	return Input_Text_Result
+	st := input_text_state(hovered, focused, disabled)
+	bg := style.bg[st]
+	// fg := style.fg[st]
+	bd := style.border[st]
+
+	if clay.UI(clay.ID(id, index))(
+	{
+		layout = {
+			padding = style.padding,
+			childAlignment = {x = .Left, y = .Center},
+			sizing = sizing,
+		},
+		border = {width = style.border_width, color = bd},
+		backgroundColor = bg,
+		cornerRadius = style.radius,
+	},
+	) {
+		text(placeholder, .REG_16, style.placeholder)
+	}
+
+	return result
 }
