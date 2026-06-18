@@ -40,6 +40,23 @@ text :: proc(
 	}
 }
 
+// Rendered width of `s` in `style`, in points. Reuses the layout measure proc
+// so it matches what clay draws.
+text_width :: proc(s: string, style: Text_Style) -> f32 {
+	fs := text_styles[style]
+	cfg := clay.TextElementConfig {
+		fontId        = u16(fs.id),
+		fontSize      = fs.size,
+		letterSpacing = fs.letter_spacing,
+		lineHeight    = fs.line_height,
+	}
+	slice := clay.StringSlice {
+		length = i32(len(s)),
+		chars  = ([^]c.char)(raw_data(s)),
+	}
+	return measure_text(slice, &cfg, nil).width
+}
+
 // Clickable text: wraps `text` in a hit-testable element (raw clay text has no
 // id) and reports a double-click on it. `id` must be unique per instance.
 text_clickable :: proc(

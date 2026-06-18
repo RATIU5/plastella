@@ -20,6 +20,14 @@ UI_State :: struct {
 	icons:        [ICON]Icon,
 	tooltip:      Tooltip_State,
 	mouse:        clay.Vector2,
+	// Which input_text currently holds keyboard focus, by clay element id.
+	// 0 means none. Only one input can be focused at a time; set on mouse
+	// press inside an input, cleared when a press lands elsewhere.
+	focused_input: u32,
+	// When the focused input was clicked (api.Input.time). Blink phase is
+	// measured from here so the caret shows solid the instant it's focused.
+	focus_time:    f64,
+	cursor:        Cursor_State,
 }
 
 state: ^UI_State
@@ -119,6 +127,7 @@ frame_end :: proc() {
 	tooltip_flush()
 	commands := clay.EndLayout(rl.GetFrameTime())
 	clay_render(&commands)
+	cursor_flush()
 	rl.EndDrawing()
 }
 

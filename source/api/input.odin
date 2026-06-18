@@ -15,6 +15,7 @@ Cursor :: enum {
 	Default,
 	Resize_EW,
 	Pointer,
+	Text,
 	Not_Allowed,
 }
 
@@ -30,6 +31,15 @@ Input :: struct {
 	// Cursor requested by whoever handled input this frame; platform applies
 	// it at end of frame and resets it to .Default on the next poll.
 	cursor:        Cursor,
+	// Printable characters typed this frame, in order. Control/process keys
+	// (ESC, arrows, F-keys) never appear here — the platform only forwards
+	// codepoints. Backspace is the one editing key surfaced separately.
+	chars:         [16]rune,
+	char_count:    int,
+	backspace:     bool,
+	// Backspace modifiers (Mac): CMD = delete whole input, CTRL = delete word.
+	backspace_all:  bool,
+	backspace_word: bool,
 }
 
 // Claim the mouse for `id`. Succeeds if the mouse is free or already ours.

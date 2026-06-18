@@ -11,6 +11,11 @@ poll_input :: proc(input: ^api.Input) {
 	// so nothing hovers, and cancel any in-flight drag/press — a capture whose
 	// mouse-up landed in another app would otherwise stick forever. This is the
 	// one sanctioned place to reset `capture`, which we never touch otherwise.
+	input.char_count = 0
+	input.backspace = false
+	input.backspace_all = false
+	input.backspace_word = false
+
 	if !rl.IsWindowFocused() {
 		input.left_pressed = false
 		input.left_released = false
@@ -19,6 +24,22 @@ poll_input :: proc(input: ^api.Input) {
 		input.capture = api.CAPTURE_NONE
 		input.cursor = .Default
 		return
+	}
+
+	// Drain raylib's char queue: only printable codepoints land here, so ESC,
+	// arrows, etc. are filtered for free. Cap at the buffer; overflow this
+	// frame is unreachable in practice (queue is keystrokes since last poll).
+	for input.char_count < len(input.chars) {
+		c := rl.GetCharPressed()
+		if c == 0 do break
+		input.chars[input.char_count] = c
+		input.char_count += 1
+	}
+	// IsKeyPressedRepeat covers held-down backspace auto-repeat.
+	input.backspace = rl.IsKeyPressed(.BACKSPACE) || rl.IsKeyPressedRepeat(.BACKSPACE)
+	if input.backspace {
+		input.backspace_all = rl.IsKeyDown(.LEFT_SUPER) || rl.IsKeyDown(.RIGHT_SUPER)
+		input.backspace_word = rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
 	}
 
 	input.time = rl.GetTime()
@@ -39,6 +60,8 @@ apply_cursor :: proc(input: ^api.Input) {
 		rl.SetMouseCursor(.RESIZE_EW)
 	case .Pointer:
 		rl.SetMouseCursor(.POINTING_HAND)
+	case .Text:
+		rl.SetMouseCursor(.IBEAM)
 	case .Not_Allowed:
 		rl.SetMouseCursor(.NOT_ALLOWED)
 	}

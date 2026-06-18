@@ -5,6 +5,7 @@ import api "../api"
 import "../project"
 import "../ui"
 import "core:fmt"
+import "core:strings"
 
 SIDEBAR_MIN: f32 : 250
 SIDEBAR_MAX: f32 : 400
@@ -23,8 +24,9 @@ Sidebar_Tab :: enum {
 }
 
 Sidebar_State :: struct {
-	width: f32,
-	tab:   Sidebar_Tab,
+	width:        f32,
+	tab:          Sidebar_Tab,
+	project_name: strings.Builder,
 }
 
 sidebar :: proc(input: ^api.Input) {
@@ -127,7 +129,7 @@ sidebar :: proc(input: ^api.Input) {
 					editor_ctx.project = project.project_init()
 				case 1:
 				}
-				ui.input_text("test:input", "", "Enter a name", ui.PRIMARY_INPUT_TEXT, input)
+				ui.input_text("test:input", &sb.project_name, "Enter a name", ui.PRIMARY_INPUT_TEXT, input)
 			}
 		}
 

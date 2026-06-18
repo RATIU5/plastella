@@ -11,5 +11,4 @@ PRIMARY_INPUT_TEXT :: Input_Text_Style {
 	radius = {topLeft = 0.5, topRight = 0.5, bottomLeft = 0.5, bottomRight = 0.5},
 	font = .BODY_REG_16,
 	font_size = 16,
-	width_type = .FIT,
 }
