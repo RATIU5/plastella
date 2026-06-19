@@ -2,6 +2,12 @@ package input
 
 import rl "vendor:raylib"
 
+DBL_CLICK_MS: u16 : 100
+
+Input_State :: struct {
+	time: f64,
+}
+
 @(private)
 rl_mouse_button := [Mouse_Button]rl.MouseButton {
 	.LEFT    = .LEFT,
@@ -123,6 +129,15 @@ rl_keyboard_key := [Keyboard_Key]rl.KeyboardKey {
 	.KP_EQUAL      = .KP_EQUAL,
 }
 
+// 32 runes in length, this won't work when pasting lots of text at once
+@(private)
+char_buf: [32]rune
+
+@(private)
+input_state := Input_State {
+	time = 0,
+}
+
 mouse_pos :: proc() -> [2]f32 {
 	return rl.GetMousePosition()
 }
@@ -131,16 +146,8 @@ mouse_down :: proc(button: Mouse_Button) -> bool {
 	return rl.IsMouseButtonDown(rl_mouse_button[button])
 }
 
-mouse_up :: proc(button: Mouse_Button) -> bool {
-	return rl.IsMouseButtonUp(rl_mouse_button[button])
-}
-
 key_down :: proc(key: Keyboard_Key) -> bool {
 	return rl.IsKeyDown(rl_keyboard_key[key])
-}
-
-key_up :: proc(key: Keyboard_Key) -> bool {
-	return rl.IsKeyUp(rl_keyboard_key[key])
 }
 
 mod_down :: proc(mod: Modifiers) -> bool {
@@ -158,25 +165,38 @@ mod_down :: proc(mod: Modifiers) -> bool {
 	}
 }
 
-mod_up :: proc(mod: Modifiers) -> bool {
-	switch mod {
-	case .SHIFT:
-		return rl.IsKeyUp(.LEFT_SHIFT) || rl.IsKeyUp(.RIGHT_SHIFT)
-	case .CONTROL:
-		return rl.IsKeyUp(.LEFT_CONTROL) || rl.IsKeyUp(.RIGHT_CONTROL)
-	case .ALT:
-		return rl.IsKeyUp(.LEFT_ALT) || rl.IsKeyUp(.RIGHT_ALT)
-	case .SUPER:
-		return rl.IsKeyUp(.LEFT_SUPER) || rl.IsKeyUp(.RIGHT_SUPER)
-	case:
-		return false
-	}
+mouse_press :: proc(button: Mouse_Button) -> bool {
+	return rl.IsMouseButtonPressed(rl_mouse_button[button])
 }
 
-mouse_click :: proc(button: Mouse_Button) -> bool {
-	return rl.IsMouseButtonPressed(rl_mouse_button[button])
+mouse_dbl_press :: proc(button: Mouse_Button) -> bool {
+	// How to not capture mouse click and capture a dbl click???
+	return false
+}
+
+mouse_release :: proc(button: Mouse_Button) -> bool {
+	return rl.IsMouseButtonReleased(rl_mouse_button[button])
+}
+
+mouse_scroll :: proc() -> [2]f32 {
+	return rl.GetMouseWheelMoveV()
 }
 
 key_press :: proc(key: Keyboard_Key) -> bool {
 	return rl.IsKeyPressed(rl_keyboard_key[key])
+}
+
+key_release :: proc(key: Keyboard_Key) -> bool {
+	return rl.IsKeyReleased(rl_keyboard_key[key])
+}
+
+chars_typed :: proc() -> []rune {
+	n := 0
+	for n < len(char_buf) {
+		c := rl.GetCharPressed()
+		if c == 0 do break
+		char_buf[n] = c
+		n += 1
+	}
+	return char_buf[:n]
 }
