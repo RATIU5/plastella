@@ -1,5 +1,6 @@
-package input
+package io
 
+import "core:strings"
 import rl "vendor:raylib"
 
 DBL_CLICK_SEC: f64 : 0.3
@@ -7,12 +8,16 @@ DBL_CLICK_DIST: f32 : 10
 
 Input_State :: struct {
 	time:            f64,
+	mouse_pos:       [2]f32,
+	mouse_prev:      [2]f32,
 	last_press_time: [Mouse_Button]f64,
 	last_press_pos:  [Mouse_Button][2]f32,
 	dbl_this_lap:    [Mouse_Button]bool,
 	// fixed cap; large pastes truncate
 	char_buf:        [32]rune,
 	char_count:      int,
+	// read chars_dropped and handle manually
+	chars_dropped:   int,
 }
 
 @(private)
@@ -136,16 +141,74 @@ rl_keyboard_key := [Keyboard_Key]rl.KeyboardKey {
 	.KP_EQUAL      = .KP_EQUAL,
 }
 
+rl_mouse_cursor := [Mouse_Cursor]rl.MouseCursor {
+	.DEFAULT       = .DEFAULT,
+	.ARROW         = .ARROW,
+	.IBEAM         = .IBEAM,
+	.CROSSHAIR     = .CROSSHAIR,
+	.POINTING_HAND = .POINTING_HAND,
+	.RESIZE_EW     = .RESIZE_EW,
+	.RESIZE_NS     = .RESIZE_NS,
+	.RESIZE_NWSE   = .RESIZE_NWSE,
+	.RESIZE_NESW   = .RESIZE_NESW,
+	.RESIZE_ALL    = .RESIZE_ALL,
+	.NOT_ALLOWED   = .NOT_ALLOWED,
+}
+
+
 // Snapshot for signals raylib doesn't track (chars, double-click). Live signals wrap raylib directly.
 @(private)
 input_state: Input_State
 
+delta_time :: proc() -> f32 {
+	return rl.GetFrameTime()
+}
+
+screen_scale :: proc() -> [2]f32 {
+	return rl.GetWindowScaleDPI()
+}
+
+screen_pos :: proc() -> [2]f32 {
+	return rl.GetWindowPosition()
+}
+
+screen_size :: proc() -> [2]f32 {
+	w := cast(f32)rl.GetScreenWidth()
+	h := cast(f32)rl.GetScreenHeight()
+	return [2]f32{w, h}
+}
+
 mouse_pos :: proc() -> [2]f32 {
-	return rl.GetMousePosition()
+	return input_state.mouse_pos
+}
+
+mouse_delta :: proc() -> [2]f32 {
+	return input_state.mouse_pos - input_state.mouse_prev
 }
 
 mouse_down :: proc(button: Mouse_Button) -> bool {
 	return rl.IsMouseButtonDown(rl_mouse_button[button])
+}
+
+mouse_press :: proc(button: Mouse_Button) -> bool {
+	return rl.IsMouseButtonPressed(rl_mouse_button[button])
+}
+
+// Also fires mouse_press this lap; check dbl first if you need exclusivity.
+mouse_dbl_click :: proc(button: Mouse_Button) -> bool {
+	return input_state.dbl_this_lap[button]
+}
+
+mouse_release :: proc(button: Mouse_Button) -> bool {
+	return rl.IsMouseButtonReleased(rl_mouse_button[button])
+}
+
+mouse_scroll :: proc() -> [2]f32 {
+	return rl.GetMouseWheelMoveV()
+}
+
+set_cursor :: proc(cursor: Mouse_Cursor) {
+	rl.SetMouseCursor(rl_mouse_cursor[cursor])
 }
 
 key_down :: proc(key: Keyboard_Key) -> bool {
@@ -167,23 +230,6 @@ mod_down :: proc(mod: Modifiers) -> bool {
 	}
 }
 
-mouse_press :: proc(button: Mouse_Button) -> bool {
-	return rl.IsMouseButtonPressed(rl_mouse_button[button])
-}
-
-// Also fires mouse_press this lap; check dbl first if you need exclusivity.
-mouse_dbl_click :: proc(button: Mouse_Button) -> bool {
-	return input_state.dbl_this_lap[button]
-}
-
-mouse_release :: proc(button: Mouse_Button) -> bool {
-	return rl.IsMouseButtonReleased(rl_mouse_button[button])
-}
-
-mouse_scroll :: proc() -> [2]f32 {
-	return rl.GetMouseWheelMoveV()
-}
-
 key_press :: proc(key: Keyboard_Key) -> bool {
 	return rl.IsKeyPressed(rl_keyboard_key[key])
 }
@@ -200,11 +246,27 @@ chars_typed :: proc() -> []rune {
 	return input_state.char_buf[:input_state.char_count]
 }
 
+chars_dropped :: proc() -> int {
+	return input_state.chars_dropped
+}
+
+get_clipboard :: proc() -> string {
+	return string(rl.GetClipboardText())
+}
+
+set_clipboard :: proc(text: string) {
+	rl.SetClipboardText(strings.clone_to_cstring(text))
+}
+
 // Call once per lap, AFTER raylib pumps events (post-EndDrawing), BEFORE building UI.
 input_update :: proc() {
 	// reset; last lap's chars are stale
 	input_state.char_count = 0
+	input_state.chars_dropped = 0
 	input_state.time = rl.GetTime()
+
+	input_state.mouse_prev = input_state.mouse_pos
+	input_state.mouse_pos = rl.GetMousePosition()
 
 	for input_state.char_count < len(input_state.char_buf) {
 		// drains raylib's queue — must happen exactly once per lap, here only
@@ -212,6 +274,12 @@ input_update :: proc() {
 		if c == 0 do break
 		input_state.char_buf[input_state.char_count] = c
 		input_state.char_count += 1
+	}
+
+	for {
+		c := rl.GetCharPressed()
+		if c == 0 do break
+		input_state.chars_dropped += 1
 	}
 
 	now := input_state.time

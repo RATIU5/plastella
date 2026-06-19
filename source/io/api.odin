@@ -1,4 +1,4 @@
-package input
+package io
 
 Modifiers :: enum u8 {
 	SHIFT,
@@ -124,4 +124,19 @@ Keyboard_Key :: enum u16 {
 	KP_ADD,
 	KP_ENTER,
 	KP_EQUAL,
+}
+
+
+Mouse_Cursor :: enum u8 {
+	DEFAULT,
+	ARROW,
+	IBEAM,
+	CROSSHAIR,
+	POINTING_HAND,
+	RESIZE_EW,
+	RESIZE_NS,
+	RESIZE_NWSE,
+	RESIZE_NESW,
+	RESIZE_ALL,
+	NOT_ALLOWED,
 }
