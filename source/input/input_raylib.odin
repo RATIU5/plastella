@@ -2,10 +2,17 @@ package input
 
 import rl "vendor:raylib"
 
-DBL_CLICK_MS: u16 : 100
+DBL_CLICK_SEC: f64 : 0.3
+DBL_CLICK_DIST: f32 : 10
 
 Input_State :: struct {
-	time: f64,
+	time:            f64,
+	last_press_time: [Mouse_Button]f64,
+	last_press_pos:  [Mouse_Button][2]f32,
+	dbl_this_lap:    [Mouse_Button]bool,
+	// fixed cap; large pastes truncate
+	char_buf:        [32]rune,
+	char_count:      int,
 }
 
 @(private)
@@ -129,14 +136,9 @@ rl_keyboard_key := [Keyboard_Key]rl.KeyboardKey {
 	.KP_EQUAL      = .KP_EQUAL,
 }
 
-// 32 runes in length, this won't work when pasting lots of text at once
+// Snapshot for signals raylib doesn't track (chars, double-click). Live signals wrap raylib directly.
 @(private)
-char_buf: [32]rune
-
-@(private)
-input_state := Input_State {
-	time = 0,
-}
+input_state: Input_State
 
 mouse_pos :: proc() -> [2]f32 {
 	return rl.GetMousePosition()
@@ -169,9 +171,9 @@ mouse_press :: proc(button: Mouse_Button) -> bool {
 	return rl.IsMouseButtonPressed(rl_mouse_button[button])
 }
 
-mouse_dbl_press :: proc(button: Mouse_Button) -> bool {
-	// How to not capture mouse click and capture a dbl click???
-	return false
+// Also fires mouse_press this lap; check dbl first if you need exclusivity.
+mouse_dbl_click :: proc(button: Mouse_Button) -> bool {
+	return input_state.dbl_this_lap[button]
 }
 
 mouse_release :: proc(button: Mouse_Button) -> bool {
@@ -186,17 +188,52 @@ key_press :: proc(key: Keyboard_Key) -> bool {
 	return rl.IsKeyPressed(rl_keyboard_key[key])
 }
 
+key_press_repeat :: proc(key: Keyboard_Key) -> bool {
+	return rl.IsKeyPressedRepeat(rl_keyboard_key[key])
+}
+
 key_release :: proc(key: Keyboard_Key) -> bool {
 	return rl.IsKeyReleased(rl_keyboard_key[key])
 }
 
 chars_typed :: proc() -> []rune {
-	n := 0
-	for n < len(char_buf) {
+	return input_state.char_buf[:input_state.char_count]
+}
+
+// Call once per lap, AFTER raylib pumps events (post-EndDrawing), BEFORE building UI.
+input_update :: proc() {
+	// reset; last lap's chars are stale
+	input_state.char_count = 0
+	input_state.time = rl.GetTime()
+
+	for input_state.char_count < len(input_state.char_buf) {
+		// drains raylib's queue — must happen exactly once per lap, here only
 		c := rl.GetCharPressed()
 		if c == 0 do break
-		char_buf[n] = c
-		n += 1
+		input_state.char_buf[input_state.char_count] = c
+		input_state.char_count += 1
 	}
-	return char_buf[:n]
+
+	now := input_state.time
+	for button in Mouse_Button {
+		rl_btn := rl_mouse_button[button]
+
+		input_state.dbl_this_lap[button] = false
+
+		if rl.IsMouseButtonPressed(rl_btn) {
+			pos := rl.GetMousePosition()
+			dt := now - input_state.last_press_time[button]
+			dist := rl.Vector2Distance(pos, input_state.last_press_pos[button])
+
+			if dt < DBL_CLICK_SEC && dist < DBL_CLICK_DIST {
+				input_state.dbl_this_lap[button] = true
+				// sentinel: stop click 3 pairing with click 2
+				input_state.last_press_time[button] = -1e9
+			} else {
+				input_state.last_press_time[button] = now
+			}
+
+			input_state.last_press_pos[button] = pos
+		}
+	}
 }
