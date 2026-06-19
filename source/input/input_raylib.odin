@@ -174,5 +174,9 @@ mod_up :: proc(mod: Modifiers) -> bool {
 }
 
 mouse_click :: proc(button: Mouse_Button) -> bool {
+	return rl.IsMouseButtonPressed(rl_mouse_button[button])
+}
 
+key_press :: proc(key: Keyboard_Key) -> bool {
+	return rl.IsKeyPressed(rl_keyboard_key[key])
 }
