@@ -3,6 +3,8 @@ package render
 import be "../render_backend"
 import rl "vendor:raylib"
 
+FONT_SUPERSAMPLE :: 2
+
 FONT :: enum u16 {
 	UI_REG_14,
 	UI_BLD_14,
@@ -11,7 +13,7 @@ FONT :: enum u16 {
 @(private)
 load_font :: proc(id: FONT, size: u16, path: cstring) {
 	when be.BACKEND == .Raylib {
-		state.fonts[id] = rl.LoadFontEx(path, i32(size) * 2, nil, 0)
+		state.fonts[id] = rl.LoadFontEx(path, i32(size) * FONT_SUPERSAMPLE, nil, 0)
 		rl.SetTextureFilter(state.fonts[id].texture, rl.TextureFilter.TRILINEAR)
 	}
 }

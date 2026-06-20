@@ -8,10 +8,11 @@ import rl "vendor:raylib"
 // Create Render_State for each backend type
 when be.BACKEND == .Raylib {
 	Render_State :: struct {
-		fonts:    [FONT]rl.Font,
-		textures: [TEXTURES]rl.Texture2D,
-		clay_mem: [^]u8,
-		clay_ctx: ^clay.Context,
+		fonts:      [FONT]rl.Font,
+		textures:   [TEXTURES]rl.Texture2D,
+		clay_mem:   [^]u8,
+		clay_ctx:   ^clay.Context,
+		last_scale: [2]f32,
 	}
 }
 
@@ -51,6 +52,11 @@ frame_begin :: proc() {
 	screen := io.screen_size()
 	render := io.render_size()
 
+	scale := io.screen_scale()
+	if scale != state.last_scale {
+		clay.ResetMeasureTextCache()
+		state.last_scale = scale
+	}
 
 	// Begin graphics drawing
 	when be.BACKEND == .Raylib {
@@ -58,7 +64,13 @@ frame_begin :: proc() {
 	}
 
 	// Begin clay layout
-	begin_layout_clay(screen, io.mouse_pos(), io.mouse_down(.LEFT))
+	begin_layout_clay(
+		screen,
+		io.mouse_pos(),
+		io.mouse_down(.LEFT),
+		io.mouse_scroll(),
+		io.delta_time(),
+	)
 }
 
 frame_end :: proc() {
@@ -82,10 +94,16 @@ measure_text :: proc "c" (
 	if font.baseSize == 0 || font.glyphCount == 0 do return {}
 
 	line_width: f32
+	max_width: f32
 	rune_count: int
 	text_str := string(text.chars[:text.length])
 
 	for l in text_str {
+		if l == '\n' {
+			max_width = max(max_width, line_width)
+			line_width = 0
+			continue
+		}
 		rune_count += 1
 		glyph_idx := rl.GetGlyphIndex(font, l)
 		glyph := font.glyphs[glyph_idx]
@@ -95,10 +113,11 @@ measure_text :: proc "c" (
 			line_width += font.recs[glyph_idx].width + f32(glyph.offsetX)
 		}
 	}
+	max_width = max(max_width, line_width)
 
 	scale := f32(cfg.fontSize) / f32(font.baseSize)
 	height := cfg.lineHeight != 0 ? f32(cfg.lineHeight) : f32(cfg.fontSize)
 	spacing_total := f32(cfg.letterSpacing) * f32(max(rune_count - 1, 0))
 
-	return {line_width * scale + spacing_total, height}
+	return {max_width * scale + spacing_total, height}
 }

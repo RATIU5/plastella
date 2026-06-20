@@ -48,10 +48,17 @@ init_clay :: proc(size: [2]i32) -> (^clay.Context, [^]u8, bool) {
 }
 
 @(private)
-begin_layout_clay :: proc(screen: [2]i32, mouse_pos: [2]f32, mouse_down: bool) {
+begin_layout_clay :: proc(
+	screen: [2]i32,
+	mouse_pos: [2]f32,
+	mouse_down: bool,
+	scroll: [2]f32,
+	dt: f32,
+) {
 	reset_clay_error()
 	clay.SetLayoutDimensions({f32(screen.x), f32(screen.y)})
 	clay.SetPointerState(mouse_pos, mouse_down)
+	clay.UpdateScrollContainers(true, scroll, dt)
 	clay.BeginLayout()
 }
 
