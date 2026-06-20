@@ -1,5 +1,6 @@
 package textures
 
+import be "../../render_backend"
 import rl "vendor:raylib"
 
 UI_ICON_PATH :: "resources/textures/ui_icons.png"
@@ -16,30 +17,21 @@ UI_ICONS :: enum u16 {
 	CLOSE        = 6,
 }
 
-UI_Icon :: struct {
-	tex: ^rl.Texture2D,
-	src: rl.Rectangle,
-}
-
 @(private)
-ui_icons: [UI_ICONS]UI_Icon
+ui_icons_slice: [UI_ICONS]Texture_Slice
 
-load_ui_icons :: proc(texture: ^rl.Texture2D) {
-	for id in UI_ICONS {
-		idx := int(id)
-		col := idx % ICON_COLS
-		row := idx / ICON_COLS
-		ui_icons[id] = {
-			tex = texture,
-			src = {f32(col * ICON_CELL), f32(row * ICON_CELL), ICON_CELL, ICON_CELL},
+when be.BACKEND == .Raylib {
+	load_ui_icons :: proc(texture: ^rl.Texture2D) {
+		for id in UI_ICONS {
+			col, row := int(id) % ICON_COLS, int(id) / ICON_COLS
+			ui_icons_slice[id] = {
+				tex  = texture,
+				crop = {f32(col * ICON_CELL), f32(row * ICON_CELL), ICON_CELL, ICON_CELL},
+			}
 		}
 	}
 }
 
-unload_ui_icons :: proc() {
-	for icon in ui_icons do free(icon.tex)
-}
-
-ui_icon :: proc(id: UI_ICONS) -> ^UI_Icon {
-	return &ui_icons[id]
+ui_icon :: proc(id: UI_ICONS) -> Texture_Slice {
+	return ui_icons_slice[id]
 }

@@ -2,20 +2,75 @@ package render
 
 import clay "../../vendor/clay"
 import io "../io"
+import be "../render_backend"
 import rl "vendor:raylib"
-import rlgl "vendor:raylib/rlgl"
 
-Render_State :: struct {
-	fonts:    [FONT]rl.Font,
-	textures: [TEXS]rl.Texture2D,
-	clay_mem: [^]u8,
-	clay_ctx: ^clay.Context,
+// Create Render_State for each backend type
+when be.BACKEND == .Raylib {
+	Render_State :: struct {
+		fonts:    [FONT]rl.Font,
+		textures: [TEXTURES]rl.Texture2D,
+		clay_mem: [^]u8,
+		clay_ctx: ^clay.Context,
+	}
 }
 
 @(private)
 state: ^Render_State
 
-@(private)
+render_init :: proc() -> bool {
+	clay_ctx, clay_mem, ok := init_clay(io.screen_size())
+	if !ok {
+		return false
+	}
+
+	state = new(Render_State)
+	state.clay_mem = clay_mem
+	state.clay_ctx = clay_ctx
+
+	clay.SetMeasureTextFunction(measure_text, nil)
+
+	load_fonts()
+	load_textures()
+
+	return true
+}
+
+render_shutdown :: proc() {
+	if state == nil do return
+	unload_fonts()
+	unload_textures()
+	free(state.clay_mem)
+	free(state)
+	state = nil
+}
+
+frame_begin :: proc() {
+	// Process I/O for frame
+	io.update_input()
+	screen := io.screen_size()
+	render := io.render_size()
+
+
+	// Begin graphics drawing
+	when be.BACKEND == .Raylib {
+		draw_begin_rl(render, screen)
+	}
+
+	// Begin clay layout
+	begin_layout_clay(screen, io.mouse_pos(), io.mouse_down(.LEFT))
+}
+
+frame_end :: proc() {
+	commands := clay.EndLayout(io.delta_time())
+
+	when be.BACKEND == .Raylib {
+		render_clay_commands_rl(&commands)
+		draw_end_rl()
+	}
+}
+
+@(private = "file")
 measure_text :: proc "c" (
 	text: clay.StringSlice,
 	cfg: ^clay.TextElementConfig,
@@ -46,57 +101,4 @@ measure_text :: proc "c" (
 	spacing_total := f32(cfg.letterSpacing) * f32(max(rune_count - 1, 0))
 
 	return {line_width * scale + spacing_total, height}
-}
-
-render_init :: proc() -> bool {
-	clay_ctx, clay_mem, ok := init_clay(io.screen_size())
-	if !ok {
-		return false
-	}
-
-	state = new(Render_State)
-	state.clay_mem = clay_mem
-	state.clay_ctx = clay_ctx
-
-	clay.SetMeasureTextFunction(measure_text, nil)
-
-	load_fonts()
-	load_textures()
-
-	return true
-}
-
-render_shutdown :: proc() {
-	if state == nil do return
-	unload_fonts()
-	unload_textures()
-	free(state.clay_mem)
-	free(state)
-	state = nil
-}
-
-
-frame_begin :: proc() {
-	// IO
-	io.update_input()
-	screen := io.screen_size()
-	render := io.render_size()
-
-	// OPENGL
-	rl.BeginDrawing()
-	// After display hot-plug, raylib draws at old scale. Rebuild transform deterministically.
-	rlgl.Viewport(0, 0, render.x, render.y)
-	rlgl.MatrixMode(rlgl.PROJECTION)
-	rlgl.LoadIdentity()
-	rlgl.Ortho(0, f64(screen.x), f64(screen.y), 0, 0, 1)
-	rlgl.MatrixMode(rlgl.MODELVIEW)
-	rlgl.LoadIdentity()
-
-	rl.ClearBackground(rl.BLACK)
-
-	// CLAY
-	reset_clay_error()
-	clay.SetLayoutDimensions({f32(screen.x), f32(screen.y)})
-	clay.SetPointerState(io.mouse_pos(), io.mouse_down(.LEFT))
-	clay.BeginLayout()
 }
