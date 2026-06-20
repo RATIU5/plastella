@@ -13,10 +13,10 @@ Input_State :: struct {
 	last_press_time: [Mouse_Button]f64,
 	last_press_pos:  [Mouse_Button][2]f32,
 	dbl_this_lap:    [Mouse_Button]bool,
-	// fixed cap; large pastes truncate
+	// fixed cap; large pastes truncate.
 	char_buf:        [32]rune,
 	char_count:      int,
-	// read chars_dropped and handle manually
+	// read chars_dropped and handle manually.
 	chars_dropped:   int,
 }
 
@@ -158,7 +158,7 @@ rl_mouse_cursor := [Mouse_Cursor]rl.MouseCursor {
 
 // Snapshot for signals raylib doesn't track (chars, double-click). Live signals wrap raylib directly.
 @(private)
-input_state: Input_State
+state: Input_State
 
 delta_time :: proc() -> f32 {
 	return rl.GetFrameTime()
@@ -172,18 +172,24 @@ screen_pos :: proc() -> [2]f32 {
 	return rl.GetWindowPosition()
 }
 
-screen_size :: proc() -> [2]f32 {
-	w := cast(f32)rl.GetScreenWidth()
-	h := cast(f32)rl.GetScreenHeight()
-	return [2]f32{w, h}
+screen_size :: proc() -> [2]i32 {
+	w := rl.GetScreenWidth()
+	h := rl.GetScreenHeight()
+	return {w, h}
+}
+
+render_size :: proc() -> [2]i32 {
+	w := rl.GetRenderWidth()
+	h := rl.GetRenderHeight()
+	return {w, h}
 }
 
 mouse_pos :: proc() -> [2]f32 {
-	return input_state.mouse_pos
+	return state.mouse_pos
 }
 
 mouse_delta :: proc() -> [2]f32 {
-	return input_state.mouse_pos - input_state.mouse_prev
+	return state.mouse_pos - state.mouse_prev
 }
 
 mouse_down :: proc(button: Mouse_Button) -> bool {
@@ -196,7 +202,7 @@ mouse_press :: proc(button: Mouse_Button) -> bool {
 
 // Also fires mouse_press this lap; check dbl first if you need exclusivity.
 mouse_dbl_click :: proc(button: Mouse_Button) -> bool {
-	return input_state.dbl_this_lap[button]
+	return state.dbl_this_lap[button]
 }
 
 mouse_release :: proc(button: Mouse_Button) -> bool {
@@ -243,11 +249,11 @@ key_release :: proc(key: Keyboard_Key) -> bool {
 }
 
 chars_typed :: proc() -> []rune {
-	return input_state.char_buf[:input_state.char_count]
+	return state.char_buf[:state.char_count]
 }
 
 chars_dropped :: proc() -> int {
-	return input_state.chars_dropped
+	return state.chars_dropped
 }
 
 get_clipboard :: proc() -> string {
@@ -259,49 +265,49 @@ set_clipboard :: proc(text: string) {
 }
 
 // Call once per lap, AFTER raylib pumps events (post-EndDrawing), BEFORE building UI.
-input_update :: proc() {
-	// reset; last lap's chars are stale
-	input_state.char_count = 0
-	input_state.chars_dropped = 0
-	input_state.time = rl.GetTime()
+update_input :: proc() {
+	// reset; last lap's chars are stale.
+	state.char_count = 0
+	state.chars_dropped = 0
+	state.time = rl.GetTime()
 
-	input_state.mouse_prev = input_state.mouse_pos
-	input_state.mouse_pos = rl.GetMousePosition()
+	state.mouse_prev = state.mouse_pos
+	state.mouse_pos = rl.GetMousePosition()
 
-	for input_state.char_count < len(input_state.char_buf) {
-		// drains raylib's queue — must happen exactly once per lap, here only
+	for state.char_count < len(state.char_buf) {
+		// drains raylib's queue — must happen exactly once per lap, here only.
 		c := rl.GetCharPressed()
 		if c == 0 do break
-		input_state.char_buf[input_state.char_count] = c
-		input_state.char_count += 1
+		state.char_buf[state.char_count] = c
+		state.char_count += 1
 	}
 
 	for {
 		c := rl.GetCharPressed()
 		if c == 0 do break
-		input_state.chars_dropped += 1
+		state.chars_dropped += 1
 	}
 
-	now := input_state.time
+	now := state.time
 	for button in Mouse_Button {
 		rl_btn := rl_mouse_button[button]
 
-		input_state.dbl_this_lap[button] = false
+		state.dbl_this_lap[button] = false
 
 		if rl.IsMouseButtonPressed(rl_btn) {
 			pos := rl.GetMousePosition()
-			dt := now - input_state.last_press_time[button]
-			dist := rl.Vector2Distance(pos, input_state.last_press_pos[button])
+			dt := now - state.last_press_time[button]
+			dist := rl.Vector2Distance(pos, state.last_press_pos[button])
 
 			if dt < DBL_CLICK_SEC && dist < DBL_CLICK_DIST {
-				input_state.dbl_this_lap[button] = true
-				// sentinel: stop click 3 pairing with click 2
-				input_state.last_press_time[button] = -1e9
+				state.dbl_this_lap[button] = true
+				// sentinel: stop click 3 pairing with click 2.
+				state.last_press_time[button] = -1e9
 			} else {
-				input_state.last_press_time[button] = now
+				state.last_press_time[button] = now
 			}
 
-			input_state.last_press_pos[button] = pos
+			state.last_press_pos[button] = pos
 		}
 	}
 }

@@ -1,4 +1,4 @@
-package layout
+package render
 
 import clay "../../vendor/clay"
 import "base:runtime"
@@ -22,7 +22,7 @@ CLAY_TRACE :: proc(phase: string, loc := #caller_location) {
 }
 
 @(private)
-clay_err_handler :: proc "c" (err: clay.ErrorData) {
+err_handler :: proc "c" (err: clay.ErrorData) {
 	context = runtime.default_context()
 	trace := cast(^Clay_Trace)err.userData
 	if trace != nil {
@@ -45,10 +45,9 @@ clay_err_handler :: proc "c" (err: clay.ErrorData) {
 	}
 }
 
-// Must deallocate the returned memory
-init_clay :: proc(size: [2]f32) -> (^clay.Context, [^]u8, bool) {
-	reset_clay_error()
-
+// Must deallocate the returned memory.
+// This function does not set the text measuring function for clay.
+init_clay :: proc(size: [2]i32) -> (^clay.Context, [^]u8, bool) {
 	min_size := clay.MinMemorySize()
 	mem := make([^]u8, min_size)
 
@@ -58,8 +57,8 @@ init_clay :: proc(size: [2]f32) -> (^clay.Context, [^]u8, bool) {
 
 	ctx := clay.Initialize(
 		arena,
-		{size.x, size.y},
-		{handler = clay_err_handler, userData = &clay_trace},
+		{f32(size.x), f32(size.y)},
+		{handler = err_handler, userData = &clay_trace},
 	)
 
 	if ctx == nil || clay_trace.had_error {
@@ -71,6 +70,7 @@ init_clay :: proc(size: [2]f32) -> (^clay.Context, [^]u8, bool) {
 	return ctx, mem, true
 }
 
+// Call at the beginning of a frame
 reset_clay_error :: proc() {
 	clay_trace.had_error = false
 }
