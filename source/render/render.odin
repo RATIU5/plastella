@@ -82,7 +82,7 @@ frame_end :: proc() {
 	}
 }
 
-@(private = "file")
+@(private)
 measure_text :: proc "c" (
 	text: clay.StringSlice,
 	cfg: ^clay.TextElementConfig,
