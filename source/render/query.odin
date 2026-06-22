@@ -15,6 +15,10 @@ pointer_over :: proc(label: string) -> bool {
 	return clay.PointerOver(element_id(label))
 }
 
+active_over :: proc(label: string, button := io.Mouse_Button.LEFT) -> bool {
+	return pointer_over(label) && io.mouse_down(button)
+}
+
 clicked :: proc(label: string, button := io.Mouse_Button.LEFT) -> bool {
 	return pointer_over(label) && io.mouse_press(button)
 }

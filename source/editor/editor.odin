@@ -2,7 +2,7 @@ package editor
 
 import api "../api"
 import project "../project"
-import ui "../ui"
+import render "../render"
 
 // Panel convention and hot-reload state rules: see docs/architecture.md.
 
@@ -24,13 +24,11 @@ init :: proc() -> ^Editor_State {
 }
 
 frame :: proc(input: ^api.Input) {
-	ui.frame_begin(input.mouse, input.left_down)
+	render.frame_begin()
 
 	sidebar(input)
 
-	ui.dev_notice_render(input)
-
-	ui.frame_end()
+	render.frame_end()
 }
 
 reload :: proc(ctx: rawptr) {

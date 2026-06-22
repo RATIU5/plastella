@@ -3,8 +3,8 @@ package editor
 import clay "../../vendor/clay"
 import api "../api"
 import "../project"
+import textures "../render/textures"
 import "../ui"
-import "core:fmt"
 import "core:strings"
 
 SIDEBAR_MIN: f32 : 250
@@ -82,31 +82,12 @@ sidebar :: proc(input: ^api.Input) {
 			clip = {horizontal = true},
 		},
 		) {
-			text_cfg := clay.TextElementConfig {
-				fontSize  = 14,
-				fontId    = u16(ui.FONT.BODY_BLD_14),
-				textColor = ui.COLOR_TEXT,
-				wrapMode  = clay.TextWrapMode.None,
-			}
-
 			// Sidebar:Header
 			project_name_id := clay.ID("Sidebar:ProjectName")
 			project_name := editor_ctx.project != nil ? editor_ctx.project.name : "Plastella"
 			if clay.UI(project_name_id)(
 			{layout = {sizing = {width = clay.SizingFit(), height = clay.SizingFit()}}},
 			) {
-				if ui.text_clickable(
-					"__Text_Clickable",
-					ui.ellipsize_text(project_name, sb.width - 88, text_cfg),
-					.REG_14,
-					ui.COLOR_TEXT,
-					input,
-				) {
-					fmt.printfln("Test")
-				}
-			}
-			if clay.PointerOver(project_name_id) {
-				ui.tooltip_set(project_name_id, project_name)
 			}
 		}
 
@@ -122,15 +103,7 @@ sidebar :: proc(input: ^api.Input) {
 			},
 		},
 		) {
-			if editor_ctx.project == nil do if clay.UI(clay.ID("Sidebar:Content:No_Project"))({layout = {sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()}, childAlignment = {clay.LayoutAlignmentX.Center, clay.LayoutAlignmentY.Center}, layoutDirection = clay.LayoutDirection.TopToBottom, childGap = 15, padding = {left = 5, right = 5, top = 5, bottom = 5}}}) {
-				ui.text("Create a new project", .REG_20, ui.COLOR_NO_PROJECT_TEXT)
-				switch ui.button_group_bordered("Button:Sidebar:Project_Commands", []string{"New Project", "Open Project"}, -1, ui.PRIMARY_BUTTON, input, vertical = true) {
-				case 0:
-					editor_ctx.project = project.project_init()
-				case 1:
-				}
-				ui.input_text("test:input", &sb.project_name, "Enter a name", ui.PRIMARY_INPUT_TEXT, input)
-			}
+
 		}
 
 		// Sidebar:Footer
@@ -150,25 +123,12 @@ sidebar :: proc(input: ^api.Input) {
 			border = {width = {top = 1}, color = ui.COLOR_SIDEBAR_BORDER},
 		},
 		) {
-			is_disabled := editor_ctx.project == nil
-			if ui.button("Button:Tab:Project", ui.get_icon(.PROJECT), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Projects, tooltip = "Projects").clicked {
-				sb.tab = .Projects
-			}
-			if ui.button("Button:Tab:Map", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Map, tooltip = "Map", disabled = is_disabled).clicked {
-				sb.tab = .Map
-			}
-			if ui.button("Button:Tab:Tileset", ui.get_icon(.TILESETS), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Tilesets, tooltip = "Tilesets", disabled = is_disabled).clicked {
-				sb.tab = .Tilesets
-			}
-			if ui.button("Button:Tab:Sprites", ui.get_icon(.SPRITES), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Sprites, tooltip = "Sprites", disabled = is_disabled).clicked {
-				sb.tab = .Sprites
-			}
-			if ui.button("Button:Tab:Level_Editor", ui.get_icon(.LEVEL_EDITOR), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .LevelEditor, tooltip = "Level Editor", disabled = is_disabled).clicked {
-				sb.tab = .LevelEditor
-			}
-			if ui.button("Button:Tab:Settings", ui.get_icon(.SETTINGS), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Settings, tooltip = "Settings", disabled = is_disabled).clicked {
-				sb.tab = .Settings
-			}
+			ui.button("Button:Tab:Project", textures.UI_ICONS.PROJECT, .SIDEBAR_TAB)
+			ui.button("Button:Tab:Map", textures.UI_ICONS.MAP, .SIDEBAR_TAB)
+			ui.button("Button:Tab:Tileset", textures.UI_ICONS.TILESETS, .SIDEBAR_TAB)
+			ui.button("Button:Tab:Sprites", textures.UI_ICONS.SPRITES, .SIDEBAR_TAB)
+			ui.button("Button:Tab:Level_Editor", textures.UI_ICONS.LEVEL_EDITOR, .SIDEBAR_TAB)
+			ui.button("Button:Tab:Settings", textures.UI_ICONS.SETTINGS, .SIDEBAR_TAB)
 		}
 	}
 }

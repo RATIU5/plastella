@@ -48,6 +48,12 @@ init_clay :: proc(size: [2]i32) -> (^clay.Context, [^]u8, bool) {
 }
 
 @(private)
+reload_clay :: proc(clay_ctx: ^clay.Context) {
+	clay.SetCurrentContext(clay_ctx)
+	clay.SetMeasureTextFunction(measure_text, nil)
+}
+
+@(private)
 begin_layout_clay :: proc(
 	screen: [2]i32,
 	mouse_pos: [2]f32,

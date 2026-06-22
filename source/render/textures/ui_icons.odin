@@ -32,6 +32,6 @@ when be.BACKEND == .Raylib {
 	}
 }
 
-ui_icon :: proc(id: UI_ICONS) -> Texture_Slice {
-	return ui_icons_slice[id]
+ui_icon :: proc(id: UI_ICONS) -> ^Texture_Slice {
+	return &ui_icons_slice[id]
 }

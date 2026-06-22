@@ -19,10 +19,10 @@ when be.BACKEND == .Raylib {
 @(private)
 state: ^Render_State
 
-render_init :: proc() -> bool {
+render_init :: proc() -> ^Render_State {
 	clay_ctx, clay_mem, ok := init_clay(io.screen_size())
 	if !ok {
-		return false
+		return nil
 	}
 
 	state = new(Render_State)
@@ -34,7 +34,7 @@ render_init :: proc() -> bool {
 	load_fonts()
 	load_textures()
 
-	return true
+	return state
 }
 
 render_shutdown :: proc() {
@@ -44,6 +44,13 @@ render_shutdown :: proc() {
 	free(state.clay_mem)
 	free(state)
 	state = nil
+}
+
+render_reload :: proc(render_state: rawptr) {
+	state = (^Render_State)(render_state)
+	reload_clay(state.clay_ctx)
+	unload_textures()
+	load_textures()
 }
 
 frame_begin :: proc() {

@@ -3,6 +3,7 @@ package app
 import api "../api"
 import editor "../editor"
 import platform "../platform"
+import render "../render"
 import ui "../ui"
 import "base:runtime"
 
@@ -44,10 +45,10 @@ app_init_window :: proc() {
 app_init :: proc() {
 	am = new(api.App_Memory)
 	am^ = api.App_Memory {
-		run = true,
+		run          = true,
+		render_state = render.render_init(),
+		editor       = editor.init(),
 	}
-	am.ui_ctx = ui.init_clay()
-	am.editor = editor.init()
 }
 
 @(export)
@@ -64,7 +65,7 @@ app_should_run :: proc() -> bool {
 @(export)
 app_shutdown :: proc() {
 	editor.shutdown()
-	ui.shutdown_clay()
+	render.render_shutdown()
 	free(am)
 }
 
@@ -87,7 +88,7 @@ app_memory_size :: proc() -> int {
 app_hot_reloaded :: proc(mem: rawptr) {
 	am = (^api.App_Memory)(mem)
 	// Re-point clay's context and font tables, which the new DLL zeroed out.
-	ui.reload(am.ui_ctx)
+	render.render_reload(am.render_state)
 	editor.reload(am.editor)
 }
 
