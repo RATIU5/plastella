@@ -1,122 +1,137 @@
 # UI Refactor — Path to a Compiling Window
 
-Branch: `ui-refactor`. Goal: unwind the clashing old/new code into a clean,
-raylib-only architecture that compiles and shows a window, then layer features
-back.
+Branch: `ui-refactor`. Goal: cut the clashing old/new code down to a clean,
+raylib-only path that compiles and shows a window, then rebuild widgets and the
+editor on top of the new `io`/`render`/`ui` stack.
 
-## The core clash
+## The architecture we're rebuilding toward
 
-Two parallel input worlds are wired into the same call graph:
+Clay is immediate-mode: the widget tree only exists as the `clay.UI(...)` calls
+made *between* `render.frame_begin()` and `render.frame_end()`. So widgets don't
+"live in" render or app — they're declared in the gap. Four layers, each owns one
+thing:
 
-| Concern  | Old (still live)                          | New (still live)        |
-|----------|-------------------------------------------|-------------------------|
-| Input    | `api.Input` struct + `platform/input.odin`| `io` query procs        |
-| Capture  | `api.capture_*(^Input)`                    | **missing in `io`**     |
-| Window   | `platform/window.odin` (needs `api.Input`)| —                       |
-| Consumers| `app`, `editor`, `editor/sidebar`         | `render`, `ui/button`   |
+| Package  | Owns                                                                 |
+|----------|----------------------------------------------------------------------|
+| `render` | the mechanism: clay+raylib pump and draw, query helpers (`pointer_over`, `clicked`) |
+| `ui`     | reusable widget *procs* (`button`) — stateless, called during the gap |
+| `editor` | *composition*: declares the actual tree (sidebar, panels) via `ui.*` + `clay.UI` |
+| `app`    | *ordering*: `frame_begin → editor.frame → frame_end`, plus window lifecycle |
 
-The `render`/`io`/`ui` side compiles internally (self-consistent, gated). The
-break is that **`app` and `editor` still speak `api.Input`**, `editor/sidebar`
-imports the *new* `ui` (whose `button.odin` was rewritten against `io`/`render`),
-and window-drag needs `api.Input` which capture hasn't moved off yet. The old and
-new halves meet in `app_update` and `editor.frame` and don't agree.
+The frame, end to end:
 
-The one true blocker behind all of it: **capture hasn't migrated to `io`**, so
-`api` can't be deleted, so the old path can't die.
+```odin
+render.frame_begin()   // io.update_input(); clay.BeginLayout(...mouse)
+editor.frame()         // declares the widget tree  ← the gap
+render.frame_end()     // clay.EndLayout() → render commands → draw
+```
 
-## Strategy
+**`app` owns the begin/end pair**, not editor. (Today `editor.frame` calls them
+internally — that moves to `app`.) Milestone 1 is just this gap left empty.
 
-Don't migrate everything and compile once at the end. Cut the call graph down to
-`main → app → window → render(clear)`, prove the window, then re-add capture, then
-the editor.
+## No global capture
+
+The old `api.Capture` id-arbiter is gone. Widgets already don't use it — buttons
+resolve hover/click through clay hit-testing (`render.pointer_over`) plus live
+raylib state (`io.mouse_down`). The only thing that ever needed capture is a
+**drag** (sidebar resize, window drag), and a drag survives the cursor leaving the
+widget on its own, because `io.mouse_down(.LEFT)` is global raylib state. So each
+drag uses a local bool:
+
+```odin
+// in Sidebar_State: resizing: bool
+if near && io.mouse_press(.LEFT) do sb.resizing = true
+if io.mouse_release(.LEFT)      do sb.resizing = false
+if sb.resizing do sb.width = clamp(io.mouse_pos().x, SIDEBAR_MIN, SIDEBAR_MAX)
+// ponytail: per-widget drag flag; add a global arbiter only if two drag
+// regions can ever claim the same press (they can't today)
+```
 
 ---
 
-## Milestone 1 — Blank window (cut editor + capture out of the path)
+## Step 0 — What to remove so it compiles (blank window)
 
-Goal: a window that clears to a color, compiling.
+Odin only builds packages reachable from `main`. Drop the imports and the
+`api`/`platform`/`editor` packages fall out of the build entirely — **leave those
+files on disk to rewrite later.** Concrete edits, all in `app/app.odin`:
 
-1. **`app.odin`**: remove `import api` and the `input: api.Input` field from
-   `App_Memory` (leave `api/types.odin` for now, just stop using the field). In
-   `app_update`, replace the body with:
-   `if io.window_minimized { io.idle_pump_events(); return }` then a bare
-   `render.frame_begin(); render.frame_end()`. Drop the `platform.poll_input` /
-   `handle_window_drag` / `apply_cursor` calls and `editor.frame` **temporarily**.
-2. **Window lifecycle into `io`**: move `init_window` / `shutdown_window` /
-   `window_should_close` / `window_minimized` / `idle_pump_events` from
-   `platform/window.odin` into a new `io/window.odin`. **Leave `handle_window_drag`
-   and the macOS titlebar behind for now** (they need capture). Point `app`'s
-   `init_window` / `shutdown_window` / `should_run` exports at `io.*`.
-3. **`editor.frame`**: stub it to nothing, or just don't call it yet.
-4. Delete nothing yet. Build. **You should get a window.** If it won't compile,
-   the errors are now contained to `app` + `io` only.
+1. **Drop imports** `api`, `platform`, `editor`. Keep `render`, `ui`, and add
+   `io`. (`api`, `platform`, `editor` now compile to nothing — ignore them.)
+2. **Move `App_Memory` into `app`** (it's the only thing app used from `api`):
+   ```odin
+   App_Memory :: struct { run: bool, render_state: rawptr, editor: rawptr }
+   ```
+   `editor` field can stay a `rawptr` (harmless) or be dropped — your call when
+   you rewrite the editor.
+3. **Replace the `app_update` body** with just the empty gap:
+   ```odin
+   if io.window_minimized() { io.idle_pump_events(); return }
+   render.frame_begin()
+   render.frame_end()
+   free_all(context.temp_allocator)
+   ```
+   Drops the now-dead `platform.poll_input` / `editor.frame` / `handle_window_drag`
+   / `apply_cursor` and the `am.input` reference (which never existed on
+   `App_Memory` — a current break).
+4. **Point window lifecycle at `io`**: `app_init_window`, `app_shutdown_window`,
+   `app_should_run`, the minimized check → `io.*`. This requires Step-1 below
+   (moving the lifecycle procs into `io`); until then they don't resolve.
+5. **`app_init` / `app_shutdown`**: drop `editor.init()` / `editor.shutdown()`
+   and the `editor` field init. Keep `render.render_init()` / `render_shutdown()`.
+6. **`app_memory_layout_hash`**: drop the `editor.Editor_State` line; hash only
+   the local `App_Memory`.
+7. **`app_set_reload_status`**: `ui.dev_notice_show/hide` don't exist yet —
+   another current break. Stub the body to `// TODO: reload toast` for now.
 
-## Milestone 2 — Capture lands in `io`
+After Step 0 + Step 1, you have a window. Any remaining errors are contained to
+`app` + `io`.
 
-Move capture so the old `api` can die.
+---
 
-5. **New `io/capture.odin`**: port `Capture`, `CAPTURE_NONE`, and
-   `capture_mouse(id)` / `has_capture(id)` / `release_capture(id)` — but as
-   **package-global** over `io`'s `state` (no `^Input` param). Add a
-   `capture: Capture` field to `Input_State`.
-6. **Focus handling in `update_input`**: the old `poll_input` had the one
-   sanctioned focus-loss reset (park mouse, clear capture, cancel in-flight drag).
-   The new `update_input` doesn't check focus — add an early
-   `if !rl.IsWindowFocused()` branch that clears `state.capture`. This is the
-   *only* place capture resets; do **not** clear it in the normal per-frame reset
-   (it spans frames).
-7. Note you no longer need `api.Input`'s `backspace_all/word`, `delete_forward`,
-   `escape`, `chars` fields — editor queries those directly via
-   `io.key_press(.ESCAPE)`, `io.mod_down(.SUPER)`, `io.chars_typed()`. The query
-   model replaces the snapshot struct.
+## Milestones to rebuild
 
-## Milestone 3 — Window drag back, on io capture
+### M1 — Window lifecycle into `io`
+Move `init_window` / `shutdown_window` / `window_should_close` /
+`window_minimized` / `idle_pump_events` / `setup_fullsize_titlebar` (and the F5/F6
+force-reload helpers) from `platform/window.odin` into a new `io/window.odin`.
+**Leave `handle_window_drag` and `global_cursor` behind** — they come back in M3.
+With Step 0 done, this is what makes the blank window actually compile and run.
 
-8. Bring `handle_window_drag` + macOS titlebar into `io/window.odin`, rewritten to
-   use `io.capture_mouse(WINDOW_DRAG_CAPTURE)`, `io.mouse_press(.LEFT)`,
-   `io.mouse_release(.LEFT)`, `io.screen_scale()`, `io.screen_pos()`.
-   `global_cursor` (the NS/raylib leaf) stays here too. Call
-   `io.handle_window_drag()` from `app_update` after `editor.frame`.
+### M2 — Window drag back (local bool, no capture)
+Bring `handle_window_drag` + `global_cursor` + the titlebar hit-test into
+`io/window.odin`, rewritten to a local `@(static) dragging: bool` instead of
+`capture_mouse`. Drive it from `io.mouse_press/release(.LEFT)`, `io.mouse_pos()`,
+`io.screen_pos()`, `io.screen_scale()`. Call `io.handle_window_drag()` from
+`app_update` **after** `editor.frame` (so UI gets first claim on the click).
 
-## Milestone 4 — Editor back on io
+### M3 — Editor back on `io`
+1. `editor.frame :: proc()` — drop the `^api.Input` param. Reads go through `io`.
+   Remove its internal `render.frame_begin/end` (app owns those now).
+2. `editor/sidebar.odin`: drop `import api`; replace the capture dance with the
+   local `resizing` bool (see "No global capture" above); cursor via
+   `io.set_cursor(.RESIZE_EW)`. Reconcile against the current `ui.button` API.
+3. `editor/editor.odin`: drop `import api`, drop the `input` param threading.
+4. Re-enable in `app_update`: `frame_begin(); editor.frame(); frame_end()`.
 
-9. **`editor.frame`**: drop the `input: ^api.Input` param entirely →
-   `frame :: proc()`. Reads happen via `io`.
-10. **`editor/sidebar.odin`**: replace `api.Capture(100)` → `io.Capture(100)`,
-    `api.capture_mouse(input, ...)` → `io.capture_mouse(...)`, etc. Remove
-    `import api`. Reconcile against the new `ui.button` API (this is where the
-    `ui` rewrite meets `sidebar` — likely some signature fixes).
-11. **`editor.odin`**: remove `import api`, drop the `input` param from the
-    `frame` / `sidebar` calls.
-12. Re-enable `editor.frame()` in `app_update`.
+### M4 — Reload toast (optional, when you want it)
+Add `ui.dev_notice_show/hide` and wire `app_set_reload_status` back up. Pure
+feature; skip until the rest is solid.
 
-## Milestone 5 — Delete the old world
-
-13. Delete `source/api/` and `source/platform/` entirely. Confirm no references
-    remain (`grep -rn '"../api"\|"../platform"'`). Drop the now-unused `input`
-    field/import traces.
+### M5 — Delete the old world
+Delete `source/api/` and `source/platform/`. Confirm nothing references them:
+`grep -rn '"../api"\|"../platform"' source/`.
 
 ---
 
 ## Decisions (so you don't stall mid-milestone)
 
-- **Capture as package-global is right** for the new model — `editor` and
-  window-drag both reach it without threading a struct, matching how `io.state`
-  already works.
-- **Keep the `be`/`render_backend` gate for now.** It compiles and isn't in your
-  way. Drop it + rename `io`→`platform` as a *separate* cleanup pass **after** the
-  window is back — don't mix a rename into a compile-fix.
-- **One subtlety to watch**: `io.update_input` currently runs *inside*
-  `render.frame_begin`, so input is pumped mid-frame. `handle_window_drag` runs
-  after `editor.frame` and reads live raylib queries, so it's fine — but if you
-  ever move `update_input` out of `render`, keep it exactly once per frame (it
-  drains the char queue).
-
-## Future cleanup (after the window is back, not now)
-
-- Commit to raylib: drop the `when be.BACKEND == .Raylib` gating and the
-  `render_backend` package. Reintroduce swappable backends only if you outgrow
-  raylib (custom shaders / web target) — and via `-collection:backend=...`
-  (directory-per-backend packages), **not** `when` blocks.
-- Rename `io` → `platform` so the one OS-surface package (window + input +
-  capture + lifecycle) names its concern accurately.
+- **`io` owns the whole OS surface** (window + input + lifecycle). Rename
+  `io` → `platform` only as a *separate* pass after the window is back — never mix
+  a rename into a compile-fix.
+- **Keep the `be.BACKEND == .Raylib` gate for now.** It compiles and isn't in the
+  way. Commit to raylib (drop the `when` gating + `render_backend` package) as its
+  own cleanup later, via `-collection:` directory-per-backend if you ever need
+  swappable backends — not `when` blocks.
+- **`update_input` runs once per frame inside `render.frame_begin`.** It drains
+  raylib's char queue, so it must stay exactly once per frame. Window drag runs
+  after `editor.frame` reading live raylib queries, so order is fine.

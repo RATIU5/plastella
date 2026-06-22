@@ -1,26 +1,23 @@
 package render
 
 import clay "../../vendor/clay"
-import io "../io"
-import be "../render_backend"
+import platform "../platform"
 import rl "vendor:raylib"
 
 // Create Render_State for each backend type
-when be.BACKEND == .Raylib {
-	Render_State :: struct {
-		fonts:      [FONT]rl.Font,
-		textures:   [TEXTURES]rl.Texture2D,
-		clay_mem:   [^]u8,
-		clay_ctx:   ^clay.Context,
-		last_scale: [2]f32,
-	}
+Render_State :: struct {
+	fonts:      [FONT]rl.Font,
+	textures:   [TEXTURES]rl.Texture2D,
+	clay_mem:   [^]u8,
+	clay_ctx:   ^clay.Context,
+	last_scale: [2]f32,
 }
 
 @(private)
 state: ^Render_State
 
 render_init :: proc() -> ^Render_State {
-	clay_ctx, clay_mem, ok := init_clay(io.screen_size())
+	clay_ctx, clay_mem, ok := init_clay(platform.screen_size())
 	if !ok {
 		return nil
 	}
@@ -55,38 +52,34 @@ render_reload :: proc(render_state: rawptr) {
 
 frame_begin :: proc() {
 	// Process I/O for frame
-	io.update_input()
-	screen := io.screen_size()
-	render := io.render_size()
+	platform.update_input()
+	screen := platform.screen_size()
+	render := platform.render_size()
 
-	scale := io.screen_scale()
+	scale := platform.screen_scale()
 	if scale != state.last_scale {
 		clay.ResetMeasureTextCache()
 		state.last_scale = scale
 	}
 
 	// Begin graphics drawing
-	when be.BACKEND == .Raylib {
-		draw_begin_rl(render, screen)
-	}
+	draw_begin_rl(render, screen)
 
 	// Begin clay layout
 	begin_layout_clay(
 		screen,
-		io.mouse_pos(),
-		io.mouse_down(.LEFT),
-		io.mouse_scroll(),
-		io.delta_time(),
+		platform.mouse_pos(),
+		platform.mouse_down(.LEFT),
+		platform.mouse_scroll(),
+		platform.delta_time(),
 	)
 }
 
 frame_end :: proc() {
-	commands := clay.EndLayout(io.delta_time())
+	commands := clay.EndLayout(platform.delta_time())
 
-	when be.BACKEND == .Raylib {
-		render_clay_commands_rl(&commands)
-		draw_end_rl()
-	}
+	render_clay_commands_rl(&commands)
+	draw_end_rl()
 }
 
 @(private)

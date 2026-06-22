@@ -1,7 +1,7 @@
 package render
 
 import clay "../../vendor/clay"
-import io "../io"
+import platform "../platform"
 
 element_id :: proc(label: string) -> clay.ElementId {
 	return clay.GetElementId(clay.MakeString(label))
@@ -15,12 +15,12 @@ pointer_over :: proc(label: string) -> bool {
 	return clay.PointerOver(element_id(label))
 }
 
-active_over :: proc(label: string, button := io.Mouse_Button.LEFT) -> bool {
-	return pointer_over(label) && io.mouse_down(button)
+active_over :: proc(label: string, button := platform.Mouse_Button.LEFT) -> bool {
+	return pointer_over(label) && platform.mouse_down(button)
 }
 
-clicked :: proc(label: string, button := io.Mouse_Button.LEFT) -> bool {
-	return pointer_over(label) && io.mouse_press(button)
+clicked :: proc(label: string, button := platform.Mouse_Button.LEFT) -> bool {
+	return pointer_over(label) && platform.mouse_press(button)
 }
 
 // found=false means no such element this frame; bbox is zero.
