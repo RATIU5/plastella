@@ -1,12 +1,13 @@
 package main
 
 import app "../app"
-import "core:dynlib"
 
 main :: proc() {
 	api, ok := app.load()
+	api.init()
 	assert(ok, "no symbols found")
-
-	api.update()
-	dynlib.unload_library(api.lib)
+	for _ in 0 ..< 5 {
+		api.update()
+	}
+	api.shutdown()
 }

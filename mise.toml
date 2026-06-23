@@ -6,37 +6,8 @@ watchexec = "latest"
 [env]
 APP_NAME = "plastella"
 HR_OUT = "build/hot_reload"
-EXE = "{% if os() == 'windows' %}app-hr.exe{% else %}app-hr.bin{% endif %}"
-DLL_EXT = "{% if os() == 'macos' %}.dylib{% elif os() == 'windows' %}.dll{% else %}.so{% endif %}"
-
-[tasks.build-hr-app]
-description = "Compile source/ into a reloadable app DLL (triggers a live hot reload"
-alias = "reload"
-sources = [
-  "source/app/*.odin",
-  "source/platform/*.odin",
-  "source/render/*.odin",
-  "source/ui/*.odin",
-]
-outputs = ["{{ env.HR_OUT }}/{{ env.APP_NAME }}{{ env.DLL_EXT }}"]
-run = ["mkdir -p $HR_OUT"]
-
-[tasks.make-hr-out-dir]
-description = "Create output directories for the app's hot reload feature"
-alias = "hr-out-dir"
-run = [
-  "mkdir -p $HR_OUT",
-  "{% if os() == 'linux' %}mkdir -p $HR_OUT/linux'{% endif %}",
-  "{% if os() == 'macos' %}mkdir -p $HR_OUT/macos'{% endif %}",
-]
-
-[tasks.copy-raylib-dll]
-description = "Copy Raylib DLL file to the out directory for hot reload"
-alias = "cp-raylib"
-outputs = ["mkdir -p $HR_OUT", "{% if os() == 'linux' %}mkdir"]
-run = []
-
-# OLD TASKS
+EXE = "app-hr.bin"
+DLL_EXT = "{% if os() == 'macos' %}.dylib{% else %}.so{% endif %}"
 
 [tasks.build-app]
 description = "Compile source/ into a reloadable app DLL (triggers a live hot reload)"
@@ -47,21 +18,26 @@ sources = [
   "source/render/*.odin",
   "source/ui/*.odin",
 ]
-outputs = ["{{ env.HR_OUT }}/app{{ env.DLL_EXT }}"]
+# must match the name source/app/app.odin load()s at runtime
+outputs = ["{{ env.HR_OUT }}/{{ env.APP_NAME }}{{ env.DLL_EXT }}"]
 run = [
   "mkdir -p $HR_OUT",
+  # linux: stage raylib .so next to the dll so $ORIGIN rpath finds it
   "{% if os() == 'linux' %}mkdir -p $HR_OUT/linux && cp -rn $(odin root)/vendor/raylib/linux/libraylib*.so* $HR_OUT/linux{% else %}true{% endif %}",
-  "odin build source/app -extra-linker-flags:\"{% if os() == 'macos' %}-Wl,-rpath $(odin root)/vendor/raylib/macos{% else %}'-Wl,-rpath=$ORIGIN/linux'{% endif %}\" -define:RAYLIB_SHARED=true -build-mode:dll -out:$HR_OUT/app_tmp$DLL_EXT -strict-style -vet -debug",
-  "mv $HR_OUT/app_tmp$DLL_EXT $HR_OUT/app$DLL_EXT",
+  # compile to a temp name first...
+  # \$ORIGIN must stay escaped so the shell doesn't expand it — the linker resolves it at load time (dll-relative)
+  "odin build source/app -extra-linker-flags:\"{% if os() == 'macos' %}-Wl,-rpath $(odin root)/vendor/raylib/macos{% else %}-Wl,-rpath=\\$ORIGIN/linux{% endif %}\" -define:RAYLIB_SHARED=true -build-mode:dll -out:$HR_OUT/${APP_NAME}_tmp$DLL_EXT -strict-style -vet -debug",
+  # ...then atomic-rename so the host never loads a half-written dll
+  "mv $HR_OUT/${APP_NAME}_tmp$DLL_EXT $HR_OUT/$APP_NAME$DLL_EXT",
 ]
 
-[tasks.build-exe]
+[tasks.build-host]
 description = "Compile the hot-reload host executable"
-sources = ["source/main_hot_reload/*.odin"]
+sources = ["source/host/*.odin"]
 outputs = ["{{ env.HR_OUT }}/{{ env.EXE }}"]
 run = [
   "mkdir -p $HR_OUT",
-  "odin build source/main_hot_reload -out:$HR_OUT/$EXE{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -debug",
+  "odin build source/host -out:$HR_OUT/$EXE{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -debug",
   # symlink so resources/ is reachable by relative path (exe chdirs to its own dir)
   "rm -rf $HR_OUT/resources && ln -s ../../resources $HR_OUT/resources",
 ]
@@ -70,13 +46,14 @@ run = [
 # Watcher runs in the background; trap kills it on exit so it doesn't keep rebuilding.
 [tasks.dev]
 description = "Build + run with automatic hot reload (watches source/)"
-depends = ["build-app", "build-exe"]
+depends = ["build-app", "build-host"]
 run = '''
 watchexec --watch source --exts odin --debounce 200ms -- mise run build-app &
 watcher=$!
 # kill watcher; remove numbered DLL copies left behind by unclean exits
-trap 'kill $watcher 2>/dev/null; rm -f "$HR_OUT"/app_*.dylib' EXIT INT TERM
-./"$HR_OUT/$EXE"
+trap 'kill $watcher 2>/dev/null; rm -f "$HR_OUT"/${APP_NAME}_[0-9]*$DLL_EXT' EXIT INT TERM
+# run from $HR_OUT (subshell) so the host finds plastella.dylib + resources/ by relative path
+(cd "$HR_OUT" && ./"$EXE")
 '''
 
 [tasks.run]
@@ -84,26 +61,28 @@ description = "Build + run the standalone (non-hot-reload) app"
 alias = "r"
 run = [
   "mkdir -p build/debug",
-  "odin build source/main_release -out:build/debug/plastella.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet",
+  "odin build source/host -out:build/debug/$APP_NAME.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet",
   "rm -rf build/debug/resources && ln -s ../../resources build/debug/resources",
-  "./build/debug/plastella.bin",
+  "./build/debug/$APP_NAME.bin",
 ]
 
 [tasks.build]
 description = "Build an optimized release into build/release/"
 alias = "b"
+# keep in sync with source/host's import graph, else mise stale-skips a needed rebuild
 sources = [
   "source/app/*.odin",
   "source/platform/*.odin",
-  "source/api/*.odin",
-  "source/main_release/*.odin",
+  "source/render/*.odin",
+  "source/ui/*.odin",
+  "source/host/*.odin",
   "resources/**/*",
 ]
-outputs = ["build/release/plastella.bin"]
+outputs = ["build/release/{{ env.APP_NAME }}.bin"]
 run = [
   "rm -rf build/release",
   "mkdir -p build/release",
-  "odin build source/main_release -out:build/release/plastella.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -no-bounds-check -o:speed",
+  "odin build source/host -out:build/release/$APP_NAME.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -no-bounds-check -o:speed",
   "cp -R resources build/release/",
 ]
 
@@ -111,5 +90,5 @@ run = [
 description = "Kill the running hot-reload app and clean up per-reload DLL copies"
 run = '''
 pkill -f "$EXE" || true
-rm -f "$HR_OUT"/app_*.dylib
+rm -f "$HR_OUT"/${APP_NAME}_[0-9]*$DLL_EXT
 '''

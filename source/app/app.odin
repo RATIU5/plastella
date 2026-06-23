@@ -3,6 +3,9 @@ package app
 import "core:dynlib"
 import "core:fmt"
 
+APP_NAME :: "plastella"
+DLL_EXT :: ".dylib" when ODIN_OS == .Darwin else ".dll" when ODIN_OS == .Windows else ".so"
+
 App_API :: struct {
 	lib:      dynlib.Library,
 	init:     proc(),
@@ -17,7 +20,7 @@ App_Memory :: struct {
 mem: ^App_Memory
 
 load :: proc() -> (api: App_API, ok: bool) {
-	count, _ := dynlib.initialize_symbols(&api, "app.dll", "app_", "lib")
+	count, _ := dynlib.initialize_symbols(&api, APP_NAME + DLL_EXT, "app_", "lib")
 	return api, count > 0
 }
 
@@ -29,6 +32,7 @@ app_init :: proc() {
 @(export)
 app_update :: proc() {
 	mem.counter += 1
+	fmt.printfln("counter: %d", mem.counter)
 }
 
 @(export)
