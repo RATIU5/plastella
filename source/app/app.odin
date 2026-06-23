@@ -1,13 +1,19 @@
 package app
 
+import "base:runtime"
 import "core:dynlib"
 import "core:fmt"
 import "core:os"
+import "core:reflect"
 import "core:time"
+import rl "vendor:raylib"
 
 APP_NAME :: "app"
 DLL_EXT :: ".dylib" when ODIN_OS == .Darwin else ".dll" when ODIN_OS == .Windows else ".so"
-DLL_FILE :: APP_NAME + DLL_EXT
+DLL :: APP_NAME + DLL_EXT
+
+FNV_OFFSET :: 0xcbf29ce484222325
+FNV_PRIME :: 0x100000001b3
 
 App_API :: struct {
 	lib:                dynlib.Library,
@@ -37,7 +43,8 @@ app_init :: proc() {
 
 @(export)
 app_update :: proc() {
-	fmt.println("hello from app")
+	mem.counter += 1
+	fmt.println("hello from app:", mem.counter)
 }
 
 @(export)
@@ -56,9 +63,23 @@ app_hot_reloaded :: proc(m: rawptr) {
 	mem = (^App_Memory)(m)
 }
 
+@(export)
+app_should_run :: proc() -> bool {
+	return !rl.WindowShouldClose()
+}
 
-load :: proc(version: int) -> (api: App_API, ok: bool) {
-	dll := DLL_FILE
+@(export)
+app_force_reload :: proc() -> bool {
+	return rl.IsKeyPressed(.F5)
+}
+
+@(export)
+app_force_restart :: proc() -> bool {
+	return rl.IsKeyPressed(.F6)
+}
+
+load_api :: proc(version: int) -> (api: App_API, ok: bool) {
+	dll := DLL
 
 	mod, mod_err := os.last_write_time_by_name(dll)
 	if mod_err != nil {
@@ -78,4 +99,21 @@ load :: proc(version: int) -> (api: App_API, ok: bool) {
 	api.version = version
 	api.mod_time = mod
 	return api, true
+}
+
+layout_hash :: proc(id: typeid) -> u64 {
+	h := u64(FNV_OFFSET)
+	ti := type_info_of(id)
+	h = (h ~ u64(ti.size)) * FNV_PRIME
+
+	for field in reflect.struct_fields_zipped(id) {
+		h = (h ~ u64(field.offset)) * FNV_PRIME
+		h = (h ~ u64(field.type.size)) * FNV_PRIME
+		#partial switch p in field.type.variant {
+		case runtime.Type_Info_Pointer:
+			if p.elem != nil do h = (h ~ layout_hash(p.elem.id)) * FNV_PRIME
+		}
+	}
+
+	return h
 }
