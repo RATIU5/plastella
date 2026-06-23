@@ -3,13 +3,21 @@ package main
 import "../app"
 import "core:dynlib"
 
+App_API :: struct {
+	lib:      dynlib.Library,
+	init:     proc(),
+	update:   proc(),
+	shutdown: proc(),
+}
+
+load :: proc() -> (api: App_API, ok: bool) {
+	count, _ := dynlib.initialize_symbols(&api, app.DLL_FILE, "app_", "lib")
+	return api, count > 0
+}
+
 main :: proc() {
-	lib, ok := dynlib.load_library(app.DLL_FILE)
-	assert(ok, "could not load the app library")
+	api, ok := load()
 
-	ptr, found := dynlib.symbol_address(lib, "app_update")
-	assert(found, "app_update not exported")
-
-	(cast(proc())ptr)()
-	dynlib.unload_library(lib)
+	(cast(proc())api.update)()
+	dynlib.unload_library(api.lib)
 }
