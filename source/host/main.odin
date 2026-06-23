@@ -3,9 +3,18 @@ package main
 import "../app"
 import "core:dynlib"
 import "core:fmt"
+import "core:mem"
 import "core:os"
 
 main :: proc() {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	context.allocator = mem.tracking_allocator(&track)
+	defer {
+		for _, leak in track.allocation_map do fmt.eprintfln("leaked %d bytes at %v", leak.size, leak.location)
+		mem.tracking_allocator_destroy(&track)
+	}
+
 	version := 0
 	api, ok := app.load_api(version)
 	assert(ok, "could not load the app library")
@@ -19,9 +28,9 @@ main :: proc() {
 
 		switch {
 		case api.force_restart():
-			hard_restart(&api, &version)
+			hard_restart(&api, &version, &track)
 		case recompiled || api.force_reload():
-			reload(&api, &version)
+			reload(&api, &version, &track)
 		}
 
 		free_all(context.temp_allocator)
@@ -29,14 +38,14 @@ main :: proc() {
 	api.shutdown()
 }
 
-reload :: proc(api: ^app.App_API, version: ^int) {
+reload :: proc(api: ^app.App_API, version: ^int, track: ^mem.Tracking_Allocator) {
 	new_api, ok := app.load_api(version^ + 1)
 	if !ok do return
 
 	if new_api.memory_size() != api.memory_size() ||
 	   new_api.memory_layout_hash() != api.memory_layout_hash() {
 		fmt.eprintln("App_Memory layout changed - hard reset (state reset)")
-		do_restart(api, version, new_api)
+		do_restart(api, version, new_api, track)
 		return
 	}
 
@@ -50,14 +59,20 @@ reload :: proc(api: ^app.App_API, version: ^int) {
 	os.remove(fmt.tprintf("%s_%d%s", app.APP_NAME, old.version, app.DLL_EXT))
 }
 
-hard_restart :: proc(api: ^app.App_API, version: ^int) {
+@(private = "file")
+hard_restart :: proc(api: ^app.App_API, version: ^int, track: ^mem.Tracking_Allocator) {
 	new_api, ok := app.load_api(version^ + 1)
 	if !ok do return
-	do_restart(api, version, new_api)
+	do_restart(api, version, new_api, track)
 }
 
 @(private = "file")
-do_restart :: proc(api: ^app.App_API, version: ^int, new_api: app.App_API) {
+do_restart :: proc(
+	api: ^app.App_API,
+	version: ^int,
+	new_api: app.App_API,
+	track: ^mem.Tracking_Allocator,
+) {
 	api.shutdown()
 	old := api^
 	api^ = new_api
@@ -65,4 +80,11 @@ do_restart :: proc(api: ^app.App_API, version: ^int, new_api: app.App_API) {
 	version^ += 1
 	dynlib.unload_library(old.lib)
 	os.remove(fmt.tprintf("%s_%d%s", app.APP_NAME, old.version, app.DLL_EXT))
+	check_reload_leaks(track)
+}
+
+@(private = "file")
+check_reload_leaks :: proc(track: ^mem.Tracking_Allocator) {
+	for bad in track.bad_free_array do fmt.eprintfln("bad free during reload at %v", bad.location)
+	clear(&track.bad_free_array)
 }
