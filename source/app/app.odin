@@ -1,5 +1,6 @@
 package app
 
+import platform "../platform"
 import "base:runtime"
 import "core:dynlib"
 import "core:fmt"
@@ -39,16 +40,19 @@ mem: ^App_Memory
 @(export)
 app_init :: proc() {
 	mem = new(App_Memory)
+	platform.window_init()
 }
 
 @(export)
 app_update :: proc() {
-	mem.counter += 1
-	fmt.println("hello from app:", mem.counter)
+	rl.BeginDrawing()
+	rl.ClearBackground(rl.BLACK)
+	rl.EndDrawing()
 }
 
 @(export)
 app_shutdown :: proc() {
+	platform.window_shutdown()
 	free(mem)
 	mem = nil
 }
@@ -70,12 +74,22 @@ app_should_run :: proc() -> bool {
 
 @(export)
 app_force_reload :: proc() -> bool {
-	return rl.IsKeyPressed(.F5)
+	return platform.key_press(.F5)
 }
 
 @(export)
 app_force_restart :: proc() -> bool {
-	return rl.IsKeyPressed(.F6)
+	return platform.key_press(.F6)
+}
+
+@(export)
+app_memory_size :: proc() -> int {
+	return size_of(App_Memory)
+}
+
+@(export)
+app_memory_layout_hash :: proc() -> u64 {
+	return layout_hash(App_Memory)
 }
 
 load_api :: proc(version: int) -> (api: App_API, ok: bool) {

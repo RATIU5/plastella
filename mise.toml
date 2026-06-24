@@ -4,7 +4,7 @@ watchexec = "latest"
 
 # os() resolves at parse time; $(odin root) at runtime so it uses mise's pinned odin.
 [env]
-APP_NAME = "plastella"
+APP_NAME = "app"
 HR_OUT = "build/hot_reload"
 EXE = "app-hr.bin"
 DLL_EXT = "{% if os() == 'macos' %}.dylib{% else %}.so{% endif %}"
