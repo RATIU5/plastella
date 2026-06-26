@@ -7,7 +7,7 @@ watchexec = "latest"
 APP_NAME = "plastella"
 HR_OUT = "build/hot_reload"
 EXE = "app-hr.bin"
-DLL_EXT = "{% if os() == 'macos' %}.dylib{% else %}.so{% endif %}"
+DLL_EXT = "{% if os() == 'macos' %}.dylib{% elif os() == 'windows' %}.dll{% else %}.so{% endif %}"
 
 [tasks.build-app]
 description = "Compile source/ into a reloadable app DLL (triggers a live hot reload)"
