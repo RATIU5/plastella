@@ -1,10 +1,30 @@
 package main
 
-import host_api "../host_api"
 import "core:dynlib"
 import "core:fmt"
 import "core:mem"
 import "core:os"
+import "core:reflect"
+import "core:time"
+
+APP_NAME :: "plastella"
+DLL_EXT :: "." + dynlib.LIBRARY_FILE_EXTENSION
+DLL :: APP_NAME + DLL_EXT
+
+App_API :: struct {
+	lib:           dynlib.Library,
+	version:       int,
+	mod_time:      time.Time,
+	init:          proc(),
+	update:        proc(),
+	shutdown:      proc(),
+	should_run:    proc() -> bool,
+	force_reload:  proc() -> bool,
+	force_restart: proc() -> bool,
+	memory:        proc() -> rawptr,
+	hot_reloaded:  proc(m: rawptr),
+	memory_size:   proc() -> int,
+}
 
 main :: proc() {
 	track: mem.Tracking_Allocator
@@ -18,13 +38,13 @@ main :: proc() {
 	}
 
 	version := 0
-	api, ok := host_api.load_api(version)
+	api, ok := load_api(version)
 	assert(ok, "could not load the app library")
 	api.init()
 
 	for api.should_run() {
 		api.update()
-		mod, err := os.last_write_time_by_name(host_api.DLL)
+		mod, err := os.last_write_time_by_name(DLL)
 		recompiled := err == nil && mod != api.mod_time
 
 		switch {
@@ -39,8 +59,48 @@ main :: proc() {
 	api.shutdown()
 }
 
-reload :: proc(api: ^host_api.App_API, version: ^int, track: ^mem.Tracking_Allocator) {
-	new_api, ok := host_api.load_api(version^ + 1)
+load_api :: proc(version: int) -> (api: App_API, ok: bool) {
+	mod, mod_err := os.last_write_time_by_name(DLL)
+	if mod_err != nil {
+		fmt.eprintln("cannot stat", DLL, mod_err); return
+	}
+
+	copy_name := fmt.tprintf("./%s_%d%s", APP_NAME, version, DLL_EXT)
+	data, read_err := os.read_entire_file(DLL, context.allocator)
+	if read_err != nil do return
+	defer delete(data)
+	if os.write_entire_file(copy_name, data) != nil do return
+
+	count, syms_ok := dynlib.initialize_symbols(&api, copy_name, "app_", "lib")
+	if !syms_ok || count == 0 {
+		os.remove(copy_name)
+		return
+	}
+	if !api_complete(api) {
+		fmt.eprintln("dll missing exports — stale or misnamed build?")
+		if api.lib != nil do dynlib.unload_library(api.lib)
+		os.remove(copy_name)
+		return
+	}
+	api.version = version
+	api.mod_time = mod
+	return api, true
+}
+
+// Reject a partially-bound dll: initialize_symbols leaves missing procs nil and still
+// returns ok. Reflection means this never needs editing as the contract grows.
+api_complete :: proc(a: App_API) -> bool {
+	a := a
+	base := uintptr(&a)
+	for field in reflect.struct_fields_zipped(App_API) {
+		if reflect.type_kind(field.type.id) != .Procedure do continue
+		if (^rawptr)(base + field.offset)^ == nil do return false
+	}
+	return true
+}
+
+reload :: proc(api: ^App_API, version: ^int, track: ^mem.Tracking_Allocator) {
+	new_api, ok := load_api(version^ + 1)
 	if !ok do return
 
 	if new_api.memory_size() != api.memory_size() {
@@ -55,22 +115,20 @@ reload :: proc(api: ^host_api.App_API, version: ^int, track: ^mem.Tracking_Alloc
 	api.hot_reloaded(state)
 	version^ += 1
 	dynlib.unload_library(old.lib)
-	os.remove(fmt.tprintf("%s_%d%s", host_api.APP_NAME, old.version, host_api.DLL_EXT))
+	os.remove(fmt.tprintf("%s_%d%s", APP_NAME, old.version, DLL_EXT))
 	check_reload_leaks(track)
 }
 
-@(private = "file")
-hard_restart :: proc(api: ^host_api.App_API, version: ^int, track: ^mem.Tracking_Allocator) {
-	new_api, ok := host_api.load_api(version^ + 1)
+hard_restart :: proc(api: ^App_API, version: ^int, track: ^mem.Tracking_Allocator) {
+	new_api, ok := load_api(version^ + 1)
 	if !ok do return
 	do_restart(api, version, new_api, track)
 }
 
-@(private = "file")
 do_restart :: proc(
-	api: ^host_api.App_API,
+	api: ^App_API,
 	version: ^int,
-	new_api: host_api.App_API,
+	new_api: App_API,
 	track: ^mem.Tracking_Allocator,
 ) {
 	api.shutdown()
@@ -79,11 +137,10 @@ do_restart :: proc(
 	api.init()
 	version^ += 1
 	dynlib.unload_library(old.lib)
-	os.remove(fmt.tprintf("%s_%d%s", host_api.APP_NAME, old.version, host_api.DLL_EXT))
+	os.remove(fmt.tprintf("%s_%d%s", APP_NAME, old.version, DLL_EXT))
 	check_reload_leaks(track)
 }
 
-@(private = "file")
 check_reload_leaks :: proc(track: ^mem.Tracking_Allocator) {
 	for bad in track.bad_free_array do fmt.eprintfln("bad free during reload at %v", bad.location)
 	clear(&track.bad_free_array)
