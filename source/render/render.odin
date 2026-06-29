@@ -5,7 +5,7 @@ import platform "../platform"
 import rl "vendor:raylib"
 
 // Create Render_State for each backend type
-Render_State :: struct {
+Render_Memory :: struct {
 	fonts:      [FONT]rl.Font,
 	textures:   [TEXTURES]rl.Texture2D,
 	clay_mem:   [^]u8,
@@ -14,15 +14,15 @@ Render_State :: struct {
 }
 
 @(private)
-state: ^Render_State
+state: ^Render_Memory
 
-render_init :: proc() -> ^Render_State {
+render_init :: proc() -> ^Render_Memory {
 	clay_ctx, clay_mem, ok := init_clay(platform.screen_size())
 	if !ok {
 		return nil
 	}
 
-	state = new(Render_State)
+	state = new(Render_Memory)
 	state.clay_mem = clay_mem
 	state.clay_ctx = clay_ctx
 
@@ -44,7 +44,7 @@ render_shutdown :: proc() {
 }
 
 render_reload :: proc(render_state: rawptr) {
-	state = (^Render_State)(render_state)
+	state = (^Render_Memory)(render_state)
 	reload_clay(state.clay_ctx)
 	unload_textures()
 	load_textures()

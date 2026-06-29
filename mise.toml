@@ -12,12 +12,8 @@ DLL_EXT = "{% if os() == 'macos' %}.dylib{% elif os() == 'windows' %}.dll{% else
 [tasks.build-app]
 description = "Compile source/ into a reloadable app DLL (triggers a live hot reload)"
 alias = "reload"
-sources = [
-  "source/app/*.odin",
-  "source/platform/*.odin",
-  "source/render/*.odin",
-  "source/ui/*.odin",
-]
+# every package the app dll pulls in — glob so new packages don't need a manual add
+sources = ["source/**/*.odin", "!source/host/*.odin"]
 # must match the name source/app/app.odin load()s at runtime
 outputs = ["{{ env.HR_OUT }}/{{ env.APP_NAME }}{{ env.DLL_EXT }}"]
 run = [
@@ -69,15 +65,7 @@ run = [
 [tasks.build]
 description = "Build an optimized release into build/release/"
 alias = "b"
-# keep in sync with source/host's import graph, else mise stale-skips a needed rebuild
-sources = [
-  "source/app/*.odin",
-  "source/platform/*.odin",
-  "source/render/*.odin",
-  "source/ui/*.odin",
-  "source/host/*.odin",
-  "resources/**/*",
-]
+sources = ["source/**/*.odin", "resources/**/*"]
 outputs = ["build/release/{{ env.APP_NAME }}.bin"]
 run = [
   "rm -rf build/release",

@@ -25,6 +25,7 @@ load_ui_icons :: proc(texture: ^rl.Texture2D) {
 		ui_icons_slice[id] = {
 			tex  = texture,
 			crop = {f32(col * ICON_CELL), f32(row * ICON_CELL), ICON_CELL, ICON_CELL},
+			tint = [4]f32{255, 255, 255, 255},
 		}
 	}
 }

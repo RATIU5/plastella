@@ -158,7 +158,7 @@ draw_text_rl :: proc(b: clay.BoundingBox, t: clay.TextRenderData) {
 @(private = "file")
 draw_image_rl :: proc(b: clay.BoundingBox, img: clay.ImageRenderData) {
 	r := (^textures.Texture_Slice)(img.imageData)
-	tint := img.backgroundColor == {} ? rl.WHITE : to_render_color_rl(img.backgroundColor)
+	tint := r.tint == {} ? rl.WHITE : to_render_color_rl(r.tint)
 	rl.DrawTexturePro(r.tex^, r.crop, {b.x, b.y, b.width, b.height}, {0, 0}, 0, tint)
 }
 

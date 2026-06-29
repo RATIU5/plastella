@@ -3,11 +3,10 @@ package app
 import editor "../editor"
 import platform "../platform"
 import render "../render"
-import rl "vendor:raylib"
 
 App_Memory :: struct {
-	render_state: ^render.Render_State,
-	editor_state: ^editor.Editor_State,
+	render_mem: ^render.Render_Memory,
+	editor_mem: ^editor.Editor_Memory,
 }
 mem: ^App_Memory
 
@@ -15,13 +14,14 @@ mem: ^App_Memory
 app_init :: proc() {
 	mem = new(App_Memory)
 	platform.window_init()
-	mem.render_state = render.render_init()
+	mem.render_mem = render.render_init()
+	mem.editor_mem = editor.editor_init()
 }
 
 @(export)
 app_update :: proc() {
 	render.frame_begin()
-	rl.ClearBackground(rl.BLACK)
+	editor.editor_frame()
 	render.frame_end()
 }
 
@@ -41,7 +41,8 @@ app_memory :: proc() -> rawptr {
 @(export)
 app_hot_reloaded :: proc(m: rawptr) {
 	mem = (^App_Memory)(m)
-	render.render_reload(mem.render_state)
+	render.render_reload(mem.render_mem)
+	editor.editor_reload(mem.editor_mem)
 }
 
 @(export)

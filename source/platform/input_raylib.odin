@@ -18,6 +18,7 @@ Input_State :: struct {
 	char_count:      int,
 	// read chars_dropped and handle manually.
 	chars_dropped:   int,
+	cursor:          Mouse_Cursor,
 }
 
 @(private)
@@ -215,7 +216,12 @@ mouse_scroll :: proc() -> [2]f32 {
 }
 
 set_cursor :: proc(cursor: Mouse_Cursor) {
+	state.cursor = cursor
 	rl.SetMouseCursor(rl_mouse_cursor[cursor])
+}
+
+get_cursor :: proc() -> Mouse_Cursor {
+	return state.cursor
 }
 
 key_down :: proc(key: Keyboard_Key) -> bool {
