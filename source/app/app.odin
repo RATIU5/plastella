@@ -1,11 +1,13 @@
 package app
 
+import editor "../editor"
 import platform "../platform"
 import render "../render"
 import rl "vendor:raylib"
 
 App_Memory :: struct {
 	render_state: ^render.Render_State,
+	editor_state: ^editor.Editor_State,
 }
 mem: ^App_Memory
 
