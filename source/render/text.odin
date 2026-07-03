@@ -14,13 +14,13 @@ Text_Style :: struct {
 TEXT :: enum {
 	UI_REG_14,
 	UI_BLD_14,
-	UI_ICN_16,
+	UI_ICN_18,
 }
 
 text_styles := [TEXT]Text_Style {
 	.UI_REG_14 = {font = .UI_REG_14, size = 14, line_height = 14},
 	.UI_BLD_14 = {font = .UI_BLD_14, size = 14, line_height = 14},
-	.UI_ICN_16 = {font = .UI_REG_14, size = 16, line_height = 16},
+	.UI_ICN_18 = {font = .UI_REG_14, size = 18, line_height = 18},
 }
 
 text :: proc(

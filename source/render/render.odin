@@ -53,6 +53,7 @@ render_reload :: proc(render_state: rawptr) {
 frame_begin :: proc() {
 	// Process I/O for frame
 	platform.update_input()
+	platform.set_cursor(.DEFAULT)
 	screen := platform.screen_size()
 	render := platform.render_size()
 
@@ -77,8 +78,8 @@ frame_begin :: proc() {
 
 frame_end :: proc() {
 	commands := clay.EndLayout(platform.delta_time())
-
 	render_clay_commands_rl(&commands)
+	interaction_end()
 	draw_end_rl()
 }
 

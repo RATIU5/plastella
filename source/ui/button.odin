@@ -22,7 +22,7 @@ BUTTON :: enum u8 {
 
 button_styles := [BUTTON]Button_Style {
 	.SIDEBAR_TAB = {
-		font = .UI_ICN_16,
+		font = .UI_ICN_18,
 		padding = {top = 5, left = 5, right = 5, bottom = 5},
 		bg_color = {
 			.Normal = TRANSPARENT,
@@ -59,7 +59,7 @@ button_text :: proc(
 	sizing: Sizing = .FIT,
 	disabled := false,
 	selected := false,
-) {
+) -> bool {
 	hover := !disabled && render.pointer_over(id)
 	active := !disabled && render.active_over(id)
 
@@ -85,6 +85,8 @@ button_text :: proc(
 	) {
 		render.text(label, .UI_REG_14, fg, .Center, .None)
 	}
+
+	return render.clicked(id)
 }
 
 @(private = "file")
@@ -95,7 +97,7 @@ button_icon :: proc(
 	sizing: Sizing = .FIT,
 	disabled := false,
 	selected := false,
-) {
+) -> bool {
 	hover := !disabled && render.pointer_over(id)
 	active := !disabled && render.active_over(id)
 
@@ -137,6 +139,8 @@ button_icon :: proc(
 		},
 		) {}
 	}
+
+	return render.clicked(id)
 }
 
 @(private = "file")

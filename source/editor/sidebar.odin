@@ -12,9 +12,19 @@ SIDEBAR_HEADER_HEIGHT: f32 : 32
 SIDEBAR_FOOTER_HEIGHT: f32 : 38
 RESIZE_HANDLE: f32 : 4
 
+Sidebar_Tab :: enum {
+	Project,
+	Maps,
+	Tilesets,
+	Sprites,
+	Level_Editor,
+	Settings,
+}
+
 Sidebar_Memory :: struct {
-	width:    f32,
-	resizing: bool,
+	width:      f32,
+	resizing:   bool,
+	active_tab: Sidebar_Tab,
 }
 sidebar_mem: ^Sidebar_Memory
 
@@ -112,7 +122,66 @@ sidebar_frame :: proc() {
 			border = {width = {top = 1}, color = ui.COLOR_SIDEBAR_BORDER},
 		},
 		) {
-			ui.button("sidebar:footer:btn_project", textures.UI_ICONS.PROJECT, .SIDEBAR_TAB)
+			if ui.button(
+				"sidebar:footer:btn_project",
+				textures.UI_ICONS.PROJECT,
+				.SIDEBAR_TAB,
+				selected = sidebar_mem.active_tab == .Project,
+			) {
+				if sidebar_mem.active_tab != .Project {
+					sidebar_mem.active_tab = .Project
+				}
+			}
+			if ui.button(
+				"sidebar:footer:btn_maps",
+				textures.UI_ICONS.MAP,
+				.SIDEBAR_TAB,
+				selected = sidebar_mem.active_tab == .Maps,
+			) {
+				if sidebar_mem.active_tab != .Maps {
+					sidebar_mem.active_tab = .Maps
+				}
+			}
+			if ui.button(
+				"sidebar:footer:btn_tilesets",
+				textures.UI_ICONS.TILESETS,
+				.SIDEBAR_TAB,
+				selected = sidebar_mem.active_tab == .Tilesets,
+			) {
+				if sidebar_mem.active_tab != .Tilesets {
+					sidebar_mem.active_tab = .Tilesets
+				}
+			}
+			if ui.button(
+				"sidebar:footer:btn_sprites",
+				textures.UI_ICONS.SPRITES,
+				.SIDEBAR_TAB,
+				selected = sidebar_mem.active_tab == .Sprites,
+			) {
+				if sidebar_mem.active_tab != .Sprites {
+					sidebar_mem.active_tab = .Sprites
+				}
+			}
+			if ui.button(
+				"sidebar:footer:btn_level_editor",
+				textures.UI_ICONS.LEVEL_EDITOR,
+				.SIDEBAR_TAB,
+				selected = sidebar_mem.active_tab == .Level_Editor,
+			) {
+				if sidebar_mem.active_tab != .Level_Editor {
+					sidebar_mem.active_tab = .Level_Editor
+				}
+			}
+			if ui.button(
+				"sidebar:footer:btn_settings",
+				textures.UI_ICONS.SETTINGS,
+				.SIDEBAR_TAB,
+				selected = sidebar_mem.active_tab == .Settings,
+			) {
+				if sidebar_mem.active_tab != .Settings {
+					sidebar_mem.active_tab = .Settings
+				}
+			}
 		}
 	}
 }
