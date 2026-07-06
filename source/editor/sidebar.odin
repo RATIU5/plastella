@@ -50,11 +50,8 @@ sidebar_frame :: proc() {
 		sidebar_mem.resizing = false
 	}
 
-	if near || sidebar_mem.resizing {
-		platform.set_cursor(.RESIZE_EW)
-	} else if platform.get_cursor() == .RESIZE_EW {
-		platform.set_cursor(.DEFAULT)
-	}
+	if near || sidebar_mem.resizing do platform.set_cursor(.RESIZE_EW)
+
 	if sidebar_mem.resizing {
 		sidebar_mem.width = clamp(platform.mouse_pos().x, SIDEBAR_MIN, SIDEBAR_MAX)
 	}

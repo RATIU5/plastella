@@ -27,6 +27,7 @@ app_update :: proc() {
 
 @(export)
 app_shutdown :: proc() {
+	editor.editor_shutdown()
 	render.render_shutdown()
 	platform.window_shutdown()
 	free(mem)

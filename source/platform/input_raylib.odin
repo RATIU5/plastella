@@ -19,6 +19,7 @@ Input_State :: struct {
 	// read chars_dropped and handle manually.
 	chars_dropped:   int,
 	cursor:          Mouse_Cursor,
+	cursor_applied:  Mouse_Cursor,
 }
 
 @(private)
@@ -217,12 +218,8 @@ mouse_scroll :: proc() -> [2]f32 {
 
 set_cursor :: proc(cursor: Mouse_Cursor) {
 	state.cursor = cursor
-	rl.SetMouseCursor(rl_mouse_cursor[cursor])
 }
 
-get_cursor :: proc() -> Mouse_Cursor {
-	return state.cursor
-}
 
 key_down :: proc(key: Keyboard_Key) -> bool {
 	return rl.IsKeyDown(rl_keyboard_key[key])
@@ -276,6 +273,12 @@ set_clipboard :: proc(text: string) {
 
 // Call once per lap, AFTER raylib pumps events (post-EndDrawing), BEFORE building UI.
 update_input :: proc() {
+	if state.cursor != state.cursor_applied {
+		rl.SetMouseCursor(rl_mouse_cursor[state.cursor])
+		state.cursor_applied = state.cursor
+	}
+	state.cursor = .DEFAULT
+
 	// reset; last lap's chars are stale.
 	state.char_count = 0
 	state.chars_dropped = 0
