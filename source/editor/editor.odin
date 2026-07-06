@@ -1,44 +1,29 @@
 package editor
 
-import api "../api"
-import project "../project"
-import ui "../ui"
+Editor_Memory :: struct {
+	sidebar_mem: ^Sidebar_Memory,
+}
+editor_mem: ^Editor_Memory
 
-// Panel convention and hot-reload state rules: see docs/architecture.md.
+editor_init :: proc(proj: rawptr) -> ^Editor_Memory {
+	editor_mem = new(Editor_Memory)
+	editor_mem.sidebar_mem = sidebar_init(proj)
 
-// One field per panel; each panel defines its own state struct in its file.
-Editor_State :: struct {
-	sidebar: Sidebar_State,
-	project: ^project.Project_State,
+	return editor_mem
 }
 
-editor_ctx: ^Editor_State
-
-init :: proc() -> ^Editor_State {
-	editor_ctx = new(Editor_State)
-	editor_ctx^ = {
-		project = nil,
-		sidebar = {width = 250},
-	}
-	return editor_ctx
+// re-point package globals after a hot reload — the new dll zeroed them
+editor_reload :: proc(m: ^Editor_Memory) {
+	editor_mem = m
+	sidebar_mem = m.sidebar_mem
 }
 
-frame :: proc(input: ^api.Input) {
-	ui.frame_begin(input.mouse, input.left_down)
-
-	sidebar(input)
-
-	ui.dev_notice_render(input)
-
-	ui.frame_end()
+editor_shutdown :: proc() {
+	sidebar_shutdown()
+	free(editor_mem)
+	editor_mem = nil
 }
 
-reload :: proc(ctx: rawptr) {
-	editor_ctx = (^Editor_State)(ctx)
-}
-
-shutdown :: proc() {
-	project.project_shutdown(editor_ctx.project)
-	free(editor_ctx)
-	editor_ctx = nil
+editor_frame :: proc() {
+	sidebar_frame()
 }

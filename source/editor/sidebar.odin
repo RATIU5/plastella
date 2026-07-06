@@ -1,75 +1,82 @@
 package editor
 
 import clay "../../vendor/clay"
-import api "../api"
-import "../project"
-import "../ui"
-import "core:fmt"
-import "core:strings"
+import platform "../platform"
+import project "../project"
+import render "../render"
+import textures "../render/textures"
+import ui "../ui"
 
 SIDEBAR_MIN: f32 : 250
 SIDEBAR_MAX: f32 : 400
-RESIZE_HANDLE: f32 : 4
-SIDEBAR_RESIZE_CAPTURE :: api.Capture(100)
+SIDEBAR_WIDTH_DEFAULT: f32 : 250
 SIDEBAR_HEADER_HEIGHT: f32 : 32
 SIDEBAR_FOOTER_HEIGHT: f32 : 38
+WINDOW_CONTROLS_WIDTH: u16 : 82
+RESIZE_HANDLE: f32 : 4
 
 Sidebar_Tab :: enum {
-	Projects,
-	Map,
+	Project,
+	Maps,
 	Tilesets,
 	Sprites,
-	LevelEditor,
+	Level_Editor,
 	Settings,
 }
 
-Sidebar_State :: struct {
-	width:        f32,
-	tab:          Sidebar_Tab,
-	project_name: strings.Builder,
+Sidebar_Memory :: struct {
+	width:      f32,
+	resizing:   bool,
+	active_tab: Sidebar_Tab,
+	project:    rawptr,
+}
+sidebar_mem: ^Sidebar_Memory
+
+sidebar_init :: proc(proj: rawptr) -> ^Sidebar_Memory {
+	sidebar_mem = new(Sidebar_Memory)
+	sidebar_mem.width = SIDEBAR_WIDTH_DEFAULT
+	sidebar_mem.project = proj
+
+	return sidebar_mem
 }
 
-sidebar :: proc(input: ^api.Input) {
-	assert(editor_ctx != nil, "editor_ctx not initialized")
-	sb := &editor_ctx.sidebar
+sidebar_shutdown :: proc() {
+	free(sidebar_mem)
+	sidebar_mem = nil
+}
 
-	near := abs(input.mouse.x - sb.width) <= RESIZE_HANDLE
-	resizing := api.has_capture(input, SIDEBAR_RESIZE_CAPTURE)
+sidebar_frame :: proc() {
+	near := abs(platform.mouse_pos().x - sidebar_mem.width) <= RESIZE_HANDLE
 
-	if near && input.left_pressed {
-		resizing = api.capture_mouse(input, SIDEBAR_RESIZE_CAPTURE)
+	if near && platform.mouse_press(.LEFT) {
+		sidebar_mem.resizing = true
 	}
-	if input.left_released {
-		api.release_capture(input, SIDEBAR_RESIZE_CAPTURE)
-		resizing = false
-	}
-
-	if near || resizing {
-		input.cursor = .Resize_EW
-	}
-	if resizing {
-		sb.width = clamp(input.mouse.x, SIDEBAR_MIN, SIDEBAR_MAX)
+	if sidebar_mem.resizing && platform.mouse_release(.LEFT) {
+		sidebar_mem.resizing = false
 	}
 
-	if clay.UI(clay.ID("Sidebar"))(
+	if near || sidebar_mem.resizing do platform.set_cursor(.RESIZE_EW)
+
+	if sidebar_mem.resizing {
+		sidebar_mem.width = clamp(platform.mouse_pos().x, SIDEBAR_MIN, SIDEBAR_MAX)
+	}
+
+	if clay.UI(clay.ID("sidebar:group"))(
 	{
 		layout = {
-			sizing = {
-				width = clay.SizingFixed(editor_ctx.sidebar.width),
-				height = clay.SizingGrow(),
-			},
+			sizing = {width = clay.SizingFixed(sidebar_mem.width), height = clay.SizingGrow()},
 			layoutDirection = clay.LayoutDirection.TopToBottom,
 		},
-		backgroundColor = ui.COLOR_SIDEBAR,
 		border = {
-			color = near || resizing ? resizing ? ui.COLOR_SIDEBAR_BORDER_ACTIVE : ui.COLOR_SIDEBAR_BORDER_HOVER : ui.COLOR_SIDEBAR_BORDER,
 			width = {right = 1},
+			color = near || sidebar_mem.resizing ? sidebar_mem.resizing ? ui.COLOR_SIDEBAR_BORDER_ACTIVE : ui.COLOR_SIDEBAR_BORDER_HOVER : ui.COLOR_SIDEBAR_BORDER,
 		},
+		backgroundColor = ui.COLOR_SIDEBAR,
 	},
 	) {
 
-		// Sidebar:Header
-		if clay.UI(clay.ID("Sidebar:Header"))(
+		// sidebar:header
+		if clay.UI(clay.ID("sidebar:header"))(
 		{
 			layout = {
 				sizing = {
@@ -77,41 +84,27 @@ sidebar :: proc(input: ^api.Input) {
 					height = clay.SizingFixed(SIDEBAR_HEADER_HEIGHT),
 				},
 				childAlignment = {clay.LayoutAlignmentX.Left, clay.LayoutAlignmentY.Center},
-				padding = {left = 82},
+				padding = {left = WINDOW_CONTROLS_WIDTH},
 			},
 			clip = {horizontal = true},
 		},
 		) {
-			text_cfg := clay.TextElementConfig {
-				fontSize  = 14,
-				fontId    = u16(ui.FONT.BODY_BLD_14),
-				textColor = ui.COLOR_TEXT,
-				wrapMode  = clay.TextWrapMode.None,
-			}
-
-			// Sidebar:Header
-			project_name_id := clay.ID("Sidebar:ProjectName")
-			project_name := editor_ctx.project != nil ? editor_ctx.project.name : "Plastella"
-			if clay.UI(project_name_id)(
+			if clay.UI(clay.ID("sidebar:header:title"))(
 			{layout = {sizing = {width = clay.SizingFit(), height = clay.SizingFit()}}},
 			) {
-				if ui.text_clickable(
-					"__Text_Clickable",
-					ui.ellipsize_text(project_name, sb.width - 88, text_cfg),
-					.REG_14,
+				project_name :=
+					sidebar_mem.project != nil ? (^project.Project_Memory)(sidebar_mem.project).name : "Plastella"
+				render.text(
+					project_name,
+					.UI_BLD_14,
 					ui.COLOR_TEXT,
-					input,
-				) {
-					fmt.printfln("Test")
-				}
-			}
-			if clay.PointerOver(project_name_id) {
-				ui.tooltip_set(project_name_id, project_name)
+					ellipsize = sidebar_mem.width - f32(WINDOW_CONTROLS_WIDTH) - 10,
+				)
 			}
 		}
 
-		// Sidebar:Content
-		sidebar_content_id := clay.ID("Sidebar:Content")
+		// sidebar:content
+		sidebar_content_id := clay.ID("sidebar:content")
 		if clay.UI(sidebar_content_id)(
 		{
 			layout = {
@@ -122,19 +115,11 @@ sidebar :: proc(input: ^api.Input) {
 			},
 		},
 		) {
-			if editor_ctx.project == nil do if clay.UI(clay.ID("Sidebar:Content:No_Project"))({layout = {sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()}, childAlignment = {clay.LayoutAlignmentX.Center, clay.LayoutAlignmentY.Center}, layoutDirection = clay.LayoutDirection.TopToBottom, childGap = 15, padding = {left = 5, right = 5, top = 5, bottom = 5}}}) {
-				ui.text("Create a new project", .REG_20, ui.COLOR_NO_PROJECT_TEXT)
-				switch ui.button_group_bordered("Button:Sidebar:Project_Commands", []string{"New Project", "Open Project"}, -1, ui.PRIMARY_BUTTON, input, vertical = true) {
-				case 0:
-					editor_ctx.project = project.project_init()
-				case 1:
-				}
-				ui.input_text("test:input", &sb.project_name, "Enter a name", ui.PRIMARY_INPUT_TEXT, input)
-			}
+
 		}
 
-		// Sidebar:Footer
-		sidebar_footer_id := clay.ID("Sidebar:Footer")
+		// sidebar:footer
+		sidebar_footer_id := clay.ID("sidebar:footer")
 		if clay.UI(sidebar_footer_id)(
 		{
 			layout = {
@@ -150,24 +135,65 @@ sidebar :: proc(input: ^api.Input) {
 			border = {width = {top = 1}, color = ui.COLOR_SIDEBAR_BORDER},
 		},
 		) {
-			is_disabled := editor_ctx.project == nil
-			if ui.button("Button:Tab:Project", ui.get_icon(.PROJECT), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Projects, tooltip = "Projects").clicked {
-				sb.tab = .Projects
+			if ui.button(
+				"sidebar:footer:btn_project",
+				textures.UI_ICONS.PROJECT,
+				.SIDEBAR_TAB,
+				selected = sidebar_mem.active_tab == .Project,
+			) {
+				if sidebar_mem.active_tab != .Project {
+					sidebar_mem.active_tab = .Project
+				}
 			}
-			if ui.button("Button:Tab:Map", ui.get_icon(.MAP), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Map, tooltip = "Map", disabled = is_disabled).clicked {
-				sb.tab = .Map
+			if ui.button(
+				"sidebar:footer:btn_maps",
+				textures.UI_ICONS.MAP,
+				.SIDEBAR_TAB,
+				selected = sidebar_mem.active_tab == .Maps,
+			) {
+				if sidebar_mem.active_tab != .Maps {
+					sidebar_mem.active_tab = .Maps
+				}
 			}
-			if ui.button("Button:Tab:Tileset", ui.get_icon(.TILESETS), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Tilesets, tooltip = "Tilesets", disabled = is_disabled).clicked {
-				sb.tab = .Tilesets
+			if ui.button(
+				"sidebar:footer:btn_tilesets",
+				textures.UI_ICONS.TILESETS,
+				.SIDEBAR_TAB,
+				selected = sidebar_mem.active_tab == .Tilesets,
+			) {
+				if sidebar_mem.active_tab != .Tilesets {
+					sidebar_mem.active_tab = .Tilesets
+				}
 			}
-			if ui.button("Button:Tab:Sprites", ui.get_icon(.SPRITES), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Sprites, tooltip = "Sprites", disabled = is_disabled).clicked {
-				sb.tab = .Sprites
+			if ui.button(
+				"sidebar:footer:btn_sprites",
+				textures.UI_ICONS.SPRITES,
+				.SIDEBAR_TAB,
+				selected = sidebar_mem.active_tab == .Sprites,
+			) {
+				if sidebar_mem.active_tab != .Sprites {
+					sidebar_mem.active_tab = .Sprites
+				}
 			}
-			if ui.button("Button:Tab:Level_Editor", ui.get_icon(.LEVEL_EDITOR), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .LevelEditor, tooltip = "Level Editor", disabled = is_disabled).clicked {
-				sb.tab = .LevelEditor
+			if ui.button(
+				"sidebar:footer:btn_level_editor",
+				textures.UI_ICONS.LEVEL_EDITOR,
+				.SIDEBAR_TAB,
+				selected = sidebar_mem.active_tab == .Level_Editor,
+			) {
+				if sidebar_mem.active_tab != .Level_Editor {
+					sidebar_mem.active_tab = .Level_Editor
+				}
 			}
-			if ui.button("Button:Tab:Settings", ui.get_icon(.SETTINGS), ui.SIDEBAR_TAB_BUTTON, input, selected = sb.tab == .Settings, tooltip = "Settings", disabled = is_disabled).clicked {
-				sb.tab = .Settings
+			if ui.button(
+				"sidebar:footer:btn_settings",
+				textures.UI_ICONS.SETTINGS,
+				.SIDEBAR_TAB,
+				selected = sidebar_mem.active_tab == .Settings,
+			) {
+				if sidebar_mem.active_tab != .Settings {
+					sidebar_mem.active_tab = .Settings
+				}
 			}
 		}
 	}

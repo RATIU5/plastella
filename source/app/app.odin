@@ -1,149 +1,73 @@
 package app
 
-import api "../api"
 import editor "../editor"
 import platform "../platform"
-import ui "../ui"
-import "base:runtime"
+import project "../project"
+import render "../render"
 
-am: ^api.App_Memory
-
-RELOAD_NOTICE_MSG ::
-	"Code change needs a full restart (persistent state changed). " +
-	"Save your work, then press F6 to restart."
-
-@(export)
-app_update :: proc() {
-	// Nothing visible: skip the whole UI frame but keep the OS event queue
-	// serviced so the window can be restored.
-	if platform.window_minimized() {
-		platform.idle_pump_events()
-		return
-	}
-
-	platform.poll_input(&am.input)
-
-	// Game simulation (fixed timestep) will go here, before the UI frame.
-
-	// Single-pass UI: builds, handles input, and draws in one go. Runs before
-	// window drag so UI gets first claim on the mouse; window drag only fires
-	// if nothing in the editor captured it (cf. Dear ImGui's io.WantCaptureMouse).
-	editor.frame(&am.input)
-	platform.handle_window_drag(&am.input)
-	platform.apply_cursor(&am.input)
-
-	free_all(context.temp_allocator)
+App_Memory :: struct {
+	render_mem:  ^render.Render_Memory,
+	editor_mem:  ^editor.Editor_Memory,
+	project_mem: ^project.Project_Memory,
 }
-
-@(export)
-app_init_window :: proc() {
-	platform.init_window()
-}
+mem: ^App_Memory
 
 @(export)
 app_init :: proc() {
-	am = new(api.App_Memory)
-	am^ = api.App_Memory {
-		run = true,
-	}
-	am.ui_ctx = ui.init_clay()
-	am.editor = editor.init()
+	mem = new(App_Memory)
+	platform.window_init()
+	mem.render_mem = render.render_init()
+	mem.editor_mem = editor.editor_init(mem.project_mem)
 }
 
 @(export)
-app_should_run :: proc() -> bool {
-	when ODIN_OS != .JS {
-		if platform.window_should_close() {
-			return false
-		}
-	}
-
-	return am.run
+app_update :: proc() {
+	render.frame_begin()
+	editor.editor_frame()
+	render.frame_end()
 }
 
 @(export)
 app_shutdown :: proc() {
-	editor.shutdown()
-	ui.shutdown_clay()
-	free(am)
-}
-
-@(export)
-app_shutdown_window :: proc() {
-	platform.shutdown_window()
+	if mem.project_mem != nil {
+		free(mem.project_mem)
+		mem.project_mem = nil
+	}
+	editor.editor_shutdown()
+	render.render_shutdown()
+	platform.window_shutdown()
+	free(mem)
+	mem = nil
 }
 
 @(export)
 app_memory :: proc() -> rawptr {
-	return am
+	return mem
 }
 
 @(export)
-app_memory_size :: proc() -> int {
-	return size_of(api.App_Memory)
+app_hot_reloaded :: proc(m: rawptr) {
+	mem = (^App_Memory)(m)
+	render.render_reload(mem.render_mem)
+	editor.editor_reload(mem.editor_mem)
 }
 
 @(export)
-app_hot_reloaded :: proc(mem: rawptr) {
-	am = (^api.App_Memory)(mem)
-	// Re-point clay's context and font tables, which the new DLL zeroed out.
-	ui.reload(am.ui_ctx)
-	editor.reload(am.editor)
+app_should_run :: proc() -> bool {
+	return !platform.window_should_close()
 }
 
 @(export)
 app_force_reload :: proc() -> bool {
-	return platform.is_force_reload_pressed()
+	return platform.key_press(.F5)
 }
 
 @(export)
 app_force_restart :: proc() -> bool {
-	return platform.is_force_restart_pressed()
+	return platform.key_press(.F6)
 }
 
-// The host calls this once per detected incompatible reload (blocked = true) to
-// raise the dismissible HUD toast, and with false after a clean reload/restart
-// to clear it.
 @(export)
-app_set_reload_status :: proc(blocked: bool) {
-	if blocked {
-		ui.dev_notice_show(RELOAD_NOTICE_MSG)
-	} else {
-		ui.dev_notice_hide()
-	}
-}
-
-// A fingerprint of every persistent (hot-reload-surviving) struct's memory
-// layout. The host compares old vs new DLL: if it changes, the old memory can't
-// be reused, so a hot reload would corrupt state. App_Memory holds the editor
-// state behind a `rawptr`, so hashing App_Memory alone misses changes to
-// Editor_State — list each persistent root explicitly here.
-@(export)
-app_memory_layout_hash :: proc() -> u64 {
-	FNV_OFFSET :: u64(1469598103934665603)
-	h := layout_hash(type_info_of(api.App_Memory), FNV_OFFSET)
-	h = layout_hash(type_info_of(editor.Editor_State), h)
-	return h
-}
-
-// Folds a type's size and recursive field layout into `seed`. Recurses through
-// named/struct/union types (by value) but stops at pointers — opaque rawptr
-// roots are covered by listing their concrete types in app_memory_layout_hash.
-layout_hash :: proc(ti: ^runtime.Type_Info, seed: u64) -> u64 {
-	PRIME :: u64(1099511628211)
-	h := (seed ~ u64(ti.size)) * PRIME
-	#partial switch v in ti.variant {
-	case runtime.Type_Info_Named:
-		h = layout_hash(v.base, h)
-	case runtime.Type_Info_Struct:
-		for i in 0 ..< int(v.field_count) {
-			h = (h ~ u64(v.offsets[i])) * PRIME
-			h = layout_hash(v.types[i], h)
-		}
-	case runtime.Type_Info_Union:
-		for variant in v.variants {
-			h = layout_hash(variant, h)
-		}
-	}
-	return h
+app_memory_size :: proc() -> int {
+	return size_of(App_Memory)
 }

@@ -4,52 +4,52 @@ watchexec = "latest"
 
 # os() resolves at parse time; $(odin root) at runtime so it uses mise's pinned odin.
 [env]
-OUT_DIR = "build/hot_reload"
-EXE = "app_hot_reload.bin"
-DLL_EXT = "{% if os() == 'macos' %}.dylib{% else %}.so{% endif %}"
+APP_NAME = "plastella"
+HR_OUT = "build/hot_reload"
+EXE = "app-hr.bin"
+DLL_EXT = "{% if os() == 'macos' %}.dylib{% elif os() == 'windows' %}.dll{% else %}.so{% endif %}"
 
 [tasks.build-app]
 description = "Compile source/ into a reloadable app DLL (triggers a live hot reload)"
 alias = "reload"
-sources = [
-  "source/app/*.odin",
-  "source/platform/*.odin",
-  "source/api/*.odin",
-  "source/editor/*.odin",
-  "source/ui/*.odin",
-  "source/project/*.odin",
-]
-outputs = ["{{ env.OUT_DIR }}/app{{ env.DLL_EXT }}"]
+# every package the app dll pulls in — glob so new packages don't need a manual add
+sources = ["source/**/*.odin", "!source/host/*.odin"]
+# must match the name source/app/app.odin load()s at runtime
+outputs = ["{{ env.HR_OUT }}/{{ env.APP_NAME }}{{ env.DLL_EXT }}"]
 run = [
-  "mkdir -p $OUT_DIR",
-  "{% if os() == 'linux' %}mkdir -p $OUT_DIR/linux && cp -rn $(odin root)/vendor/raylib/linux/libraylib*.so* $OUT_DIR/linux{% else %}true{% endif %}",
-  "odin build source/app -extra-linker-flags:\"{% if os() == 'macos' %}-Wl,-rpath $(odin root)/vendor/raylib/macos{% else %}'-Wl,-rpath=$ORIGIN/linux'{% endif %}\" -define:RAYLIB_SHARED=true -build-mode:dll -out:$OUT_DIR/app_tmp$DLL_EXT -strict-style -vet -debug",
-  # atomic swap — never load a half-written DLL
-  "mv $OUT_DIR/app_tmp$DLL_EXT $OUT_DIR/app$DLL_EXT",
+  "mkdir -p $HR_OUT",
+  # linux: stage raylib .so next to the dll so $ORIGIN rpath finds it
+  "{% if os() == 'linux' %}mkdir -p $HR_OUT/linux && cp -rn $(odin root)/vendor/raylib/linux/libraylib*.so* $HR_OUT/linux{% else %}true{% endif %}",
+  # compile to a temp name first...
+  # \$ORIGIN must stay escaped so the shell doesn't expand it — the linker resolves it at load time (dll-relative)
+  "odin build source/app -extra-linker-flags:\"{% if os() == 'macos' %}-Wl,-rpath $(odin root)/vendor/raylib/macos{% else %}-Wl,-rpath=\\$ORIGIN/linux{% endif %}\" -define:RAYLIB_SHARED=true -build-mode:dll -out:$HR_OUT/${APP_NAME}_tmp$DLL_EXT -strict-style -vet -debug",
+  # ...then atomic-rename so the host never loads a half-written dll
+  "mv $HR_OUT/${APP_NAME}_tmp$DLL_EXT $HR_OUT/$APP_NAME$DLL_EXT",
 ]
 
-[tasks.build-exe]
+[tasks.build-host]
 description = "Compile the hot-reload host executable"
-sources = ["source/main_hot_reload/*.odin"]
-outputs = ["{{ env.OUT_DIR }}/{{ env.EXE }}"]
+sources = ["source/host/*.odin"]
+outputs = ["{{ env.HR_OUT }}/{{ env.EXE }}"]
 run = [
-  "mkdir -p $OUT_DIR",
-  "odin build source/main_hot_reload -out:$OUT_DIR/$EXE{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -debug",
+  "mkdir -p $HR_OUT",
+  "odin build source/host -out:$HR_OUT/$EXE{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -debug",
   # symlink so resources/ is reachable by relative path (exe chdirs to its own dir)
-  "rm -rf $OUT_DIR/resources && ln -s ../../resources $OUT_DIR/resources",
+  "rm -rf $HR_OUT/resources && ln -s ../../resources $HR_OUT/resources",
 ]
 
 # App runs foreground — backgrounding a GUI app trips SIGTTOU/HUP and freezes the window.
 # Watcher runs in the background; trap kills it on exit so it doesn't keep rebuilding.
 [tasks.dev]
 description = "Build + run with automatic hot reload (watches source/)"
-depends = ["build-app", "build-exe"]
+depends = ["build-app", "build-host"]
 run = '''
 watchexec --watch source --exts odin --debounce 200ms -- mise run build-app &
 watcher=$!
 # kill watcher; remove numbered DLL copies left behind by unclean exits
-trap 'kill $watcher 2>/dev/null; rm -f "$OUT_DIR"/app_*.dylib' EXIT INT TERM
-./"$OUT_DIR/$EXE"
+trap 'kill $watcher 2>/dev/null; rm -f "$HR_OUT"/${APP_NAME}_[0-9]*$DLL_EXT' EXIT INT TERM
+# run from $HR_OUT (subshell) so the host finds plastella.dylib + resources/ by relative path
+(cd "$HR_OUT" && ./"$EXE")
 '''
 
 [tasks.run]
@@ -57,26 +57,20 @@ description = "Build + run the standalone (non-hot-reload) app"
 alias = "r"
 run = [
   "mkdir -p build/debug",
-  "odin build source/main_release -out:build/debug/plastella.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet",
+  "odin build source/host -out:build/debug/$APP_NAME.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet",
   "rm -rf build/debug/resources && ln -s ../../resources build/debug/resources",
-  "./build/debug/plastella.bin",
+  "./build/debug/$APP_NAME.bin",
 ]
 
 [tasks.build]
 description = "Build an optimized release into build/release/"
 alias = "b"
-sources = [
-  "source/app/*.odin",
-  "source/platform/*.odin",
-  "source/api/*.odin",
-  "source/main_release/*.odin",
-  "resources/**/*",
-]
-outputs = ["build/release/plastella.bin"]
+sources = ["source/**/*.odin", "resources/**/*"]
+outputs = ["build/release/{{ env.APP_NAME }}.bin"]
 run = [
   "rm -rf build/release",
   "mkdir -p build/release",
-  "odin build source/main_release -out:build/release/plastella.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -no-bounds-check -o:speed",
+  "odin build source/host -out:build/release/$APP_NAME.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -no-bounds-check -o:speed",
   "cp -R resources build/release/",
 ]
 
@@ -84,9 +78,5 @@ run = [
 description = "Kill the running hot-reload app and clean up per-reload DLL copies"
 run = '''
 pkill -f "$EXE" || true
-rm -f "$OUT_DIR"/app_*.dylib
+rm -f "$HR_OUT"/${APP_NAME}_[0-9]*$DLL_EXT
 '''
-
-[tasks.clean]
-description = "Delete build artifacts, binaries, and logs"
-run = "rm -rf build log.txt"
