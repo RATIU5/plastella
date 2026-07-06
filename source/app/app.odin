@@ -2,11 +2,13 @@ package app
 
 import editor "../editor"
 import platform "../platform"
+import project "../project"
 import render "../render"
 
 App_Memory :: struct {
-	render_mem: ^render.Render_Memory,
-	editor_mem: ^editor.Editor_Memory,
+	render_mem:  ^render.Render_Memory,
+	editor_mem:  ^editor.Editor_Memory,
+	project_mem: ^project.Project_Memory,
 }
 mem: ^App_Memory
 
@@ -15,7 +17,7 @@ app_init :: proc() {
 	mem = new(App_Memory)
 	platform.window_init()
 	mem.render_mem = render.render_init()
-	mem.editor_mem = editor.editor_init()
+	mem.editor_mem = editor.editor_init(mem.project_mem)
 }
 
 @(export)
@@ -27,6 +29,10 @@ app_update :: proc() {
 
 @(export)
 app_shutdown :: proc() {
+	if mem.project_mem != nil {
+		free(mem.project_mem)
+		mem.project_mem = nil
+	}
 	editor.editor_shutdown()
 	render.render_shutdown()
 	platform.window_shutdown()

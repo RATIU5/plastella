@@ -18,9 +18,9 @@ TEXT :: enum {
 }
 
 text_styles := [TEXT]Text_Style {
-	.UI_REG_14 = {font = .UI_REG_14, size = 14, line_height = 14},
-	.UI_BLD_14 = {font = .UI_BLD_14, size = 14, line_height = 14},
-	.UI_ICN_18 = {font = .UI_REG_14, size = 18, line_height = 18},
+	.UI_REG_14 = {font = .UI_REG_14, size = 14, line_height = 14, letter_spacing = 0},
+	.UI_BLD_14 = {font = .UI_BLD_14, size = 14, line_height = 14, letter_spacing = 0},
+	.UI_ICN_18 = {font = .UI_REG_14, size = 18, line_height = 18, letter_spacing = 0},
 }
 
 text :: proc(
@@ -70,7 +70,7 @@ ellipsize_text :: proc(str: string, style: TEXT, max_w: f32) -> string {
 
 	dots_w := text_width("...", style)
 	cut := 0
-	for i := 0; i < len(str);  /**/{
+	for i := 0; i < len(str); {
 		_, w := utf8.decode_rune(str[i:])
 		if text_width(str[:i + w], style) + dots_w > max_w do break
 		i += w

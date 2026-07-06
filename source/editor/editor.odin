@@ -5,9 +5,9 @@ Editor_Memory :: struct {
 }
 editor_mem: ^Editor_Memory
 
-editor_init :: proc() -> ^Editor_Memory {
+editor_init :: proc(proj: rawptr) -> ^Editor_Memory {
 	editor_mem = new(Editor_Memory)
-	editor_mem.sidebar_mem = sidebar_init()
+	editor_mem.sidebar_mem = sidebar_init(proj)
 
 	return editor_mem
 }

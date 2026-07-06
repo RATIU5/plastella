@@ -2,6 +2,8 @@ package editor
 
 import clay "../../vendor/clay"
 import platform "../platform"
+import project "../project"
+import render "../render"
 import textures "../render/textures"
 import ui "../ui"
 
@@ -10,6 +12,7 @@ SIDEBAR_MAX: f32 : 400
 SIDEBAR_WIDTH_DEFAULT: f32 : 250
 SIDEBAR_HEADER_HEIGHT: f32 : 32
 SIDEBAR_FOOTER_HEIGHT: f32 : 38
+WINDOW_CONTROLS_WIDTH: u16 : 82
 RESIZE_HANDLE: f32 : 4
 
 Sidebar_Tab :: enum {
@@ -25,12 +28,14 @@ Sidebar_Memory :: struct {
 	width:      f32,
 	resizing:   bool,
 	active_tab: Sidebar_Tab,
+	project:    rawptr,
 }
 sidebar_mem: ^Sidebar_Memory
 
-sidebar_init :: proc() -> ^Sidebar_Memory {
+sidebar_init :: proc(proj: rawptr) -> ^Sidebar_Memory {
 	sidebar_mem = new(Sidebar_Memory)
 	sidebar_mem.width = SIDEBAR_WIDTH_DEFAULT
+	sidebar_mem.project = proj
 
 	return sidebar_mem
 }
@@ -79,12 +84,23 @@ sidebar_frame :: proc() {
 					height = clay.SizingFixed(SIDEBAR_HEADER_HEIGHT),
 				},
 				childAlignment = {clay.LayoutAlignmentX.Left, clay.LayoutAlignmentY.Center},
-				padding = {left = 82},
+				padding = {left = WINDOW_CONTROLS_WIDTH},
 			},
 			clip = {horizontal = true},
 		},
 		) {
-
+			if clay.UI(clay.ID("sidebar:header:title"))(
+			{layout = {sizing = {width = clay.SizingFit(), height = clay.SizingFit()}}},
+			) {
+				project_name :=
+					sidebar_mem.project != nil ? (^project.Project_Memory)(sidebar_mem.project).name : "Plastella"
+				render.text(
+					project_name,
+					.UI_BLD_14,
+					ui.COLOR_TEXT,
+					ellipsize = sidebar_mem.width - f32(WINDOW_CONTROLS_WIDTH) - 10,
+				)
+			}
 		}
 
 		// sidebar:content
