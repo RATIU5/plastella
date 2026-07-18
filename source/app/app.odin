@@ -16,6 +16,7 @@ mem: ^App_Memory
 app_init :: proc() {
 	mem = new(App_Memory)
 	platform.window_init()
+	mem.project_mem = nil
 	mem.render_mem = render.render_init()
 	mem.editor_mem = editor.editor_init(mem.project_mem)
 }

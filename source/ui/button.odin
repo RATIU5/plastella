@@ -18,6 +18,7 @@ Button_Style :: struct {
 
 BUTTON :: enum u8 {
 	SIDEBAR_TAB,
+	SIDEBAR_TEXT,
 }
 
 button_styles := [BUTTON]Button_Style {
@@ -40,8 +41,41 @@ button_styles := [BUTTON]Button_Style {
 			.Selected = ACCENT,
 			.Selected_Hover = ACCENT,
 			.Selected_Active = ACCENT,
+			.Disabled = GREY_605,
+		},
+		radius = {topLeft = 5, topRight = 5, bottomLeft = 5, bottomRight = 5},
+	},
+	.SIDEBAR_TEXT = {
+		font = .UI_REG_14,
+		padding = {top = 5, left = 10, right = 10, bottom = 5},
+		bg_color = {
+			.Normal = GREY_805,
+			.Hover = GREY_760,
+			.Active = GREY_805,
+			.Selected = GREY_805,
+			.Selected_Hover = GREY_760,
+			.Selected_Active = GREY_805,
+			.Disabled = GREY_850,
+		},
+		fg_color = {
+			.Normal = GREY_290,
+			.Hover = GREY_240,
+			.Active = GREY_340,
+			.Selected = GREY_290,
+			.Selected_Hover = GREY_240,
+			.Selected_Active = GREY_340,
 			.Disabled = GREY_500,
 		},
+		border_color = {
+			.Normal = GREY_710,
+			.Hover = GREY_660,
+			.Active = GREY_760,
+			.Selected = GREY_290,
+			.Selected_Hover = GREY_240,
+			.Selected_Active = GREY_340,
+			.Disabled = GREY_805,
+		},
+		border_width = {top = 1, left = 1, right = 1, bottom = 1},
 		radius = {topLeft = 5, topRight = 5, bottomLeft = 5, bottomRight = 5},
 	},
 }

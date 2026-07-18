@@ -1,13 +1,18 @@
 package editor
 
+import project "../project"
+
 Editor_Memory :: struct {
 	sidebar_mem: ^Sidebar_Memory,
+	active_tab:  Sidebar_Tab,
+	project:     ^project.Project_Memory,
 }
 editor_mem: ^Editor_Memory
 
-editor_init :: proc(proj: rawptr) -> ^Editor_Memory {
+editor_init :: proc(proj: ^project.Project_Memory) -> ^Editor_Memory {
 	editor_mem = new(Editor_Memory)
-	editor_mem.sidebar_mem = sidebar_init(proj)
+	editor_mem.project = proj
+	editor_mem.sidebar_mem = sidebar_init()
 
 	return editor_mem
 }

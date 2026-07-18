@@ -11,8 +11,17 @@ when ODIN_OS == .Darwin {
 		)
 		NS.Window_setTitlebarAppearsTransparent(nswindow, true)
 		NS.Window_setTitleVisibility(nswindow, .Hidden)
-		NS.Window_setMovableByWindowBackground(nswindow, true)
 	}
+
+	window_begin_drag :: proc() {
+		nswindow := (^NS.Window)(rl.GetWindowHandle())
+		app := NS.Application_sharedApplication()
+		if event := NS.Application_currentEvent(app); event != nil {
+			NS.Window_performWindowDragWithEvent(nswindow, event)
+		}
+	}
+} else {
+	window_begin_drag :: proc() {}
 }
 
 window_init :: proc() {
@@ -21,7 +30,7 @@ window_init :: proc() {
 	when ODIN_OS == .Darwin {
 		setup_fullsize_titlebar()
 	}
-	// TODO: Center window on screen
+	// TODO: Center window on screen?
 	rl.SetWindowPosition(200, 200)
 	rl.SetTargetFPS(90)
 	rl.SetExitKey(nil)
