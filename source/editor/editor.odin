@@ -4,8 +4,8 @@ import project "../project"
 
 Editor_Memory :: struct {
 	sidebar_mem: ^Sidebar_Memory,
-	active_tab:  Sidebar_Tab,
 	project:     ^project.Project_Memory,
+	active_tab:  Sidebar_Tab,
 }
 editor_mem: ^Editor_Memory
 
@@ -24,6 +24,8 @@ editor_reload :: proc(m: ^Editor_Memory) {
 }
 
 editor_shutdown :: proc() {
+	if editor_mem == nil do return
+	project.project_shutdown(editor_mem.project)
 	sidebar_shutdown()
 	free(editor_mem)
 	editor_mem = nil

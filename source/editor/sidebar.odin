@@ -115,7 +115,7 @@ sidebar_frame :: proc() {
 		},
 		) {
 			if editor_mem.active_tab == .Project {
-				sidebar.project_frame(editor_mem.project)
+				sidebar.project_frame(&editor_mem.project)
 			}
 		}
 

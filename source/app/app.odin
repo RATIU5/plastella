@@ -16,7 +16,6 @@ mem: ^App_Memory
 app_init :: proc() {
 	mem = new(App_Memory)
 	platform.window_init()
-	mem.project_mem = nil
 	mem.render_mem = render.render_init()
 	mem.editor_mem = editor.editor_init(mem.project_mem)
 }
@@ -30,10 +29,7 @@ app_update :: proc() {
 
 @(export)
 app_shutdown :: proc() {
-	if mem.project_mem != nil {
-		free(mem.project_mem)
-		mem.project_mem = nil
-	}
+	project.project_shutdown(mem.project_mem)
 	editor.editor_shutdown()
 	render.render_shutdown()
 	platform.window_shutdown()
