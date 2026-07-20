@@ -29,18 +29,18 @@ button_styles := [BUTTON]Button_Style {
 			.Normal = TRANSPARENT,
 			.Hover = GREY_805,
 			.Active = GREY_850,
-			.Selected = TRANSPARENT,
-			.Selected_Hover = GREY_805,
-			.Selected_Active = GREY_850,
+			.Engaged = TRANSPARENT,
+			.Engaged_Hover = GREY_805,
+			.Engaged_Active = GREY_850,
 			.Disabled = TRANSPARENT,
 		},
 		fg_color = {
 			.Normal = GREY_340,
 			.Hover = GREY_290,
 			.Active = GREY_290,
-			.Selected = ACCENT,
-			.Selected_Hover = ACCENT,
-			.Selected_Active = ACCENT,
+			.Engaged = ACCENT,
+			.Engaged_Hover = ACCENT,
+			.Engaged_Active = ACCENT,
 			.Disabled = GREY_605,
 		},
 		radius = {topLeft = 5, topRight = 5, bottomLeft = 5, bottomRight = 5},
@@ -52,27 +52,27 @@ button_styles := [BUTTON]Button_Style {
 			.Normal = GREY_805,
 			.Hover = GREY_760,
 			.Active = GREY_805,
-			.Selected = GREY_805,
-			.Selected_Hover = GREY_760,
-			.Selected_Active = GREY_805,
+			.Engaged = GREY_805,
+			.Engaged_Hover = GREY_760,
+			.Engaged_Active = GREY_805,
 			.Disabled = GREY_850,
 		},
 		fg_color = {
 			.Normal = GREY_290,
 			.Hover = GREY_240,
 			.Active = GREY_340,
-			.Selected = GREY_290,
-			.Selected_Hover = GREY_240,
-			.Selected_Active = GREY_340,
+			.Engaged = GREY_290,
+			.Engaged_Hover = GREY_240,
+			.Engaged_Active = GREY_340,
 			.Disabled = GREY_500,
 		},
 		border_color = {
 			.Normal = GREY_710,
 			.Hover = GREY_660,
 			.Active = GREY_760,
-			.Selected = GREY_290,
-			.Selected_Hover = GREY_240,
-			.Selected_Active = GREY_340,
+			.Engaged = GREY_290,
+			.Engaged_Hover = GREY_240,
+			.Engaged_Active = GREY_340,
 			.Disabled = GREY_805,
 		},
 		border_width = {top = 1, left = 1, right = 1, bottom = 1},
@@ -183,13 +183,13 @@ btn_color_state :: proc(active, hover, selected, disabled: bool) -> Color_State 
 	case disabled:
 		return .Disabled
 	case selected && active:
-		return .Selected_Active
+		return .Engaged_Active
 	case selected && hover:
-		return .Selected_Hover
+		return .Engaged_Hover
 	case active:
 		return .Active
 	case selected:
-		return .Selected
+		return .Engaged
 	case hover:
 		return .Hover
 	case:

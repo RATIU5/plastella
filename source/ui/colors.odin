@@ -5,9 +5,9 @@ Color_State :: enum u8 {
 	Hover,
 	Active,
 	Disabled,
-	Selected,
-	Selected_Hover,
-	Selected_Active,
+	Engaged,
+	Engaged_Hover,
+	Engaged_Active,
 }
 
 @(private)
