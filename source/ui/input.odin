@@ -4,6 +4,7 @@ import clay "../../vendor/clay"
 import platform "../platform"
 import render "../render"
 import "core:math"
+import "core:strings"
 import "core:unicode/utf8"
 
 Text_Buffer :: [dynamic]u8
@@ -25,10 +26,8 @@ Text_Input_State :: struct {
 	select_anchor:  int,
 	scroll_x:       f32,
 	blink:          f32,
-	active:         bool,
 	cached_caret_x: f32,
 	caret_x_dirty:  bool,
-	seen_frame:     u64,
 }
 
 INPUT :: enum u8 {
@@ -47,32 +46,34 @@ focused_input: string
 ui_frame: u64
 
 @(private)
-input_get_state :: proc(id: string) -> ^Text_Input_State {
+get_input_state :: proc(id: string) -> ^Text_Input_State {
 	s, found := &input_states[id]
 	if !found {
-		input_states[id] = Text_Input_State {
-			caret_x_dirty = true,
-		}
-		s = &input_states[id]
+		s = map_insert(&input_states, strings.clone(id), Text_Input_State{caret_x_dirty = true})
 	}
-	s.seen_frame = ui_frame
 	return s
 }
 
-glyph_advance :: proc(st: render.Text_Style, cp: rune) -> f32 {
-	font := render.get_font(st.font)
+glyph_advance :: proc(
+	st: render.Text_Style,
+	cp: rune,
+	font_size: i32,
+	recs: [^]render.Rectangle,
+) -> f32 {
 	g := render.get_glyph_info(st.font, cp)
 	idx := render.get_glyph_index(st.font, cp)
-	adv := g.advanceX != 0 ? f32(g.advanceX) : font.recs[idx].width
-	return adv * f32((i32(st.size) / font.baseSize)) + f32(st.letter_spacing)
+	adv := g.advanceX != 0 ? f32(g.advanceX) : recs[idx].width
+	return adv * f32(st.size) / f32(font_size) + f32(st.letter_spacing)
 }
 
 measure_to :: proc(st: render.Text_Style, b: ^Text_Buffer, caret_byte: int) -> f32 {
 	x := f32(0)
 	i := 0
+	font := render.get_font(st.font)
+	recs := ([^]render.Rectangle)(font.recs)
 	for i < caret_byte && i < len(b) {
 		cp, size := utf8.decode_rune(b[i:])
-		x += glyph_advance(st, cp)
+		x += glyph_advance(st, cp, font.baseSize, recs)
 		i += size
 	}
 	return x
@@ -94,9 +95,11 @@ mark_dirty :: proc(s: ^Text_Input_State) {
 index_from_x :: proc(st: render.Text_Style, b: ^Text_Buffer, target_x: f32) -> int {
 	x := f32(0)
 	i := 0
+	font := render.get_font(st.font)
+	recs := ([^]render.Rectangle)(font.recs)
 	for i < len(b) {
 		cp, size := utf8.decode_rune(b[i:])
-		adv := glyph_advance(st, cp)
+		adv := glyph_advance(st, cp, font.baseSize, recs)
 		if target_x < x + adv * 0.5 do return i
 		x += adv
 		i += size
@@ -113,7 +116,7 @@ caret_right :: proc(s: ^Text_Input_State) {
 
 caret_left :: proc(s: ^Text_Input_State) {
 	if s.caret <= 0 do return
-	_, size := utf8.decode_rune(s.buf[:s.caret])
+	_, size := utf8.decode_last_rune(s.buf[:s.caret])
 	s.caret -= size
 	mark_dirty(s)
 }
@@ -238,6 +241,7 @@ input_handle_keys :: proc(s: ^Text_Input_State, st: render.Text_Style) {
 	}
 
 	for ch in platform.chars_typed() {
+		if ch < 0x20 || ch == 0x7F do continue
 		bytes, n := utf8.encode_rune(ch)
 		replace_selection(s, bytes[:n])
 	}
@@ -249,11 +253,8 @@ input_handle_keys :: proc(s: ^Text_Input_State, st: render.Text_Style) {
 			move_caret_to(s, sel_lo(s), false)
 		} else {
 			c := s.caret
-			if c > 0 {
-				_, size := utf8.decode_last_rune(s.buf[:c])
-				c -= size
-			}
-			move_caret_to(s, c, shift)
+			caret_left(s)
+			if !shift do s.select_anchor = s.caret
 		}
 	}
 
@@ -264,10 +265,7 @@ input_handle_keys :: proc(s: ^Text_Input_State, st: render.Text_Style) {
 			move_caret_to(s, sel_hi(s), false)
 		} else {
 			c := s.caret
-			if c < len(s.buf) {
-				_, size := utf8.decode_last_rune(s.buf[c:])
-				c += size
-			}
+			caret_right(s)
 			move_caret_to(s, c, shift)
 		}
 	}
@@ -311,10 +309,15 @@ input_handle_keys :: proc(s: ^Text_Input_State, st: render.Text_Style) {
 		delete_selection(s)
 	}
 	if ctrl && (platform.key_press(.V) || platform.key_press_repeat(.V)) {
-		clip := platform.get_clipboard()
+		clip := platform.get_clipboard() // raylib-owned; do not free
 		if clip != "" {
-			// TODO: strip '/n' from text before replacing
-			replace_selection(s, transmute([]u8)clip)
+			clean := make([dynamic]u8, 0, len(clip), context.temp_allocator)
+			for ch in clip { 	// rune iteration; invalid bytes come out as RUNE_ERROR
+				if ch < 0x20 || ch == 0x7F || ch == utf8.RUNE_ERROR do continue
+				b, n := utf8.encode_rune(ch)
+				append(&clean, ..b[:n])
+			}
+			if len(clean) > 0 do replace_selection(s, clean[:])
 		}
 	}
 }
@@ -324,22 +327,20 @@ input_handle_mouse :: proc(
 	st: render.Text_Style,
 	box: clay.BoundingBox,
 	pad_x: f32,
+	focus: bool,
 ) {
 	m := platform.mouse_pos()
 	inside := m.x >= box.x && m.x < box.x + box.width && m.y >= box.y && m.y < box.y + box.height
 
-	if platform.mouse_press(.LEFT) {
-		s.active = inside
-		if inside {
-			local_x := m.x - box.x - pad_x + s.scroll_x
-			hit := index_from_x(st, &s.buf, local_x)
-			s.caret = hit
-			s.select_anchor = hit
-			mark_dirty(s)
-		}
+	if platform.mouse_press(.LEFT) && inside {
+		local_x := m.x - box.x - pad_x + s.scroll_x
+		hit := index_from_x(st, &s.buf, local_x)
+		s.caret = hit
+		s.select_anchor = hit
+		mark_dirty(s)
 	}
 
-	if s.active && platform.mouse_down(.LEFT) && !platform.mouse_press(.LEFT) {
+	if focus && platform.mouse_down(.LEFT) && !platform.mouse_press(.LEFT) {
 		local_x := m.x - box.x - pad_x + s.scroll_x
 		hit := index_from_x(st, &s.buf, local_x)
 		if hit != s.caret {
@@ -357,19 +358,19 @@ ensure_caret_visible :: proc(s: ^Text_Input_State, st: render.Text_Style, box_in
 	} else if cx - s.scroll_x > box_inner_width - PAD {
 		s.scroll_x = cx - (box_inner_width - PAD)
 	}
-	s.scroll_x = max(s.scroll_x, 0)
+	text_w := measure_to(st, &s.buf, len(s.buf))
+	s.scroll_x = clamp(s.scroll_x, 0, max(0, s.scroll_x - box_inner_width + PAD))
 }
 
 input_text :: proc(
 	id: string,
-	value: string,
 	placeholder: string,
 	theme: INPUT,
 	width: Sizing = .FIT,
 	height: Sizing = .FIT,
 	disabled := false,
 ) {
-	s := input_get_state(id)
+	s := get_input_state(id)
 	focus := focused_input == id
 	hover := !disabled && render.pointer_over(id)
 	active := !disabled && render.active_over(id)
@@ -380,8 +381,14 @@ input_text :: proc(
 	fg := style.fg_color[st]
 	bg := style.bg_color[st]
 	br := style.border_color[st]
-	lo_x := measure_to(ts, &s.buf, sel_lo(s))
-	hi_x := measure_to(ts, &s.buf, sel_hi(s))
+
+
+	lo_x: f32 = 0
+	hi_x: f32 = 0
+	if focus && has_sel(s) {
+		lo_x = measure_to(ts, &s.buf, sel_lo(s))
+		hi_x = measure_to(ts, &s.buf, sel_hi(s))
+	}
 
 	if hover do platform.set_cursor(.IBEAM)
 
@@ -389,9 +396,10 @@ input_text :: proc(
 	pad_x := f32(style.padding.left)
 	inner_width := box.width - f32(style.padding.left + style.padding.right)
 
-	input_handle_mouse(s, ts, box, pad_x)
-	if s.active do focused_input = id
-	if platform.mouse_press(.LEFT) && !s.active && focus do focused_input = ""
+	if box_found do input_handle_mouse(s, ts, box, pad_x, focus)
+	if active do focused_input = id
+	else if platform.mouse_press(.LEFT) && !active && focus do focused_input = ""
+	focus = focused_input == id
 
 	if focus {
 		s.blink += platform.delta_time()
@@ -414,7 +422,7 @@ input_text :: proc(
 		if clay.UI(clay.ID(id, 1))(
 		{layout = {sizing = {width = clay.SizingGrow()}}, clip = {horizontal = true}},
 		) {
-			if s.active && has_sel(s) {
+			if focus && has_sel(s) {
 				if clay.UI(clay.ID(id, 2))(
 				{
 					floating = {
@@ -427,7 +435,7 @@ input_text :: proc(
 					layout = {
 						sizing = {
 							width = clay.SizingFixed(hi_x - lo_x),
-							height = clay.SizingGrow(),
+							height = clay.SizingFixed(f32(ts.size)),
 						},
 					},
 					backgroundColor = opacity(ACCENT, 100),
@@ -453,7 +461,7 @@ input_text :: proc(
 				}
 			}
 
-			if s.active && blink_on(s) && !has_sel(s) {
+			if focus && blink_on(s) && !has_sel(s) {
 				if clay.UI(clay.ID(id, 4))(
 				{
 					floating = {
@@ -477,12 +485,40 @@ input_text :: proc(
 	}
 }
 
+get_input_text :: proc(id: string) -> string {
+	return string(input_states[id].buf[:])
+}
+
+set_input_text :: proc(id, val: string) {
+	s := get_input_state(id)
+	clear(&s.buf)
+	append(&s.buf, val)
+	s.caret = min(s.caret, len(s.buf))
+	s.select_anchor = s.caret
+	mark_dirty(s)
+}
+
 input_frame_end :: proc() {
-	for id, &s in input_states {
-		if s.seen_frame != ui_frame {
-			delete(s.buf)
+	ui_frame += 1
+}
+
+input_destroy :: proc(id: string) {
+	for key in input_states {
+		if key == id {
+			delete(input_states[id].buf)
 			delete_key(&input_states, id)
+			delete(id)
+			break
 		}
 	}
-	ui_frame += 1
+	if focused_input == id do focused_input = ""
+}
+
+input_shutdown :: proc() {
+	for key, &s in input_states {
+		delete(s.buf)
+		delete(key)
+	}
+	delete(input_states)
+	focused_input = ""
 }

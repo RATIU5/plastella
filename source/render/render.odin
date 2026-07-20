@@ -13,6 +13,15 @@ Render_Memory :: struct {
 	last_scale: [2]f32,
 }
 
+// Same structure as raylib's Rectangle struct
+Rectangle :: struct {
+	x:      f32,
+	y:      f32,
+	width:  f32,
+	height: f32,
+}
+
+
 @(private)
 state: ^Render_Memory
 
