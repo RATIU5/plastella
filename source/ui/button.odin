@@ -99,7 +99,7 @@ button_text :: proc(
 
 	if hover do platform.set_cursor(.POINTING_HAND)
 
-	st := btn_color_state(active, hover, selected, disabled)
+	st := color_state(active, hover, selected, disabled)
 	style := button_styles[theme]
 	fg := style.fg_color[st]
 	bg := style.bg_color[st]
@@ -137,7 +137,7 @@ button_icon :: proc(
 
 	if hover do platform.set_cursor(.POINTING_HAND)
 
-	st := btn_color_state(active, hover, selected, disabled)
+	st := color_state(active, hover, selected, disabled)
 	style := button_styles[theme]
 	text_style := render.text_styles[style.font]
 	fg := style.fg_color[st]
@@ -175,24 +175,4 @@ button_icon :: proc(
 	}
 
 	return render.clicked(id)
-}
-
-@(private = "file")
-btn_color_state :: proc(active, hover, selected, disabled: bool) -> Color_State {
-	switch {
-	case disabled:
-		return .Disabled
-	case selected && active:
-		return .Engaged_Active
-	case selected && hover:
-		return .Engaged_Hover
-	case active:
-		return .Active
-	case selected:
-		return .Engaged
-	case hover:
-		return .Hover
-	case:
-		return .Normal
-	}
 }

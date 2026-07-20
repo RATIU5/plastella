@@ -9,6 +9,18 @@ FONT :: enum u16 {
 	UI_BLD_14,
 }
 
+get_font :: proc(id: FONT) -> rl.Font {
+	return state.fonts[id]
+}
+
+get_glyph_info :: proc(id: FONT, cp: rune) -> rl.GlyphInfo {
+	return rl.GetGlyphInfo(state.fonts[id], cp)
+}
+
+get_glyph_index :: proc(id: FONT, cp: rune) -> i32 {
+	return rl.GetGlyphIndex(state.fonts[id], cp)
+}
+
 @(private)
 load_font :: proc(id: FONT, size: u16, path: cstring) {
 	state.fonts[id] = rl.LoadFontEx(path, i32(size) * FONT_SUPERSAMPLE, nil, 0)
