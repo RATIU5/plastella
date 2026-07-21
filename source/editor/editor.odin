@@ -1,7 +1,6 @@
 package editor
 
 import project "../project"
-import ui "../ui"
 
 Editor_Memory :: struct {
 	sidebar_mem: ^Sidebar_Memory,
@@ -27,7 +26,6 @@ editor_reload :: proc(m: ^Editor_Memory) {
 editor_shutdown :: proc() {
 	if editor_mem == nil do return
 	project.project_shutdown(editor_mem.project)
-	ui.input_shutdown()
 	sidebar_shutdown()
 	free(editor_mem)
 	editor_mem = nil

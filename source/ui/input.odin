@@ -72,19 +72,14 @@ input_styles := [INPUT]Input_Style {
 }
 
 @(private)
-input_states: map[string]Text_Input_State
-@(private)
-focused_input: string
-
-@(private)
 input_state_get :: proc(id: string) -> (^Text_Input_State, string) {
-	s, found := &input_states[id]
+	s, found := &ui_mem.input_states[id]
 	key := id
 	if !found {
 		key = strings.clone(id)
-		s = map_insert(&input_states, key, Text_Input_State{caret_x_dirty = true})
+		s = map_insert(&ui_mem.input_states, key, Text_Input_State{caret_x_dirty = true})
 	} else {
-		for k in input_states {
+		for k in ui_mem.input_states {
 			if k == id {
 				key = k
 				break
@@ -166,6 +161,7 @@ delete_backward :: proc(s: ^Text_Input_State) {
 	_, size := utf8.decode_last_rune(s.buf[:s.caret])
 	remove_range(&s.buf, s.caret - size, s.caret)
 	s.caret -= size
+	s.select_anchor = s.caret
 	mark_dirty(s)
 }
 
@@ -409,7 +405,7 @@ input_text :: proc(
 	disabled := false,
 ) {
 	s, key := input_state_get(id)
-	focus := focused_input == key
+	focus := ui_mem.focused_input == key
 	hover := !disabled && render.pointer_over(id)
 	active := !disabled && render.active_over(id)
 
@@ -436,11 +432,11 @@ input_text :: proc(
 
 	if box_found do input_handle_mouse(s, ts, box, pad_x, focus)
 	if active {
-		focused_input = id
+		ui_mem.focused_input = id
 	} else if platform.mouse_press(.LEFT) && focus {
-		focused_input = ""
+		ui_mem.focused_input = ""
 	}
-	focus = focused_input == id
+	focus = ui_mem.focused_input == id
 
 	if focus {
 		s.blink += platform.delta_time()
@@ -461,7 +457,15 @@ input_text :: proc(
 	},
 	) {
 		if clay.UI(clay.ID(id, 1))(
-		{layout = {sizing = {width = clay.SizingGrow()}}, clip = {horizontal = true}},
+		{
+			layout = {
+				sizing = {
+					width = clay.SizingGrow(),
+					height = clay.SizingFixed(f32(ts.line_height)),
+				},
+			},
+			clip = {horizontal = true},
+		},
 		) {
 			if focus && has_sel(s) {
 				if clay.UI(clay.ID(id, 2))(
@@ -472,6 +476,7 @@ input_text :: proc(
 						zIndex = 1,
 						attachment = {element = .LeftTop, parent = .LeftTop},
 						offset = {lo_x - s.scroll_x, 0},
+						pointerCaptureMode = .Passthrough,
 					},
 					layout = {
 						sizing = {
@@ -492,6 +497,7 @@ input_text :: proc(
 					zIndex = 2,
 					attachment = {element = .LeftTop, parent = .LeftTop},
 					offset = {-s.scroll_x, 0},
+					pointerCaptureMode = .Passthrough,
 				},
 			},
 			) {
@@ -511,6 +517,7 @@ input_text :: proc(
 						zIndex = 3,
 						attachment = {element = .LeftTop, parent = .LeftTop},
 						offset = {caret_x(ts, s) - s.scroll_x, 0},
+						pointerCaptureMode = .Passthrough,
 					},
 					layout = {
 						sizing = {
@@ -528,7 +535,7 @@ input_text :: proc(
 
 // Returned string aliases internal storage; clone to keep past this frame.
 input_text_get :: proc(id: string) -> string {
-	return string(input_states[id].buf[:])
+	return string(ui_mem.input_states[id].buf[:])
 }
 
 input_text_set :: proc(id, val: string) {
@@ -541,22 +548,23 @@ input_text_set :: proc(id, val: string) {
 }
 
 input_destroy :: proc(id: string) {
-	for key in input_states {
+	for key in ui_mem.input_states {
 		if key == id {
-			delete(input_states[key].buf)
-			delete_key(&input_states, key)
+			delete(ui_mem.input_states[key].buf)
+			delete_key(&ui_mem.input_states, key)
 			delete(key)
 			break
 		}
 	}
-	if focused_input == id do focused_input = ""
+	if ui_mem.focused_input == id do ui_mem.focused_input = ""
 }
 
 input_shutdown :: proc() {
-	for key, s in input_states {
+	for key, s in ui_mem.input_states {
 		delete(s.buf)
 		delete(key)
 	}
-	delete(input_states)
-	focused_input = ""
+	delete(ui_mem.input_states)
+	free(ui_mem)
+	ui_mem = nil
 }

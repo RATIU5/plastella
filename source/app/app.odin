@@ -4,11 +4,13 @@ import editor "../editor"
 import platform "../platform"
 import project "../project"
 import render "../render"
+import ui "../ui"
 
 App_Memory :: struct {
 	render_mem:  ^render.Render_Memory,
 	editor_mem:  ^editor.Editor_Memory,
 	project_mem: ^project.Project_Memory,
+	ui_mem:      ^ui.UI_Memory,
 }
 mem: ^App_Memory
 
@@ -17,6 +19,7 @@ app_init :: proc() {
 	mem = new(App_Memory)
 	platform.window_init()
 	mem.render_mem = render.render_init()
+	mem.ui_mem = ui.ui_init()
 	mem.editor_mem = editor.editor_init(mem.project_mem)
 }
 
@@ -31,6 +34,7 @@ app_update :: proc() {
 app_shutdown :: proc() {
 	project.project_shutdown(mem.project_mem)
 	editor.editor_shutdown()
+	ui.input_shutdown()
 	render.render_shutdown()
 	platform.window_shutdown()
 	free(mem)
@@ -46,6 +50,7 @@ app_memory :: proc() -> rawptr {
 app_hot_reloaded :: proc(m: rawptr) {
 	mem = (^App_Memory)(m)
 	render.render_reload(mem.render_mem)
+	ui.ui_reload(mem.ui_mem)
 	editor.editor_reload(mem.editor_mem)
 }
 
