@@ -48,7 +48,7 @@ project_frame :: proc(prj: ^^project.Project_Memory) {
 			clip = {horizontal = true},
 		},
 		) {
-
+			ui.input_text("sidebar:content:project:text", "Enter something", .DEFAULT, .GROW)
 		}
 	}
 }

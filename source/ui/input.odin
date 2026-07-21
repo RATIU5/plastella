@@ -9,6 +9,16 @@ import "core:unicode/utf8"
 
 Text_Buffer :: [dynamic]u8
 
+Text_Input_State :: struct {
+	buf:            Text_Buffer,
+	caret:          int,
+	select_anchor:  int,
+	scroll_x:       f32,
+	blink:          f32,
+	cached_caret_x: f32,
+	caret_x_dirty:  bool,
+}
+
 Input_Style :: struct {
 	font:         render.TEXT,
 	padding:      clay.Padding,
@@ -20,22 +30,45 @@ Input_Style :: struct {
 	radius:       clay.CornerRadius,
 }
 
-Text_Input_State :: struct {
-	buf:            Text_Buffer,
-	caret:          int,
-	select_anchor:  int,
-	scroll_x:       f32,
-	blink:          f32,
-	cached_caret_x: f32,
-	caret_x_dirty:  bool,
-}
-
 INPUT :: enum u8 {
 	DEFAULT,
 }
 
 input_styles := [INPUT]Input_Style {
-	.DEFAULT = {},
+	.DEFAULT = {
+		font = .UI_REG_14,
+		padding = {top = 5, left = 5, right = 5, bottom = 5},
+		bg_color = {
+			.Normal = GREY_805,
+			.Hover = GREY_760,
+			.Active = GREY_805,
+			.Engaged = GREY_805,
+			.Engaged_Hover = GREY_760,
+			.Engaged_Active = GREY_805,
+			.Disabled = GREY_850,
+		},
+		fg_color = {
+			.Normal = GREY_290,
+			.Hover = GREY_240,
+			.Active = GREY_340,
+			.Engaged = GREY_290,
+			.Engaged_Hover = GREY_240,
+			.Engaged_Active = GREY_340,
+			.Disabled = GREY_500,
+		},
+		border_color = {
+			.Normal = GREY_710,
+			.Hover = GREY_660,
+			.Active = GREY_760,
+			.Engaged = GREY_290,
+			.Engaged_Hover = GREY_240,
+			.Engaged_Active = GREY_340,
+			.Disabled = GREY_805,
+		},
+		ph_color = GREY_445,
+		border_width = {top = 1, left = 1, right = 1, bottom = 1},
+		radius = {topLeft = 5, topRight = 5, bottomLeft = 5, bottomRight = 5},
+	},
 }
 
 @(private)
