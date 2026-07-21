@@ -45,6 +45,9 @@ input_styles := [INPUT]Input_Style {
 			.Engaged = GREY_805,
 			.Engaged_Hover = GREY_805,
 			.Engaged_Active = GREY_805,
+			.Focus = GREY_805,
+			.Focus_Hover = GREY_805,
+			.Focus_Active = GREY_805,
 			.Disabled = GREY_805,
 		},
 		fg_color = {
@@ -54,6 +57,9 @@ input_styles := [INPUT]Input_Style {
 			.Engaged = GREY_240,
 			.Engaged_Hover = GREY_240,
 			.Engaged_Active = GREY_240,
+			.Focus = GREY_240,
+			.Focus_Hover = GREY_240,
+			.Focus_Active = GREY_240,
 			.Disabled = GREY_500,
 		},
 		border_color = {
@@ -63,6 +69,9 @@ input_styles := [INPUT]Input_Style {
 			.Engaged = ACCENT,
 			.Engaged_Hover = ACCENT,
 			.Engaged_Active = ACCENT,
+			.Focus = ACCENT,
+			.Focus_Hover = ACCENT,
+			.Focus_Active = ACCENT,
 			.Disabled = GREY_805,
 		},
 		ph_color = GREY_445,
@@ -409,7 +418,7 @@ input_text :: proc(
 	hover := !disabled && render.pointer_over(id)
 	active := !disabled && render.active_over(id)
 
-	st := color_state(active, hover, focus, disabled)
+	st := color_state(active, hover, false, focus, disabled)
 	style := input_styles[theme]
 	ts := render.text_styles[style.font]
 	fg := style.fg_color[st]

@@ -8,6 +8,9 @@ Color_State :: enum u8 {
 	Engaged,
 	Engaged_Hover,
 	Engaged_Active,
+	Focus,
+	Focus_Hover,
+	Focus_Active,
 }
 
 @(private)

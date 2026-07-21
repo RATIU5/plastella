@@ -32,6 +32,9 @@ button_styles := [BUTTON]Button_Style {
 			.Engaged = TRANSPARENT,
 			.Engaged_Hover = GREY_805,
 			.Engaged_Active = GREY_850,
+			.Focus = GREY_805,
+			.Focus_Hover = GREY_805,
+			.Focus_Active = GREY_850,
 			.Disabled = TRANSPARENT,
 		},
 		fg_color = {
@@ -41,6 +44,9 @@ button_styles := [BUTTON]Button_Style {
 			.Engaged = ACCENT,
 			.Engaged_Hover = ACCENT,
 			.Engaged_Active = ACCENT,
+			.Focus = GREY_240,
+			.Focus_Hover = GREY_240,
+			.Focus_Active = GREY_240,
 			.Disabled = GREY_605,
 		},
 		radius = {topLeft = 5, topRight = 5, bottomLeft = 5, bottomRight = 5},
@@ -55,6 +61,9 @@ button_styles := [BUTTON]Button_Style {
 			.Engaged = GREY_805,
 			.Engaged_Hover = GREY_760,
 			.Engaged_Active = GREY_805,
+			.Focus = GREY_805,
+			.Focus_Hover = GREY_760,
+			.Focus_Active = GREY_805,
 			.Disabled = GREY_850,
 		},
 		fg_color = {
@@ -64,6 +73,9 @@ button_styles := [BUTTON]Button_Style {
 			.Engaged = GREY_290,
 			.Engaged_Hover = GREY_240,
 			.Engaged_Active = GREY_340,
+			.Focus = GREY_240,
+			.Focus_Hover = GREY_240,
+			.Focus_Active = GREY_340,
 			.Disabled = GREY_500,
 		},
 		border_color = {
@@ -73,6 +85,9 @@ button_styles := [BUTTON]Button_Style {
 			.Engaged = GREY_290,
 			.Engaged_Hover = GREY_240,
 			.Engaged_Active = GREY_340,
+			.Focus = ACCENT,
+			.Focus_Hover = ACCENT,
+			.Focus_Active = ACCENT,
 			.Disabled = GREY_805,
 		},
 		border_width = {top = 1, left = 1, right = 1, bottom = 1},
@@ -101,7 +116,7 @@ button_text :: proc(
 
 	if hover do platform.set_cursor(.POINTING_HAND)
 
-	st := color_state(active, hover, selected, disabled)
+	st := color_state(active, hover, selected, focus, disabled)
 	style := button_styles[theme]
 	fg := style.fg_color[st]
 	bg := style.bg_color[st]
@@ -146,7 +161,7 @@ button_icon :: proc(
 
 	if hover do platform.set_cursor(.POINTING_HAND)
 
-	st := color_state(active, hover, selected, disabled)
+	st := color_state(active, hover, selected, focus, disabled)
 	style := button_styles[theme]
 	text_style := render.text_styles[style.font]
 	fg := style.fg_color[st]

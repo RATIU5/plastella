@@ -27,6 +27,9 @@ ui_update :: proc() {
 ui_frame_start :: proc() {
 	ui_mem.tab_first = ""
 	ui_mem.tab_prev = ""
+	if ui_mem.focused == "" && (platform.key_press(.TAB) || platform.key_press_repeat(.TAB)) {
+		ui_mem.tab_next = true
+	}
 }
 
 ui_frame_end :: proc() {
@@ -62,7 +65,9 @@ register_focusable :: proc(id: string) -> bool {
 
 	if ui_mem.tab_first == "" do ui_mem.tab_first = id
 
-	if !took_focus && ui_mem.focused == id && platform.key_press(.TAB) {
+	if !took_focus &&
+	   ui_mem.focused == id &&
+	   (platform.key_press(.TAB) || platform.key_press_repeat(.TAB)) {
 		shift := platform.key_down(.LEFT_SHIFT) || platform.key_down(.RIGHT_SHIFT)
 		if shift {
 			ui_mem.focused = ui_mem.tab_prev

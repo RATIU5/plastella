@@ -45,7 +45,7 @@ sizing_to_clay :: proc(width: Sizing, height: Sizing = .FIT) -> clay.Sizing {
 	return {width = new_width, height = new_height}
 }
 
-color_state :: proc(active, hover, engaged, disabled: bool) -> Color_State {
+color_state :: proc(active, hover, engaged, focus, disabled: bool) -> Color_State {
 	switch {
 	case disabled:
 		return .Disabled
@@ -53,10 +53,16 @@ color_state :: proc(active, hover, engaged, disabled: bool) -> Color_State {
 		return .Engaged_Active
 	case engaged && hover:
 		return .Engaged_Hover
-	case active:
-		return .Active
 	case engaged:
 		return .Engaged
+	case focus && active:
+		return .Focus_Active
+	case focus && hover:
+		return .Focus_Hover
+	case focus:
+		return .Focus
+	case active:
+		return .Active
 	case hover:
 		return .Hover
 	case:
