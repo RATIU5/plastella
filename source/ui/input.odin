@@ -42,16 +42,23 @@ input_styles := [INPUT]Input_Style {
 input_states: map[string]Text_Input_State
 @(private)
 focused_input: string
-@(private)
-ui_frame: u64
 
 @(private)
-get_input_state :: proc(id: string) -> ^Text_Input_State {
+input_state_get :: proc(id: string) -> (^Text_Input_State, string) {
 	s, found := &input_states[id]
+	key := id
 	if !found {
-		s = map_insert(&input_states, strings.clone(id), Text_Input_State{caret_x_dirty = true})
+		key = strings.clone(id)
+		s = map_insert(&input_states, key, Text_Input_State{caret_x_dirty = true})
+	} else {
+		for k in input_states {
+			if k == id {
+				key = k
+				break
+			}
+		}
 	}
-	return s
+	return s, key
 }
 
 glyph_advance :: proc(
@@ -252,7 +259,6 @@ input_handle_keys :: proc(s: ^Text_Input_State, st: render.Text_Style) {
 		} else if has_sel(s) && !shift {
 			move_caret_to(s, sel_lo(s), false)
 		} else {
-			c := s.caret
 			caret_left(s)
 			if !shift do s.select_anchor = s.caret
 		}
@@ -264,9 +270,8 @@ input_handle_keys :: proc(s: ^Text_Input_State, st: render.Text_Style) {
 		} else if has_sel(s) && !shift {
 			move_caret_to(s, sel_hi(s), false)
 		} else {
-			c := s.caret
 			caret_right(s)
-			move_caret_to(s, c, shift)
+			if !shift do s.select_anchor = s.caret
 		}
 	}
 
@@ -359,7 +364,7 @@ ensure_caret_visible :: proc(s: ^Text_Input_State, st: render.Text_Style, box_in
 		s.scroll_x = cx - (box_inner_width - PAD)
 	}
 	text_w := measure_to(st, &s.buf, len(s.buf))
-	s.scroll_x = clamp(s.scroll_x, 0, max(0, s.scroll_x - box_inner_width + PAD))
+	s.scroll_x = clamp(s.scroll_x, 0, max(0, text_w - box_inner_width + PAD))
 }
 
 input_text :: proc(
@@ -370,8 +375,8 @@ input_text :: proc(
 	height: Sizing = .FIT,
 	disabled := false,
 ) {
-	s := get_input_state(id)
-	focus := focused_input == id
+	s, key := input_state_get(id)
+	focus := focused_input == key
 	hover := !disabled && render.pointer_over(id)
 	active := !disabled && render.active_over(id)
 
@@ -397,8 +402,11 @@ input_text :: proc(
 	inner_width := box.width - f32(style.padding.left + style.padding.right)
 
 	if box_found do input_handle_mouse(s, ts, box, pad_x, focus)
-	if active do focused_input = id
-	else if platform.mouse_press(.LEFT) && !active && focus do focused_input = ""
+	if active {
+		focused_input = id
+	} else if platform.mouse_press(.LEFT) && focus {
+		focused_input = ""
+	}
 	focus = focused_input == id
 
 	if focus {
@@ -485,12 +493,13 @@ input_text :: proc(
 	}
 }
 
-get_input_text :: proc(id: string) -> string {
+// Returned string aliases internal storage; clone to keep past this frame.
+input_text_get :: proc(id: string) -> string {
 	return string(input_states[id].buf[:])
 }
 
-set_input_text :: proc(id, val: string) {
-	s := get_input_state(id)
+input_text_set :: proc(id, val: string) {
+	s, _ := input_state_get(id)
 	clear(&s.buf)
 	append(&s.buf, val)
 	s.caret = min(s.caret, len(s.buf))
@@ -498,16 +507,12 @@ set_input_text :: proc(id, val: string) {
 	mark_dirty(s)
 }
 
-input_frame_end :: proc() {
-	ui_frame += 1
-}
-
 input_destroy :: proc(id: string) {
 	for key in input_states {
 		if key == id {
-			delete(input_states[id].buf)
-			delete_key(&input_states, id)
-			delete(id)
+			delete(input_states[key].buf)
+			delete_key(&input_states, key)
+			delete(key)
 			break
 		}
 	}
@@ -515,7 +520,7 @@ input_destroy :: proc(id: string) {
 }
 
 input_shutdown :: proc() {
-	for key, &s in input_states {
+	for key, s in input_states {
 		delete(s.buf)
 		delete(key)
 	}
