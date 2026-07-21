@@ -66,12 +66,12 @@ input_styles := [INPUT]Input_Style {
 			.Normal = GREY_760,
 			.Hover = GREY_710,
 			.Active = GREY_760,
-			.Engaged = ACCENT,
-			.Engaged_Hover = ACCENT,
-			.Engaged_Active = ACCENT,
-			.Focus = ACCENT,
-			.Focus_Hover = ACCENT,
-			.Focus_Active = ACCENT,
+			.Engaged = COLOR_ACCENT,
+			.Engaged_Hover = COLOR_ACCENT,
+			.Engaged_Active = COLOR_ACCENT,
+			.Focus = COLOR_ACCENT,
+			.Focus_Hover = COLOR_ACCENT,
+			.Focus_Active = COLOR_ACCENT,
 			.Disabled = GREY_805,
 		},
 		ph_color = GREY_445,
@@ -412,6 +412,7 @@ input_text :: proc(
 	width: Sizing = .FIT,
 	height: Sizing = .FIT,
 	disabled := false,
+	blur_on_enter := false,
 ) {
 	s, key := input_state_get(id)
 	focus := ui_mem.focused == key
@@ -455,6 +456,9 @@ input_text :: proc(
 	}
 	if focus {
 		s.blink += platform.delta_time()
+		if blur_on_enter && platform.key_press(.ENTER) {
+			ui_mem.focused = ""
+		}
 		input_handle_keys(s, ts)
 	}
 	if box_found {
@@ -503,7 +507,7 @@ input_text :: proc(
 							height = clay.SizingFixed(f32(ts.size)),
 						},
 					},
-					backgroundColor = opacity(ACCENT, 100),
+					backgroundColor = opacity(COLOR_ACCENT, 100),
 				},
 				) {}
 			}
@@ -527,7 +531,7 @@ input_text :: proc(
 				}
 			}
 
-			if focus && blink_on(s) && !has_sel(s) {
+			if focus && blink_on(s) {
 				if clay.UI(clay.ID(id, 4))(
 				{
 					floating = {

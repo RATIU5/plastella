@@ -110,7 +110,7 @@ sidebar_frame :: proc() {
 				sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()},
 				childAlignment = {clay.LayoutAlignmentX.Left, clay.LayoutAlignmentY.Top},
 				layoutDirection = clay.LayoutDirection.TopToBottom,
-				padding = {left = 5, right = 5},
+				padding = {left = 10, right = 10, top = 10},
 			},
 		},
 		) {

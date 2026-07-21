@@ -48,8 +48,14 @@ project_frame :: proc(prj: ^^project.Project_Memory) {
 			clip = {horizontal = true},
 		},
 		) {
-			ui.input_text("sidebar:content:project:text", "Enter something", .DEFAULT, .GROW)
-			ui.input_text("sidebar:content:project:text2", "Enter something 2", .DEFAULT, .GROW)
+			ui.text("Project name", .UI_BLD_14, ui.COLOR_LABEL)
+			ui.input_text(
+				"sidebar:content:project:name",
+				"My Project",
+				.DEFAULT,
+				.GROW,
+				blur_on_enter = true,
+			)
 		}
 	}
 }
