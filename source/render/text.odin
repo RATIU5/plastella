@@ -12,12 +12,14 @@ Text_Style :: struct {
 }
 
 TEXT :: enum {
+	UI_REG_15,
 	UI_REG_14,
 	UI_BLD_14,
 	UI_ICN_18,
 }
 
 text_styles := [TEXT]Text_Style {
+	.UI_REG_15 = {font = .UI_REG_15, size = 15, line_height = 15, letter_spacing = 0},
 	.UI_REG_14 = {font = .UI_REG_14, size = 14, line_height = 14, letter_spacing = 0},
 	.UI_BLD_14 = {font = .UI_BLD_14, size = 14, line_height = 14, letter_spacing = 0},
 	.UI_ICN_18 = {font = .UI_REG_14, size = 18, line_height = 18, letter_spacing = 0},

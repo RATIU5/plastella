@@ -36,33 +36,33 @@ INPUT :: enum u8 {
 
 input_styles := [INPUT]Input_Style {
 	.DEFAULT = {
-		font = .UI_REG_14,
-		padding = {top = 5, left = 5, right = 5, bottom = 5},
+		font = .UI_REG_15,
+		padding = {top = 5, left = 7, right = 7, bottom = 5},
 		bg_color = {
-			.Normal = GREY_805,
-			.Hover = GREY_760,
-			.Active = GREY_805,
+			.Normal = GREY_850,
+			.Hover = GREY_850,
+			.Active = GREY_850,
 			.Engaged = GREY_805,
-			.Engaged_Hover = GREY_760,
+			.Engaged_Hover = GREY_805,
 			.Engaged_Active = GREY_805,
-			.Disabled = GREY_850,
+			.Disabled = GREY_805,
 		},
 		fg_color = {
-			.Normal = GREY_290,
+			.Normal = GREY_240,
 			.Hover = GREY_240,
-			.Active = GREY_340,
-			.Engaged = GREY_290,
+			.Active = GREY_240,
+			.Engaged = GREY_240,
 			.Engaged_Hover = GREY_240,
-			.Engaged_Active = GREY_340,
+			.Engaged_Active = GREY_240,
 			.Disabled = GREY_500,
 		},
 		border_color = {
-			.Normal = GREY_710,
-			.Hover = GREY_660,
+			.Normal = GREY_760,
+			.Hover = GREY_710,
 			.Active = GREY_760,
-			.Engaged = GREY_290,
-			.Engaged_Hover = GREY_240,
-			.Engaged_Active = GREY_340,
+			.Engaged = ACCENT,
+			.Engaged_Hover = ACCENT,
+			.Engaged_Active = ACCENT,
 			.Disabled = GREY_805,
 		},
 		ph_color = GREY_445,
@@ -405,7 +405,7 @@ input_text :: proc(
 	disabled := false,
 ) {
 	s, key := input_state_get(id)
-	focus := ui_mem.focused_input == key
+	focus := ui_mem.focused == key
 	hover := !disabled && render.pointer_over(id)
 	active := !disabled && render.active_over(id)
 
@@ -431,17 +431,27 @@ input_text :: proc(
 	inner_width := box.width - f32(style.padding.left + style.padding.right)
 
 	if box_found do input_handle_mouse(s, ts, box, pad_x, focus)
-	if active {
-		ui_mem.focused_input = id
+	if active && platform.mouse_press(.LEFT) {
+		ui_mem.focused = id
 	} else if platform.mouse_press(.LEFT) && focus {
-		ui_mem.focused_input = ""
+		ui_mem.focused = ""
 	}
-	focus = ui_mem.focused_input == id
+	focus = ui_mem.focused == id
 
+	if register_focusable(id) {
+		s.select_anchor = 0
+		s.caret = len(s.buf)
+		mark_dirty(s)
+		focus = true
+	}
 	if focus {
 		s.blink += platform.delta_time()
 		input_handle_keys(s, ts)
-		if box_found do ensure_caret_visible(s, ts, inner_width)
+	}
+	if box_found {
+		if focus do ensure_caret_visible(s, ts, inner_width)
+		text_w := measure_to(ts, &s.buf, len(s.buf))
+		s.scroll_x = clamp(s.scroll_x, 0, max(0, text_w - inner_width))
 	}
 
 	if clay.UI(clay.ID(id))(
@@ -556,15 +566,5 @@ input_destroy :: proc(id: string) {
 			break
 		}
 	}
-	if ui_mem.focused_input == id do ui_mem.focused_input = ""
-}
-
-input_shutdown :: proc() {
-	for key, s in ui_mem.input_states {
-		delete(s.buf)
-		delete(key)
-	}
-	delete(ui_mem.input_states)
-	free(ui_mem)
-	ui_mem = nil
+	if ui_mem.focused == id do ui_mem.focused = ""
 }

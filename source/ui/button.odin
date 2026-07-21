@@ -96,6 +96,8 @@ button_text :: proc(
 ) -> bool {
 	hover := !disabled && render.pointer_over(id)
 	active := !disabled && render.active_over(id)
+	register_focusable(id)
+	focus := ui_mem.focused == id
 
 	if hover do platform.set_cursor(.POINTING_HAND)
 
@@ -104,6 +106,11 @@ button_text :: proc(
 	fg := style.fg_color[st]
 	bg := style.bg_color[st]
 	br := style.border_color[st]
+
+	clicked := render.clicked(id)
+	if focus && (platform.key_press(.ENTER) || platform.key_press(.SPACE)) {
+		clicked = true
+	}
 
 	if clay.UI(clay.ID(id))(
 	{
@@ -120,7 +127,7 @@ button_text :: proc(
 		render.text(label, .UI_REG_14, fg, .Center, .None)
 	}
 
-	return render.clicked(id)
+	return clicked
 }
 
 @(private = "file")
@@ -134,6 +141,8 @@ button_icon :: proc(
 ) -> bool {
 	hover := !disabled && render.pointer_over(id)
 	active := !disabled && render.active_over(id)
+	register_focusable(id)
+	focus := ui_mem.focused == id
 
 	if hover do platform.set_cursor(.POINTING_HAND)
 
@@ -146,6 +155,11 @@ button_icon :: proc(
 
 	icon_inst := textures.ui_icon(icon)
 	icon_inst.tint = fg
+
+	clicked := render.clicked(id)
+	if focus && (platform.key_press(.ENTER) || platform.key_press(.SPACE)) {
+		clicked = true
+	}
 
 	if clay.UI(clay.ID(id))(
 	{
@@ -174,5 +188,5 @@ button_icon :: proc(
 		) {}
 	}
 
-	return render.clicked(id)
+	return clicked
 }

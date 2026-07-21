@@ -75,7 +75,10 @@ app_init :: proc() {
 @(export)
 app_update :: proc() {
 	render.frame_begin()
+	ui.ui_frame_start()
+	ui.ui_update()
 	editor.editor_frame()
+	ui.ui_frame_end()
 	render.frame_end()
 }
 
@@ -83,7 +86,7 @@ app_update :: proc() {
 app_shutdown :: proc() {
 	project.project_shutdown(mem.project_mem)
 	editor.editor_shutdown()
-	ui.input_shutdown()
+	ui.ui_shutdown()
 	render.render_shutdown()
 	platform.window_shutdown()
 	free(mem)

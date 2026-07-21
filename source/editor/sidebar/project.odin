@@ -49,6 +49,7 @@ project_frame :: proc(prj: ^^project.Project_Memory) {
 		},
 		) {
 			ui.input_text("sidebar:content:project:text", "Enter something", .DEFAULT, .GROW)
+			ui.input_text("sidebar:content:project:text2", "Enter something 2", .DEFAULT, .GROW)
 		}
 	}
 }

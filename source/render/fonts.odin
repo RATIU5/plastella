@@ -5,6 +5,7 @@ import rl "vendor:raylib"
 FONT_SUPERSAMPLE :: 2
 
 FONT :: enum u16 {
+	UI_REG_15,
 	UI_REG_14,
 	UI_BLD_14,
 }
@@ -29,6 +30,7 @@ load_font :: proc(id: FONT, size: u16, path: cstring) {
 
 @(private)
 load_fonts :: proc() {
+	load_font(.UI_REG_15, 15, "resources/fonts/Inter-Medium.ttf")
 	load_font(.UI_REG_14, 14, "resources/fonts/Inter-Medium.ttf")
 	load_font(.UI_BLD_14, 14, "resources/fonts/Inter-Bold.ttf")
 }
