@@ -57,7 +57,7 @@ description = "Build + run the standalone (non-hot-reload) app"
 alias = "r"
 run = [
   "mkdir -p build/debug",
-  "odin build source/host -out:build/debug/$APP_NAME.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet",
+  "odin build source/release -out:build/debug/$APP_NAME.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet",
   "rm -rf build/debug/resources && ln -s ../../resources build/debug/resources",
   "./build/debug/$APP_NAME.bin",
 ]
@@ -70,7 +70,7 @@ outputs = ["build/release/{{ env.APP_NAME }}.bin"]
 run = [
   "rm -rf build/release",
   "mkdir -p build/release",
-  "odin build source/host -out:build/release/$APP_NAME.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -no-bounds-check -o:speed",
+  "odin build source/release -out:build/release/$APP_NAME.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -no-bounds-check -o:speed",
   "cp -R resources build/release/",
 ]
 

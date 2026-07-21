@@ -12,18 +12,19 @@ DLL_EXT :: "." + dynlib.LIBRARY_FILE_EXTENSION
 DLL :: APP_NAME + DLL_EXT
 
 App_API :: struct {
-	lib:           dynlib.Library,
-	version:       int,
-	mod_time:      time.Time,
-	init:          proc(),
-	update:        proc(),
-	shutdown:      proc(),
-	should_run:    proc() -> bool,
-	force_reload:  proc() -> bool,
-	force_restart: proc() -> bool,
-	memory:        proc() -> rawptr,
-	hot_reloaded:  proc(m: rawptr),
-	memory_size:   proc() -> int,
+	lib:                dynlib.Library,
+	version:            int,
+	mod_time:           time.Time,
+	init:               proc(),
+	update:             proc(),
+	shutdown:           proc(),
+	should_run:         proc() -> bool,
+	force_reload:       proc() -> bool,
+	force_restart:      proc() -> bool,
+	memory:             proc() -> rawptr,
+	hot_reloaded:       proc(m: rawptr),
+	memory_size:        proc() -> int,
+	memory_layout_hash: proc() -> u64,
 }
 
 main :: proc() {
@@ -103,9 +104,17 @@ reload :: proc(api: ^App_API, version: ^int, track: ^mem.Tracking_Allocator) {
 	new_api, ok := load_api(version^ + 1)
 	if !ok do return
 
-	if new_api.memory_size() != api.memory_size() {
-		fmt.eprintln("App_Memory size changed — hard restart (state reset)")
-		do_restart(api, version, new_api, track)
+	incompatible :=
+		new_api.memory_size() != api.memory_size() ||
+		new_api.memory_layout_hash() != api.memory_layout_hash()
+
+	if incompatible {
+		fmt.eprintfln(
+			"persistent memory layout changed - hot reload blocked; press F6 to restart (state will reset)",
+		)
+		api.mod_time = new_api.mod_time
+		dynlib.unload_library(new_api.lib)
+		os.remove(fmt.tprintf("%s_%d%s", APP_NAME, new_api.version, DLL_EXT))
 		return
 	}
 
