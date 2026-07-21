@@ -96,15 +96,18 @@ documentation of your mental model, and as a force multiplier when fuzzing or te
 - **Assert implications on one line.** `if focused do assert(active_id != "")`.
 
 - **Assert compile time invariants** with `#assert`. These cost nothing at runtime and catch design
-  drift before the program runs.
+  drift before the program runs. Note that `#assert` is compile time only and is never stripped from
+  a build, unlike the runtime `assert`.
 
   ```odin
-  #assert(len(Key) == len(key_to_backend))   // the mapping table covers every enum value.
-  #assert(size_of(Hot_State) <= 128)          // guard against silent struct bloat.
+  shortcuts := [?]Shortcut{ ... }              // one entry per Action, indexed by ordinal.
+  #assert(len(shortcuts) == len(Action))       // a new Action fails the build until it is mapped.
+  #assert(size_of(Hot_State) <= 128)           // guard against silent struct bloat.
   ```
 
-  Any time you build an `[Enum]Backend_Type` mapping table, guard it with a length `#assert` so a new
-  enum value can never be silently unmapped.
+  An `[Enum]T` array is always sized to the enum and quietly zero fills any key you forget, so a
+  length assert on it is trivially true. When you need the build to fail on a missing entry, index an
+  ordinal `[?]T` table and assert its length against `len(Enum)` as above.
 
 - **Pair assertions across code paths.** Assert a property where data is produced _and_ where it is
   consumed. For example, validate a value right before writing it to disk and again immediately after
@@ -212,8 +215,9 @@ happen to share a machine type (see §2.7).
   you _handle_, from **programmer errors** (impossible if the code is correct) which you _assert_.
   Don't `assert` a file exists. Don't gracefully `return` from a broken invariant.
 
-- **Reduce return dimensionality.** `void` beats `bool` beats `u64` beats `Maybe(T)` beats a full
-  error union, because every extra outcome is a branch every caller must handle, and that branchiness
+- **Reduce return dimensionality.** No return value beats `bool`, which beats `u64`, which beats
+  `Maybe(T)`, which beats a full error union, because every extra outcome is a branch every caller
+  must handle, and that branchiness
   is viral. Only widen the return type when the caller genuinely needs the information.
 
 ### 2.7 Off by one and the index, count, size trinity
@@ -223,6 +227,66 @@ count is one based, and size is count times the unit width in bytes. Converting 
 off by one bugs breed, so name variables to make the conversion obvious (use `byte_offset`, not
 `pos`, when it is a byte offset). Show intent on division with the right helper, and comment any
 rounding decision.
+
+### 2.8 Test exhaustively, including the negative space
+
+Odin ships a test runner in `core:testing`. A test is a proc marked `@(test)` that takes
+`t: ^testing.T`, and `odin test` runs every one in a package. Tests check the mental model that your
+assertions encode, so they belong next to the safety story.
+
+- **Test valid and invalid data, and the transition between them.** The boundary where data crosses
+  from valid to invalid is where bugs hide, exactly as in section 2.1. A test that only feeds happy
+  input proves very little.
+- **Prefer table driven tests.** List the cases as data and loop over them, so a new case is one line
+  and the intent stays readable.
+- **Exercise the error paths.** Most catastrophic failures come from unhandled errors (see section
+  2.6), so a returned error or an `ok = false` deserves its own case.
+- **Make fuzzing deterministic.** Seed the generator yourself and print the seed on failure so any
+  run reproduces. A fuzzer can only show the presence of bugs, and your assertions are the oracle
+  that catches them.
+- **Keep tests hermetic and fast.** Use a temp allocator or a fresh tracking allocator so a leak in
+  the code under test fails the test too.
+- Open each test with one line stating its goal and method, in the prose style of section 5.
+
+```odin
+import "core:testing"
+
+// wrap_index maps any int into the range 0 up to n and must never return an out of range value.
+@(test)
+wrap_index_stays_in_range :: proc(t: ^testing.T) {
+    cases := [?]struct{ i, n, want: int }{
+        {  0, 4, 0 },
+        {  5, 4, 1 },
+        { -1, 4, 3 },
+    }
+    for c in cases {
+        got := wrap_index(c.i, c.n)
+        testing.expectf(t, got == c.want, "wrap_index(%d, %d) = %d, want %d", c.i, c.n, got, c.want)
+    }
+}
+```
+
+### 2.9 Debug and release builds
+
+Run development builds with every check on and release builds with the expensive ones off, chosen by
+compiler flags rather than by editing code.
+
+- **Development.** Build with `-debug -vet -strict-style` and keep assertions and the tracking
+  allocator active. This is where the fuzzer and the assertions earn their keep.
+- **Release.** Build with `-o:speed` (or `-o:aggressive`). Once you have measured a real cost, you may
+  add `-disable-assert` to strip runtime `assert` calls and `-no-bounds-check` to remove slice and
+  array bounds checks. Strip only what you have measured, and only after the code is proven.
+- **Keep the compile time checks in every build.** `-vet` and `-strict-style` cost nothing at runtime
+  and `#assert` is never stripped, so there is no reason to drop them for release.
+- **Never put logic inside `assert`.** Because `assert` can be compiled out, an expression with a side
+  effect inside it will vanish in release and change behavior. An assertion must only read state and
+  check it, which is the contract that makes stripping safe.
+- **Prefer surgical over global when removing bounds checks.** Annotate a proven hot loop with
+  `#no_bounds_check` instead of disabling bounds checks for the whole program, so untrusted input
+  paths keep their guard rails.
+
+Ship the same assertions you developed with. Turning them off is a performance decision you earn by
+measuring, not a default.
 
 ---
 
@@ -275,8 +339,10 @@ button_styles   := [Button_Theme]Button_Style { ... }
 key_to_backend  := [Key]Backend_Key { ... }
 ```
 
-- Guard every enum to array table with `#assert(len(Table) == len(Enum))` and rely on Odin erroring
-  on missing keys where it can.
+- An `[Enum]T` table lets you index by the enum value itself, which is safer than a raw ordinal, and
+  the compiler sizes it to the enum. It will not warn about a key you forget, which then reads as the
+  zero value, so write every key explicitly. When you need a build time guarantee that every value is
+  mapped, use an ordinal `[?]T` table and assert its length against `len(Enum)` (see section 2.1).
 - Whenever you catch yourself copy pasting the same block of logic per case (six near identical
   buttons, one per tab), drive it from a table instead.
 
@@ -298,7 +364,7 @@ key_to_backend  := [Key]Backend_Key { ... }
   matters. It's free type safety.
 - When you `switch` on a union or enum, handle exactly the variants and let the compiler tell you when
   a variant is added. Don't paper over it with a catch all `else`.
-- Prefer `Maybe(T)` over sentinel values when "absent" is a real state. `?u64` beats "0 means none."
+- Prefer `Maybe(T)` over sentinel values when "absent" is a real state. `Maybe(u64)` beats "0 means none."
 
 ### 3.4 Use `defer` sparingly and deliberately
 
@@ -326,10 +392,11 @@ time branches cost nothing at runtime and keep the runtime path straight. Prefer
 ### 3.7 Struct and file ordering
 
 Order a file top down by importance, because that's how it's read, and put `main` (or the primary
-entry proc) first. For structs, order them as **fields, then nested types, then procedures** (with
-`init` first). Put the primary type near the top of its file, and promote a complex nested type to a
-top level type. When there's no natural order, sort alphabetically (big endian names make this
-pleasant).
+entry proc) first. Odin structs hold only fields, so this ordering applies to the file, not the
+struct body. Put the primary type near the top, then its constructor `init`, then the procedures that
+operate on it, from most to least important. Lift a complex helper type out to its own top level
+declaration rather than burying it. When there's no natural order, sort alphabetically (big endian
+names make this pleasant).
 
 ### 3.8 Options structs and named arguments
 
@@ -398,6 +465,18 @@ get_clipboard :: proc() -> string { ... }
 input_state_get :: proc(id: string) -> ^Text_Input_State { ... }
 ```
 
+### 3.11 Visibility, and where it earns its place
+
+By default every declaration in a package is visible to code that imports it. `@(private)` limits a
+declaration to its package, and `@(private="file")` limits it to its file.
+
+In ordinary application code you own every call site, so reaching for `@(private)` everywhere mostly
+adds noise for little gain. Use it sparingly, to lock a specific invariant that must not be touched
+from another file. In library code the calculus flips. You publish to consumers you do not control,
+so hide the internals with `@(private)` and export only the surface you intend to support. That way
+you can change how the library works without breaking the people who use it, which is the seam idea
+from section 6.
+
 ---
 
 ## 4. Performance
@@ -421,7 +500,7 @@ input_state_get :: proc(id: string) -> ^Text_Input_State { ... }
 - **Optimize the slowest resource first, weighted by frequency.** A cache miss hit a million times can
   cost more than one fsync. Spend effort where the frequency times latency product is largest.
 
-- **Extract hot loops into standalone procs with primitive args**, no `self` or struct receiver, so
+- **Extract hot loops into standalone procs that take primitive args** rather than a `^Struct`, so
   the compiler can keep values in registers and a human can spot redundant work. Keep leaf functions
   pure.
 
@@ -532,6 +611,14 @@ singleton subsystem. When you must have it, make it disciplined.
 - [ ] Work batched at boundaries, with no reaction to external events in the middle of work.
 - [ ] Hot loops are standalone, take primitive args, and are pure leaves.
 - [ ] Any rule about small or simple code broken for speed is justified in a comment.
+
+**Testing & builds**
+
+- [ ] Tests cover valid data, invalid data, and the transition between them.
+- [ ] Error paths and `ok = false` returns have their own cases.
+- [ ] Fuzzers seed a printed value so failures reproduce.
+- [ ] No side effecting logic lives inside `assert`.
+- [ ] Release strips only the checks you measured, and `-vet` and `-strict-style` stay on.
 
 **Say why**
 
