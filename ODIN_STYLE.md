@@ -1,6 +1,6 @@
 # Odin Style
 
-This is my coding style for Odin programming, written for humans and for LLMs. It is inspired by [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), adapted to Odin.
+This is my coding style for Odin programming, written for humans and for LLMs. It is inspired by [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), adapted to Odin. Where TigerStyle and idiomatic Odin disagree, this document leans toward the Odin `core` standard library, which is the reference for what high quality Odin actually looks like. TigerStyle supplies the safety mindset, and the standard library supplies the idiom.
 
 It exists to serve three goals, listed from most to least important.
 
@@ -31,21 +31,21 @@ allocations. When you break a rule, say why, in a comment, on the line that brea
 
 Simple is not the same as easy, and it is not the first thing you type. It is the third rewrite,
 after you understand the domain well enough to delete the accidental complexity. Spend the thinking
-up front. An hour of design saves a week of debugging a hot reload state corruption bug.
+up front. An hour of design saves a week of debugging a state corruption bug.
 
 ### Composability over cleverness
 
-Prefer small procedures that take plain data and return plain data. A widget that owns a hidden
-global map keyed by string is convenient once and painful forever (defaults, reset, destroy,
-serialization, and lists all fight you). A widget that takes `state: ^Foo` composes with everything.
-When you find yourself asking "how do I initialize this hidden thing," the design is wrong, not the
-caller.
+Prefer small procedures that take plain data and return plain data. A procedure that owns a hidden
+global keyed by string is convenient once and painful forever (defaults, reset, destroy,
+serialization, and iteration all fight you). A procedure that takes `state: ^Foo` composes with
+everything. When you find yourself asking "how do I initialize this hidden thing," the design is
+wrong, not the caller.
 
 ### Zero technical debt, paid in cash
 
-Fix showstoppers when the steel is hot. A `// TODO: Unimplemented` behind a `disabled = true` button
-is fine. The door is locked so no user falls through it. An unhandled error path that "probably
-won't happen" is not fine. Do it right the first time. The second time may never come.
+Fix showstoppers when the steel is hot. A `// TODO: Unimplemented` behind a disabled feature flag is
+fine. The door is locked so no user falls through it. An unhandled error path that "probably won't
+happen" is not fine. Do it right the first time. The second time may never come.
 
 ### Always say why
 
@@ -63,27 +63,32 @@ Safety is the first goal because a fast program that is subtly wrong is worse th
 > failures are unexpected and must crash. Assertions downgrade catastrophic correctness bugs into
 > loud, early liveness bugs.
 
-Assertions are the cheapest safety you can buy, and the most underused. Treat them as executable
-documentation of your mental model, and as a force multiplier when fuzzing or testing.
+Assertions are the cheapest safety you can buy, and they are executable documentation of your mental
+model, as well as a force multiplier when fuzzing or testing.
 
-- **Assert preconditions, postconditions, and invariants.** Aim for an average of **at least two
-  assertions per nontrivial procedure**. A procedure that operates blindly on unchecked data is a bug
-  waiting to fire. Buffer and index math is the highest value place to assert. This includes caret
-  offsets, ring buffers, parsers, and slicing.
+Calibrate the density to the code rather than chasing a per-proc quota. The standard library reaches
+for `assert` where a real invariant is not otherwise expressed, and leans on the type system, slice
+bounds checks, and error returns for the rest. Do the same: assert index and buffer math, ring
+buffers, parsers, hand rolled offsets, and anything that has crossed an `unsafe`, `transmute`, or
+foreign boundary, and don't pad trivial getters with ceremony asserts.
+
+- **Assert preconditions, postconditions, and invariants** wherever the types don't already. A
+  procedure that does nontrivial index or pointer math on unchecked data is a bug waiting to fire, so
+  assert there. This includes byte offsets, ring buffers, parsers, and slicing.
 
   ```odin
-  measure_to :: proc(text: ^[dynamic]u8, byte_offset: int) -> f32 {
+  read_at :: proc(buf: []u8, byte_offset: int) -> u8 {
       assert(byte_offset >= 0)
-      assert(byte_offset <= len(text))
-      // ... and, if you require it, assert byte_offset lands on a rune boundary.
+      assert(byte_offset < len(buf))
+      return buf[byte_offset]
   }
 
-  delete_selection :: proc(s: ^State) {
-      lo, hi := sel_lo(s), sel_hi(s)
-      assert(lo <= hi)
-      assert(hi <= len(s.buf))
+  remove_range :: proc(buf: ^[dynamic]u8, lo, hi: int) {
+      assert(lo <= hi)          // precondition, range is ordered.
+      assert(hi <= len(buf))    // precondition, range is in bounds.
+      old_len := len(buf)
       // ...
-      assert(s.caret == s.anchor) // postcondition, no selection remains.
+      assert(len(buf) == old_len - (hi - lo)) // postcondition, exactly the range was removed.
   }
   ```
 
@@ -102,7 +107,7 @@ documentation of your mental model, and as a force multiplier when fuzzing or te
   ```odin
   shortcuts := [?]Shortcut{ ... }              // one entry per Action, indexed by ordinal.
   #assert(len(shortcuts) == len(Action))       // a new Action fails the build until it is mapped.
-  #assert(size_of(Hot_State) <= 128)           // guard against silent struct bloat.
+  #assert(size_of(Packet) <= 128)              // guard against silent struct bloat.
   ```
 
   An `[Enum]T` array is always sized to the enum and quietly zero fills any key you forget, so a
@@ -115,8 +120,9 @@ documentation of your mental model, and as a force multiplier when fuzzing or te
 
 - **Assertions are for programmer errors, not runtime errors.** Use `assert` for "this is impossible
   if the code is correct" and let it crash. Do **not** assert on expected runtime failures (missing
-  file, bad user input, network hiccup), because those are handled (see §2.6). Reach for `panic` or
-  `#panic` on genuinely unreachable switch arms.
+  file, bad user input, network hiccup), because those are handled (see §2.6). Reach for
+  `unreachable()` or `panic` on genuinely unreachable runtime switch arms (`#panic` is compile time
+  only, for a `when` branch that must never build).
 
 - Assertions can be stripped with `-disable-assert` if you ever measure them as a hot path problem.
   Until you've measured, keep them on. Debug builds should always run with assertions enabled.
@@ -127,31 +133,40 @@ Everything in reality has a bound, so encode it. The best pattern is a **fixed c
 explicit, observable signal when the bound is hit**.
 
 ```odin
-char_buf:      [32]rune,   // fixed cap, large inputs truncate.
-chars_dropped: int,        // caller reads this and handles overflow deliberately.
+buf:     [32]Item,   // fixed cap, extra items are dropped.
+dropped: int,        // caller reads this and handles overflow deliberately.
 ```
 
 - Every unbounded `[dynamic]` or growing buffer should have a documented maximum and enforce it at
-  the mutation site, so untrusted input (a huge paste, a malicious file) can't OOM you.
+  the mutation site, so untrusted input (a huge request, a malicious file) can't OOM you.
 - Every loop must have a provable upper bound. Where a loop genuinely can't (a main or event loop),
   assert its liveness assumptions instead.
 - Prefer fixed size arrays and small array types over `[dynamic]` when a sane maximum exists. A bound
   you can see beats a bound you hope for.
 
-### 2.3 Use explicitly sized types
+### 2.3 Choose the type that matches the domain
 
-Use `u8`, `u16`, `i32`, `f32`. Avoid `int` and `uint` (their width is architecture dependent) except
-where an API forces it. Slice lengths and indices from `core` are naturally `int`, and interoperating
-with them as `int` is fine. Even then, treat `index`, `count`, and `size` as _distinct concepts_ that
-happen to share a machine type (see §2.7).
+Reach for the explicitly sized type when the width is part of the meaning: serialization, wire and
+file formats, fixed memory layouts, hardware registers, hashes, and bit manipulation all want `u8`,
+`u16`, `i32`, `f32`, and friends, because a portable layout cannot depend on the target word size.
+
+For lengths, indices, counts, and capacities, `int` is the idiomatic and correct choice, and the one
+the standard library uses everywhere (`len`, indexing, `mem.set(..., len: int)`). It is the natural
+width of the machine and of every `core` API, so fighting it with sized types just adds casts and
+noise. Prefer `int` there and save the sized types for the layouts that truly need them.
+
+Whatever the machine type, treat `index`, `count`, and `size` as _distinct concepts_ (see §2.7), and
+use `distinct` when mixing them up would be a real bug (see §3.3).
 
 ### 2.4 Control flow that is simple, explicit, and bounded
 
-- **No recursion in runtime or hot paths.** Bounded, nonrecursive control flow keeps stack usage
-  predictable. Recursion can be acceptable when it runs only in debug or only at startup, is provably
-  bounded (for example, walking a finite type graph with a `seen` set), and the rationale is
-  documented. That is how you earn a recursion exception. It must be bounded, off the hot path, and
-  explained.
+- **Recursion must be provably bounded.** The danger is unbounded stack growth, not recursion itself.
+  Bounded recursion is fine and common in high quality Odin: `core:sort` runs an introsort that
+  recurses only to a depth of `2*log2(n)` and switches to heap sort past that, and reflection walks a
+  finite type graph. When you recurse, make the bound obvious, prefer iterating (or tail eliminating)
+  the larger side of a split so the depth is logarithmic, and note the bound in a comment on a hot
+  path. Never recurse on unbounded external input. When in doubt, an explicit stack or a fixed
+  iteration count is easier to reason about than deep recursion.
 
 - **Push `if`s up, push `for`s down.** Keep branching in the parent procedure, and make leaf helpers
   do one branchless thing over a range. Centralize control flow in one place, and let the rest be
@@ -179,20 +194,19 @@ happen to share a machine type (see §2.7).
   lifetime, with allocation on one side and its `defer delete` on the other, so a leak is visually
   obvious.
 
-- **Prefer static or caller owned memory over hidden global maps.** A `map[string]State` that lazily
+- **Prefer caller owned memory over hidden global state.** A global `map[string]State` that lazily
   `clone`s keys, does a linear scan, and juggles `delete` on teardown is a pile of secret allocations
-  and awkward lifecycle. Letting the caller own the `State` and passing `^State` makes ownership
-  explicit, turns "set a default" into plain struct initialization, and deletes the bookkeeping. Keep
-  string identity only for the things that truly need it.
+  and an awkward lifecycle. Letting the caller own the `State` and passing `^State` makes ownership
+  explicit, turns "set a default" into plain struct initialization, and deletes the bookkeeping.
 
-- **No per frame or per call allocation in hot paths without a comment justifying it.** Helpers like
-  `strings.concatenate` or `strings.clone` inside a hot loop churn memory every call. A per frame temp
-  allocator makes them safe from leaks, but they are still work. Either precompute once, or leave a
-  comment stating the cost is intentional and bounded.
+- **No per call allocation in a hot loop without a comment justifying it.** Helpers like
+  `strings.concatenate` or `strings.clone` inside a hot loop churn memory every call. A temp allocator
+  makes them safe from leaks, but they are still work. Either precompute once, or leave a comment
+  stating the cost is intentional and bounded.
 
-- **Use a per frame or per request temp allocator for scratch**, and free it all at once at the
-  boundary (`free_all(context.temp_allocator)`). Anything returned from a proc that lives in temp
-  memory must say so at the call site, for example `// Returned string aliases temp storage, clone to keep.`
+- **Use a scoped temp allocator for scratch**, and free it all at once at the boundary
+  (`free_all(context.temp_allocator)`). Anything returned from a proc that lives in temp memory must
+  say so at the call site, for example `// Returned string aliases temp storage, clone to keep.`
 
 - **Name allocators by role**, not just type. Use `gpa: mem.Allocator` versus `arena: mem.Allocator`
   versus a temp allocator. The name tells the reader whether they must free.
@@ -207,6 +221,22 @@ happen to share a machine type (see §2.7).
 - Every `or_return`, every returned `ok: bool`, every error enum must be handled or explicitly,
   loudly ignored with a stated reason. On a failure path, clean up the partial work you created
   (remove the half written file, unload the half loaded library) before returning.
+
+- **Mark pure and allocating procedures `@(require_results)`.** This is one of the standard library's
+  most used safety idioms (thousands of call sites), and it makes the compiler reject a caller that
+  drops the result. Any proc whose only effect is its return value, and any proc that hands back an
+  allocation or an error the caller must inspect, should carry it. It is a free, compile time version
+  of "handle every error."
+
+  ```odin
+  @(require_results)
+  linear_search :: proc(array: $A/[]$T, key: T) -> (index: int, found: bool) { ... }
+  ```
+
+- **Lean on Odin's return-shorthands to keep the happy path clean.** `#optional_ok` lets a
+  `(T, bool)` return be called for just `T` where the caller is sure, and `#optional_allocator_error`
+  does the same for the trailing `Allocator_Error`. Both are stdlib conventions that reduce caller
+  branchiness without hiding the error from callers who do care.
 
 - Use Odin's multiple returns and `or_return` for the linear happy path. Reserve `defer` for cleanup
   that must run on _every_ exit (see §3.4).
@@ -300,27 +330,36 @@ Follow the official convention.
 
 | Thing        | Case                          | Example                             |
 | ------------ | ----------------------------- | ----------------------------------- |
-| Types        | `Ada_Case`                    | `Text_Input_State`, `Render_Memory` |
-| Enum values  | `Ada_Case`                    | `.Engaged_Hover`, `.Level_Editor`   |
-| Procedures   | `snake_case`                  | `input_handle_keys`                 |
-| Variables    | `snake_case`                  | `caret_byte`, `scroll_x`            |
-| Constants    | `SCREAMING_SNAKE_CASE`        | `SIDEBAR_MIN`, `DBL_CLICK_SEC`      |
-| Import names | `snake_case`, prefer one word | `import ui "../ui"`                 |
-| Acronyms     | keep caps together            | `UI_Memory`, not `Ui_Memory`        |
+| Types        | `Ada_Case`                    | `String_Builder`, `Read_Error`      |
+| Enum values  | `Ada_Case`                    | `.Invalid_Argument`, `.End_Of_File` |
+| Procedures   | `snake_case`                  | `reader_read_byte`                  |
+| Variables    | `snake_case`                  | `byte_offset`, `read_count`         |
+| Constants    | `SCREAMING_SNAKE_CASE`        | `DEFAULT_BUF_SIZE`, `MAX_DEPTH`     |
+| Import names | `snake_case`, prefer one word | `import str "core:strings"`         |
+| Acronyms     | keep caps together            | `JSON_Value`, not `Json_Value`      |
 
 Be consistent. In particular, note the following.
 
 - **Type names are always `Ada_Case`.** Don't use `SCREAMING_SNAKE` for a type (for example, an enum
-  used as a "theme" or "kind"), because a SCREAMING name reads as a constant and misleads. Prefer
-  `Input_Theme` over `INPUT`.
+  used as a "kind" or "mode"), because a SCREAMING name reads as a constant and misleads. Prefer
+  `Open_Mode` over `MODE`.
 - **Enum values are `Ada_Case`.** The sanctioned exception is a one to one port of a foreign API (for
   example, mirroring a C library's `SCREAMING` keycodes). Keep the foreign casing so the mapping is
   obvious, and comment that intent at the enum.
 
 More naming discipline worth adopting.
 
-- **Don't abbreviate** except conventional loop or math indices. `source` and `target` beat `src` and
-  `dst` because derived names (`source_offset`, `target_offset`) line up and read symmetrically.
+- **The package is the namespace, so name procedures for their subject.** Odin has no methods, so the
+  standard library prefixes procedures that operate on a type with that type's role: `reader_init`,
+  `reader_destroy`, `builder_make`, `builder_reset`. Called as `bufio.reader_init`, this reads
+  cleanly and groups related procedures together. Pair `init`/`destroy` and `make`/`delete` names so
+  the lifetime is obvious. Don't name a bare `init` in a package that manages more than one type.
+- **Don't over-abbreviate, but honor the established short names.** Spelling out `source`/`target`
+  over `src`/`dst` is good when derived names must line up (`source_offset`, `target_offset`). But the
+  standard library, and this style, freely use the conventional short names that every Odin reader
+  knows: `len`, `cap`, `ptr`, `buf`, `n`, `i`/`j`, `r`/`w` for read/write cursors, `lo`/`hi`, and the
+  loop and math indices. These are idiom, not abbreviation debt. Prefer a clear full word for a
+  domain concept, and a short conventional name for a mechanical one.
 - **Put units and qualifiers last, with the most significant word first.** Write `latency_ms_max`,
   not `max_latency_ms`, so related names group and align.
 - **Prefix a helper with its caller** to show call history, as in `read_sector` and
@@ -335,23 +374,27 @@ The enumerated array is one of Odin's superpowers. State as _data_ in a table, i
 with the compiler checking coverage, beats logic that switches on each case.
 
 ```odin
-button_styles   := [Button_Theme]Button_Style { ... }
-key_to_backend  := [Key]Backend_Key { ... }
+error_message := [Error]string { ... }
+month_days    := [Month]int    { ... }
 ```
 
 - An `[Enum]T` table lets you index by the enum value itself, which is safer than a raw ordinal, and
   the compiler sizes it to the enum. It will not warn about a key you forget, which then reads as the
   zero value, so write every key explicitly. When you need a build time guarantee that every value is
   mapped, use an ordinal `[?]T` table and assert its length against `len(Enum)` (see section 2.1).
-- Whenever you catch yourself copy pasting the same block of logic per case (six near identical
-  buttons, one per tab), drive it from a table instead.
+- Whenever you catch yourself copy pasting the same block of logic per case, drive it from a table
+  instead.
 
   ```odin
-  Tab_Button :: struct { id: string, icon: Icon, tab: Tab }
-  tab_buttons := [?]Tab_Button{ ... }
-  for b in tab_buttons {
-      if button(b.id, b.icon, selected = active_tab == b.tab) {
-          active_tab = b.tab
+  Extension :: struct { suffix: string, kind: File_Kind }
+  extensions := [?]Extension{
+      {".png", .Image},
+      {".txt", .Text},
+      {".odin", .Source},
+  }
+  for e in extensions {
+      if strings.has_suffix(path, e.suffix) {
+          return e.kind
       }
   }
   ```
@@ -365,12 +408,23 @@ key_to_backend  := [Key]Backend_Key { ... }
 - When you `switch` on a union or enum, handle exactly the variants and let the compiler tell you when
   a variant is added. Don't paper over it with a catch all `else`.
 - Prefer `Maybe(T)` over sentinel values when "absent" is a real state. `Maybe(u64)` beats "0 means none."
+- **Reach for parametric polymorphism to reuse plain-data logic.** Odin's `$T`, type-specialized
+  parameters like `$A/[]$T`, and `where` clauses are how the standard library writes one `linear_search`
+  or `Small_Array` that works for every element type with zero runtime cost. Prefer a `where` clause
+  (`where intrinsics.type_is_comparable(T)`) to state a constraint the compiler enforces, over a
+  runtime check. Group related overloads with a `proc{...}` group (`builder_init :: proc{...}`) so
+  callers see one name. This is the composable-small-procedures ideal expressed in Odin's own tools.
 
 ### 3.4 Use `defer` sparingly and deliberately
 
-Use `defer` only when there are _multiple_ exits from a scope and cleanup must run on all of them.
-Don't `defer` when there's a single, linear exit, because it makes code nonlinear and harder to read
-for no benefit. Defer has a cost. The reader can no longer follow the code top to bottom.
+`defer` shines when a scope has _multiple_ exits and cleanup must run on all of them, and the standard
+library uses it liberally for exactly that: pairing an acquire with its release, or an `or_return`
+heavy proc with its teardown. It keeps cleanup next to the thing it cleans up, which is easier to
+audit than a release buried at the far bottom.
+
+The caution is real though: `defer` makes control flow nonlinear, so the reader can no longer follow
+the code strictly top to bottom. So when a scope has a single, linear exit, prefer to just write the
+cleanup at the end. Use `defer` when it buys you correctness across several exits, not as a reflex.
 
 ### 3.5 `context` and allocators
 
@@ -382,6 +436,11 @@ for no benefit. Defer has a cost. The reader can no longer follow the code top t
   count.
 - Per scope temp memory is a batching win (§4). Allocate freely into temp, then free it all at once.
   This is the control plane and data plane split applied to memory.
+- **Library code takes an explicit `allocator` parameter; it does not assume the caller's temp
+  allocator.** The standard library pattern is `proc(..., allocator := context.allocator, loc := #caller_location)`
+  returning an `Allocator_Error`, so the caller owns the lifetime and chooses the allocator. The
+  temp allocator is a caller-side convenience: use it at your own call sites, but do not bake it into
+  a reusable procedure, whose caller may have a different lifetime in mind.
 
 ### 3.6 Use `when` for compile time branching
 
@@ -402,7 +461,7 @@ names make this pleasant).
 
 Odin's named arguments prevent positional mistakes. Two adjacent parameters of the same type that
 could be swapped _must_ be passed by name at the call site, or wrapped in an options struct. Lean on
-defaulted named params (`disabled := false`, `selected := false`). Keep singleton dependencies (an
+defaulted named params (`sorted := false`, `truncate := false`). Keep singleton dependencies (an
 allocator, a state handle) positional and ordered from general to specific, and keep swappable values
 named. If `nil` is a valid argument, name it so the meaning of the literal is clear at the call site.
 
@@ -412,7 +471,7 @@ named. If `nil` is a valid argument, name it so the meaning of the literal is cl
   an explicit type genuinely aids the reader.
 - Use initializers, not field by field assignment, when constructing a value.
 - For large structs, prefer initializing in place through an out pointer (`init :: proc(target: ^Big)`)
-  rather than returning by value, to assume pointer stability and avoid intermediate copies. In place
+  rather than returning by value, to keep pointer stability and avoid intermediate copies. In place
   init is viral. If one field is initialized in place, initialize the whole container in place.
 - Don't duplicate variables or take aliases to state, because that's how things get out of sync.
   Compute or check a value close to where it's used, and declare it at the smallest possible scope. A
@@ -420,50 +479,49 @@ named. If `nil` is a valid argument, name it so the meaning of the literal is cl
 
 ### 3.10 Document nontrivial procedures with a doc comment
 
-Odin has no special doc comment syntax. The plain line comment block immediately above a
-declaration, with no blank line between, is what the editor language server (OLS) shows on hover and
-completion. Treat that comment block as the procedure's public contract.
+Odin has no reserved doc comment token, but the comment block immediately above a declaration, with
+no blank line between, _is_ what the editor language server (OLS) shows on hover and completion.
+Treat that block as the procedure's public contract. Both a run of `//` lines and a `/* ... */` block
+work, and both appear in the standard library.
+
+The standard library's convention for public API is a `/* ... */` block with labelled sections, and
+you should follow it for anything you publish. The common headings are `Inputs:`, `Returns:`, and,
+where it helps, `Example:` and `Output:`, plus a leading note like `*Allocates Using Provided
+Allocator*` when the proc allocates. This is the format OLS renders richly and readers expect.
+
+```odin
+/*
+Clones a string.
+
+*Allocates Using Provided Allocator*
+
+Inputs:
+- s: The string to be cloned
+- allocator: (default: context.allocator)
+
+Returns:
+- res: The cloned string
+- err: An allocator error if one occurred, `nil` otherwise
+*/
+@(require_results)
+clone :: proc(s: string, allocator := context.allocator) -> (res: string, err: runtime.Allocator_Error) { ... }
+```
+
+For a small internal helper, a single `//` line above the proc (as `core:bufio` does for
+`reader_init`) is plenty. Reserve the full block for the package's public surface.
 
 Not every proc needs one. A small proc with an obvious name and an obvious signature is its own
 documentation, and a comment like `// returns the name` above `get_name` is noise that rots. Add a
 doc comment when the proc is mid to large sized, is part of a package's public surface, or has a
 contract the signature cannot express on its own.
 
-Write the contract, not the mechanics. Cover the parts a caller cannot see.
-
-- **Ownership and allocation.** Who frees the result, which allocator it uses, and whether a returned
-  slice or string aliases internal or temporary storage.
-- **Preconditions.** What the caller must guarantee before calling, beyond what the types enforce.
-- **Return meaning.** What a `nil`, empty, zero, or `ok = false` result means.
-- **Side effects.** Global or persistent state it mutates, input it drains, or hardware it touches.
-- **Units and lifetime.** Milliseconds versus seconds, bytes versus runes, and how long a returned
-  handle stays valid.
-- **Why.** Any surprising design choice, in the spirit of section 1.
-
-Keep the summary to one line that says what the proc does, then add only the clauses above that
-actually apply. Match the prose style in section 5. Keep the comment directly above the proc so the
-editor associates them, and update it in the same commit that changes the behavior, because a stale
-doc comment is worse than none.
-
-Bad, a comment that only restates the signature.
-
-```odin
-// Adds a and b and returns the result.
-add :: proc(a, b: int) -> int { return a + b }
-```
-
-Good, a comment that documents the invisible contract.
-
-```odin
-// get_clipboard borrows raylib's internal buffer. The returned string is valid only until the
-// next clipboard call, so clone it to keep it past this frame.
-get_clipboard :: proc() -> string { ... }
-
-// input_state_get returns the state for id, creating and seeding it on first use. The returned
-// pointer is owned by the ui memory and stays stable until shutdown. It is not safe to hold across
-// a reload unless the caller fetches it again after the pointer graph is repointed.
-input_state_get :: proc(id: string) -> ^Text_Input_State { ... }
-```
+Write the contract, not the mechanics. Cover only the parts a caller cannot see: ownership and
+allocation (who frees the result, which allocator, whether it aliases internal or temp storage),
+preconditions beyond the types, the meaning of a `nil`/empty/zero/`ok = false` result, side effects,
+units and lifetime, and any surprising design choice. Keep the summary to one line, add only the
+clauses that apply, and update the comment in the same commit that changes the behavior, because a
+stale doc comment is worse than none. A comment that only restates the signature (`// Adds a and b`
+over `add`) is noise; the `clone` block above is the shape to copy.
 
 ### 3.11 Visibility, and where it earns its place
 
@@ -483,29 +541,20 @@ from section 6.
 
 > "The lack of back of the envelope performance sketches is the root of all evil."
 
-- **Design for performance up front**, when the 1000× wins are still available and free. You can't
-  profile a design that doesn't exist yet, so sketch the four resources (network, disk, memory, CPU)
-  and their two axes (bandwidth, latency) on the back of an envelope. Aim to land within 90% of
-  optimal by design, then measure.
-
-- **Batch across boundaries.** Snapshot external input once, act against the immutable snapshot, and
-  free scratch memory once at the boundary. This separation of control plane and data plane, where you
-  decide at the edges and act in bulk in the middle, is what lets you keep dense assertions without
-  losing speed. Never react directly to an external event in the middle of work. Run at your own pace
-  so you stay in control and can bound the work per unit time.
-
-- **Don't make the CPU context switch.** Give it long, predictable runs of work over contiguous data.
-  Straight, cache friendly passes over tables beat pointer chasing and lane changing.
-
-- **Optimize the slowest resource first, weighted by frequency.** A cache miss hit a million times can
-  cost more than one fsync. Spend effort where the frequency times latency product is largest.
-
-- **Extract hot loops into standalone procs that take primitive args** rather than a `^Struct`, so
-  the compiler can keep values in registers and a human can spot redundant work. Keep leaf functions
-  pure.
-
-- **This is the only section where "small, simple, stupid" yields to speed**, and only with a comment
-  and, ideally, a back of the envelope number justifying the trade.
+- **Design for performance up front.** The 1000× wins live in the design, not the profiler. Sketch
+  the four resources (network, disk, memory, CPU) and two axes (bandwidth, latency) on paper, aim
+  within 90% of optimal by design, then measure.
+- **Batch across boundaries.** Snapshot input once, act on the immutable snapshot, free scratch once
+  at the boundary. Decide at the edges, act in bulk in the middle. Never react to an external event
+  mid-work; run at your own pace so work per unit time stays bounded.
+- **Keep the CPU on straight runs.** Long, predictable passes over contiguous data beat pointer
+  chasing and branch-heavy lane changing.
+- **Fix the slowest resource first, weighted by frequency.** Spend where frequency × latency is
+  largest; a cache miss hit a million times can cost more than one fsync.
+- **Make hot loops standalone and pure**, taking primitive args over a `^Struct`, so values stay in
+  registers and redundant work is visible.
+- **Only here does "small, simple, stupid" yield to speed**, and only with a comment, ideally a
+  back-of-envelope number, justifying the trade.
 
 ---
 
@@ -537,8 +586,9 @@ blame`, but the commit message is.
 - **Minimize dependencies.** Each one adds supply chain risk, build time, and safety surface. Add a
   dependency only when it clearly beats writing the small thing yourself.
 - **Wrap third party APIs behind a thin seam.** Map a library's enums through `[Enum]Lib_Type` tables
-  and expose narrowed procedures, so your app never touches the library directly and the backend stays
-  swappable. Quarantine foreign types and foreign naming behind that seam.
+  and expose narrowed procedures, so your code depends on the seam rather than the library and an
+  implementation can be swapped without a rewrite. Quarantine foreign types and foreign naming behind
+  that seam.
 - **Standardize the toolbox.** Prefer one blessed way to build, run, and test over a drawer of ad hoc
   shell scripts. A small, shared toolbox is simpler to operate as the team and the range of tastes
   grow.
@@ -547,61 +597,41 @@ blame`, but the commit message is.
 
 ---
 
-## 7. Global & Persistent State
-
-Global mutable state is sometimes unavoidable, such as a plugin or hot reload boundary, or a
-singleton subsystem. When you must have it, make it disciplined.
-
-1. **Concentrate persistent state in one owned graph**, reachable from a single root (for example, an
-   `App_Memory` struct). Everything that must survive across a reload, a save, or a subsystem restart
-   lives there.
-2. **Package globals are caches of a pointer, not owners.** If a global holds state that must persist,
-   it must be repointed after any event that can zero it (a DLL swap), in an explicit `*_reload` step.
-   Add a global holding state and you must add its repoint line, or you get silent corruption.
-3. **Guard layout and version compatibility across boundaries.** When state crosses a reload or
-   serialization boundary, verify the layout and version on both sides (for example, hash the memory
-   layout of the old and new build and refuse an incompatible hot swap). This is a paired assertion
-   across the boundary, so don't defeat it.
-4. **Keep `init`, `shutdown`, and `reload` symmetric and nil guarded.** Every `*_shutdown` checks
-   `if x == nil do return` and frees exactly what its `*_init` allocated. Preserve that symmetry. A
-   leak report on every cycle is a number you should watch trend to zero.
-5. **Keep the host and loader dumb and defensive.** Prefer reflection driven contract checks (reject a
-   partially bound API rather than call a nil proc) so the loader doesn't need editing every time the
-   contract grows.
-
----
-
-## 8. The Checklist (read before every change)
+## 7. The Checklist (read before every change)
 
 **Safety**
 
-- [ ] Two or more assertions in each nontrivial proc, with preconditions, postconditions, and
-      invariants stated.
-- [ ] Positive _and_ negative space asserted at boundaries between valid and invalid.
+- [ ] Real invariants asserted where the type system and bounds checks don't already cover them,
+      especially in index, pointer, and buffer math; positive _and_ negative space at boundaries.
 - [ ] Compile time `#assert`s on enum and table lengths and struct size invariants.
-- [ ] Every loop and buffer has a fixed, provable upper bound (or an asserted liveness reason).
-- [ ] Explicitly sized types, with `index`, `count`, and `size` kept semantically distinct.
-- [ ] Control flow is simple, with no runtime recursion, `if`s pushed up, no nested ternaries, no dead
-      branches, and exhaustive enum switches.
-- [ ] Every error handled or loudly, deliberately ignored with a reason.
+- [ ] Every loop and buffer has a fixed, provable upper bound (or an asserted liveness reason), and
+      any recursion is provably bounded.
+- [ ] `int` for lengths/indices/counts, sized types for layouts and wire formats, with `index`,
+      `count`, and `size` kept semantically distinct.
+- [ ] Control flow is simple, with `if`s pushed up, no nested ternaries, no dead branches, and
+      exhaustive enum switches.
+- [ ] Pure and allocating procs marked `@(require_results)`; every error handled or loudly,
+      deliberately ignored with a reason.
 
 **Memory**
 
 - [ ] No secret allocations, and every alloc has a known owner and a visible free.
 - [ ] Per scope scratch uses a temp allocator, and nothing owned by temp escapes its scope unflagged.
-- [ ] Persistent state lives in one owned graph and is repointed after any reload.
-- [ ] Caller owned state preferred over hidden global maps.
+- [ ] Caller owned state preferred over hidden global state.
 
 **Composability & Simplicity**
 
 - [ ] Small procs over plain data, and table driven over copy pasted `switch` logic.
-- [ ] Prefer passing `^State` over reaching into a hidden singleton.
+- [ ] Prefer passing `^State` over reaching into hidden global state.
 - [ ] About 70 lines per proc, about 100 columns per line, hourglass shape.
 
 **Odin idiom**
 
-- [ ] Ada_Case types, Ada_Case enum values, snake_case procs and vars, SCREAMING constants.
-- [ ] `defer` only for cleanup with multiple exits.
+- [ ] Ada_Case types, Ada_Case enum values, snake_case procs and vars, SCREAMING constants; procs
+      named for their subject (`reader_init`), conventional short names honored.
+- [ ] `defer` for cleanup across multiple exits; linear single-exit scopes just clean up at the end.
+- [ ] Reuse via parametric polymorphism and `where` clauses; public API takes an explicit allocator.
+- [ ] Public procs carry a `/* Inputs:/Returns: */` doc block that states the invisible contract.
 - [ ] Named args for swappable values, and an options struct for two or more params of the same type.
 - [ ] Order is fields, then nested types, then procs. `init` first. Important things on top.
 
@@ -627,3 +657,28 @@ singleton subsystem. When you must have it, make it disciplined.
 
 > Keep trying things out, have fun, and remember that the best code is the code that's small enough to
 > hold in your head all at once.
+
+---
+
+## Appendix A. Global & Persistent State (optional)
+
+_Read this only if your program keeps mutable state alive across a boundary that can reset it, such as
+a hot code reload, a plugin swap, or a save and restore. Most programs do not, and can skip it._
+
+When you must have long-lived global state, make it disciplined.
+
+1. **Concentrate persistent state in one owned graph**, reachable from a single root. Everything that
+   must survive across a reload, a save, or a subsystem restart lives there.
+2. **Package globals are caches of a pointer, not owners.** If a global points at state that must
+   persist, repoint it after any event that can zero it, in an explicit `*_reload` step. Add such a
+   global and you must add its repoint line, or you get silent corruption.
+3. **Guard layout and version compatibility across boundaries.** When state crosses a reload or
+   serialization boundary, verify the layout and version on both sides (for example, hash the layout
+   of the old and new build and refuse an incompatible swap). This is a paired assertion across the
+   boundary, so don't defeat it.
+4. **Keep `init`, `shutdown`, and `reload` symmetric and nil guarded.** Every `*_shutdown` checks
+   `if x == nil do return` and frees exactly what its `*_init` allocated. Watch the per-cycle leak
+   count trend to zero.
+5. **Keep the host and loader dumb and defensive.** Prefer reflection driven contract checks (reject a
+   partially bound API rather than call a nil proc) so the loader doesn't need editing every time the
+   contract grows.
