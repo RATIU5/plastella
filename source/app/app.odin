@@ -140,7 +140,6 @@ app_window_create :: proc() -> ^sdl.Window {
 		return nil
 	}
 
-	// May need to hide window and show it after it's been configured to avoid white flash
 	window := sdl.CreateWindow(
 	WINDOW_TITLE,
 	WINDOW_WIDTH,
@@ -148,13 +147,15 @@ app_window_create :: proc() -> ^sdl.Window {
 	{
 		.RESIZABLE,
 		.HIGH_PIXEL_DENSITY,
-		// .HIDDEN,
+		// Hide window and show it after it's been configured to avoid white flash
+		.HIDDEN,
 	},
 	)
 
-	if ODIN_OS == .Darwin {
-		platform.setup_fullsize_titlebar(window)
-	}
+	// Will "jump" to center, but hidden will fix that
+	sdl.SetWindowPosition(window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
+	platform.setup_fullsize_titlebar(window)
+	sdl.ShowWindow(window)
 
 	return window
 }
