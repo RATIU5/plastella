@@ -1,20 +1,21 @@
 package app
 
-import editor "../editor"
 import platform "../platform"
-import project "../project"
-import render "../render"
-import ui "../ui"
 import "base:runtime"
+import "core:fmt"
+import sdl "vendor:sdl3"
+
+WINDOW_TITLE :: "Plastella"
+WINDOW_WIDTH :: 960
+WINDOW_HEIGHT :: 540
 
 @(private)
 _ :: runtime.Type_Info
 
 App_Memory :: struct {
-	render_mem:  ^render.Render_Memory,
-	editor_mem:  ^editor.Editor_Memory,
-	project_mem: ^project.Project_Memory,
-	ui_mem:      ^ui.UI_Memory,
+	should_shutdown: bool,
+	force_reload:    bool,
+	force_restart:   bool,
 }
 mem: ^App_Memory
 
@@ -64,31 +65,36 @@ when ODIN_DEBUG {
 }
 
 @(export)
-app_init :: proc() {
+app_init :: proc(window: ^sdl.Window) {
+	assert(window != nil, "app_init: window is nil")
 	mem = new(App_Memory)
-	platform.window_init()
-	mem.render_mem = render.render_init()
-	mem.ui_mem = ui.ui_init()
-	mem.editor_mem = editor.editor_init(mem.project_mem)
 }
 
 @(export)
 app_update :: proc() {
-	render.frame_begin()
-	ui.ui_frame_start()
-	ui.ui_update()
-	editor.editor_frame()
-	ui.ui_frame_end()
-	render.frame_end()
+	mem.force_reload = false
+	mem.force_restart = false
+
+	event: sdl.Event
+	poll: for sdl.PollEvent(&event) {
+		#partial switch event.type {
+		case .QUIT:
+			mem.should_shutdown = true
+			break poll
+		case .KEY_DOWN:
+			if event.key.repeat do break
+			#partial switch event.key.scancode {
+			case .F5:
+				mem.force_reload = true
+			case .F6:
+				mem.force_restart = true
+			}
+		}
+	}
 }
 
 @(export)
 app_shutdown :: proc() {
-	project.project_shutdown(mem.project_mem)
-	editor.editor_shutdown()
-	ui.ui_shutdown()
-	render.render_shutdown()
-	platform.window_shutdown()
 	free(mem)
 	mem = nil
 }
@@ -101,27 +107,65 @@ app_memory :: proc() -> rawptr {
 @(export)
 app_hot_reloaded :: proc(m: rawptr) {
 	mem = (^App_Memory)(m)
-	render.render_reload(mem.render_mem)
-	ui.ui_reload(mem.ui_mem)
-	editor.editor_reload(mem.editor_mem)
+
 }
 
 @(export)
 app_should_run :: proc() -> bool {
-	return !platform.window_should_close()
+	return !mem.should_shutdown
 }
 
 @(export)
 app_force_reload :: proc() -> bool {
-	return platform.key_press(.F5)
+	return mem.force_reload
 }
 
 @(export)
 app_force_restart :: proc() -> bool {
-	return platform.key_press(.F6)
+	return mem.force_restart
 }
 
 @(export)
 app_memory_size :: proc() -> int {
 	return size_of(App_Memory)
+}
+
+/*
+	Calls sdl.Init() then returns a newly created Plastella window
+*/
+@(export)
+app_window_create :: proc() -> ^sdl.Window {
+	if !sdl.Init({.VIDEO}) {
+		fmt.printf("SDL Error: %s\n", sdl.GetError())
+		return nil
+	}
+
+	// May need to hide window and show it after it's been configured to avoid white flash
+	window := sdl.CreateWindow(
+	WINDOW_TITLE,
+	WINDOW_WIDTH,
+	WINDOW_HEIGHT,
+	{
+		.RESIZABLE,
+		.HIGH_PIXEL_DENSITY,
+		// .HIDDEN,
+	},
+	)
+
+	if ODIN_OS == .Darwin {
+		platform.setup_fullsize_titlebar(window)
+	}
+
+	return window
+}
+
+/*
+	Destroys the provided window if it exists, and then quits SDL
+*/
+@(export)
+app_window_destroy :: proc(window: ^sdl.Window) {
+	if window != nil {
+		sdl.DestroyWindow(window)
+		sdl.Quit()
+	}
 }

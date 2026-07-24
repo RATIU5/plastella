@@ -15,7 +15,9 @@ App_API :: struct {
 	lib:                dynlib.Library,
 	version:            int,
 	mod_time:           time.Time,
-	init:               proc(),
+	window_create:      proc() -> rawptr,
+	window_destroy:     proc(w: rawptr),
+	init:               proc(w: rawptr),
 	update:             proc(),
 	shutdown:           proc(),
 	should_run:         proc() -> bool,
@@ -41,7 +43,9 @@ main :: proc() {
 	version := 0
 	api, ok := load_api(version)
 	assert(ok, "could not load the app library")
-	api.init()
+
+	window := api.window_create()
+	api.init(window)
 
 	for api.should_run() {
 		api.update()
@@ -50,7 +54,7 @@ main :: proc() {
 
 		switch {
 		case api.force_restart():
-			hard_restart(&api, &version, &track)
+			hard_restart(&api, &version, &track, window)
 		case recompiled || api.force_reload():
 			reload(&api, &version, &track)
 		}
@@ -58,6 +62,7 @@ main :: proc() {
 		free_all(context.temp_allocator)
 	}
 	api.shutdown()
+	api.window_destroy(window)
 }
 
 load_api :: proc(version: int) -> (api: App_API, ok: bool) {
@@ -128,10 +133,15 @@ reload :: proc(api: ^App_API, version: ^int, track: ^mem.Tracking_Allocator) {
 	check_reload_leaks(track)
 }
 
-hard_restart :: proc(api: ^App_API, version: ^int, track: ^mem.Tracking_Allocator) {
+hard_restart :: proc(
+	api: ^App_API,
+	version: ^int,
+	track: ^mem.Tracking_Allocator,
+	window: rawptr,
+) {
 	new_api, ok := load_api(version^ + 1)
 	if !ok do return
-	do_restart(api, version, new_api, track)
+	do_restart(api, version, new_api, track, window)
 }
 
 do_restart :: proc(
@@ -139,11 +149,12 @@ do_restart :: proc(
 	version: ^int,
 	new_api: App_API,
 	track: ^mem.Tracking_Allocator,
+	window: rawptr,
 ) {
 	api.shutdown()
 	old := api^
 	api^ = new_api
-	api.init()
+	api.init(window)
 	version^ += 1
 	dynlib.unload_library(old.lib)
 	os.remove(fmt.tprintf("%s_%d%s", APP_NAME, old.version, DLL_EXT))

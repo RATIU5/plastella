@@ -1,3 +1,4 @@
 .zed
 build/*
 .claude
+vendor/sdl3/

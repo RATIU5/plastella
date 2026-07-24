@@ -1,6 +1,10 @@
 [tools]
-odin = "dev-2026-05"
+odin = "dev-2026-07a"
 watchexec = "latest"
+# SDL3 has no committable prebuilt lib (macOS ships a .dmg, Linux is source-only),
+# so we build it from source. cmake + ninja are the only extra tools that needs.
+cmake = "latest"
+ninja = "latest"
 
 # os() resolves at parse time; $(odin root) at runtime so it uses mise's pinned odin.
 [env]
@@ -8,21 +12,50 @@ APP_NAME = "plastella"
 HR_OUT = "build/hot_reload"
 EXE = "app-hr.bin"
 DLL_EXT = "{% if os() == 'macos' %}.dylib{% elif os() == 'windows' %}.dll{% else %}.so{% endif %}"
+# SDL3 built from source by `mise run setup` into a per-OS vendor dir, like vendor/clay.
+SDL_VERSION = "3.4.12"
+SDL_DIR = "vendor/sdl3/{% if os() == 'macos' %}macos{% elif os() == 'windows' %}windows{% else %}linux{% endif %}"
+
+# Build SDL3 from source into $SDL_DIR. Idempotent: skips when the stamp exists.
+# Windows also needs a C toolchain (MSVC/clang) on PATH; cmake+ninja are provided by mise.
+[tasks.setup]
+description = "Build the vendored SDL3 shared library (run once, or after bumping SDL_VERSION)"
+outputs = ["{{ env.SDL_DIR }}/.stamp"]
+run = '''
+set -e
+if [ -f "$SDL_DIR/.stamp" ]; then echo "SDL3 $SDL_VERSION already vendored in $SDL_DIR"; exit 0; fi
+mkdir -p "$SDL_DIR" build/.sdl
+cd build/.sdl
+tarball="SDL3-$SDL_VERSION.tar.gz"
+url="https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VERSION/$tarball"
+[ -f "$tarball" ] || curl -fL -o "$tarball" "$url"
+rm -rf "SDL3-$SDL_VERSION" out inst
+tar xf "$tarball"
+cmake -S "SDL3-$SDL_VERSION" -B out -G Ninja -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=ON -DSDL_STATIC=OFF
+cmake --build out
+cmake --install out --prefix inst
+cd ../..
+# copy the shared lib (+ import lib + version symlinks) flat into the vendor dir; cp -a keeps symlinks
+find build/.sdl/inst \( -name 'libSDL3.so*' -o -name 'libSDL3*.dylib' -o -name 'SDL3.dll' -o -name 'SDL3.lib' \) -exec cp -a {} "$SDL_DIR/" \;
+touch "$SDL_DIR/.stamp"
+echo "vendored SDL3 $SDL_VERSION -> $SDL_DIR"
+'''
 
 [tasks.build-app]
 description = "Compile source/ into a reloadable app DLL (triggers a live hot reload)"
 alias = "reload"
+depends = ["setup"]
 # every package the app dll pulls in — glob so new packages don't need a manual add
 sources = ["source/**/*.odin", "!source/host/*.odin"]
 # must match the name source/app/app.odin load()s at runtime
 outputs = ["{{ env.HR_OUT }}/{{ env.APP_NAME }}{{ env.DLL_EXT }}"]
 run = [
   "mkdir -p $HR_OUT",
-  # linux: stage raylib .so next to the dll so $ORIGIN rpath finds it
-  "{% if os() == 'linux' %}mkdir -p $HR_OUT/linux && cp -rn $(odin root)/vendor/raylib/linux/libraylib*.so* $HR_OUT/linux{% else %}true{% endif %}",
+  # stage the SDL3 shared lib next to the dll so its rpath (@loader_path / $ORIGIN) resolves at load time
+  "{% if os() == 'macos' %}cp -a $SDL_DIR/libSDL3*.dylib $HR_OUT/{% elif os() == 'windows' %}cp $SDL_DIR/SDL3.dll $HR_OUT/{% else %}cp -a $SDL_DIR/libSDL3.so* $HR_OUT/{% endif %}",
   # compile to a temp name first...
   # \$ORIGIN must stay escaped so the shell doesn't expand it — the linker resolves it at load time (dll-relative)
-  "odin build source/app -extra-linker-flags:\"{% if os() == 'macos' %}-Wl,-rpath $(odin root)/vendor/raylib/macos{% else %}-Wl,-rpath=\\$ORIGIN/linux{% endif %}\" -define:RAYLIB_SHARED=true -build-mode:dll -out:$HR_OUT/${APP_NAME}_tmp$DLL_EXT -strict-style -vet -debug",
+  "odin build source/app -extra-linker-flags:\"{% if os() == 'windows' %}/LIBPATH:$SDL_DIR{% elif os() == 'macos' %}-L$PWD/$SDL_DIR -Wl,-rpath,@loader_path{% else %}-L$PWD/$SDL_DIR -Wl,-rpath=\\$ORIGIN{% endif %}\" -build-mode:dll -out:$HR_OUT/${APP_NAME}_tmp$DLL_EXT -strict-style -vet -debug",
   # ...then atomic-rename so the host never loads a half-written dll
   "mv $HR_OUT/${APP_NAME}_tmp$DLL_EXT $HR_OUT/$APP_NAME$DLL_EXT",
 ]
@@ -31,6 +64,7 @@ run = [
 description = "Compile the hot-reload host executable"
 sources = ["source/host/*.odin"]
 outputs = ["{{ env.HR_OUT }}/{{ env.EXE }}"]
+# host links no SDL (it only dlopen's the app dll); libSDL3 is staged into $HR_OUT by build-app
 run = [
   "mkdir -p $HR_OUT",
   "odin build source/host -out:$HR_OUT/$EXE{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -debug",
@@ -55,9 +89,12 @@ trap 'kill $watcher 2>/dev/null; rm -f "$HR_OUT"/${APP_NAME}_[0-9]*$DLL_EXT' EXI
 [tasks.run]
 description = "Build + run the standalone (non-hot-reload) app"
 alias = "r"
+depends = ["setup"]
 run = [
   "mkdir -p build/debug",
-  "odin build source/release -out:build/debug/$APP_NAME.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet",
+  # stage SDL3 next to the exe so its rpath finds it
+  "{% if os() == 'macos' %}cp -a $SDL_DIR/libSDL3*.dylib build/debug/{% elif os() == 'windows' %}cp $SDL_DIR/SDL3.dll build/debug/{% else %}cp -a $SDL_DIR/libSDL3.so* build/debug/{% endif %}",
+  "odin build source/release -out:build/debug/$APP_NAME.bin -extra-linker-flags:\"{% if os() == 'windows' %}/LIBPATH:$SDL_DIR{% elif os() == 'macos' %}-L$PWD/$SDL_DIR -Wl,-rpath,@loader_path -sectcreate __TEXT __info_plist Info.plist{% else %}-L$PWD/$SDL_DIR -Wl,-rpath=\\$ORIGIN{% endif %}\" -strict-style -vet",
   "rm -rf build/debug/resources && ln -s ../../resources build/debug/resources",
   "./build/debug/$APP_NAME.bin",
 ]
@@ -65,12 +102,15 @@ run = [
 [tasks.build]
 description = "Build an optimized release into build/release/"
 alias = "b"
+depends = ["setup"]
 sources = ["source/**/*.odin", "resources/**/*"]
 outputs = ["build/release/{{ env.APP_NAME }}.bin"]
 run = [
   "rm -rf build/release",
   "mkdir -p build/release",
-  "odin build source/release -out:build/release/$APP_NAME.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -no-bounds-check -o:speed",
+  # ship the SDL3 shared lib alongside the binary; rpath finds it there
+  "{% if os() == 'macos' %}cp -a $SDL_DIR/libSDL3*.dylib build/release/{% elif os() == 'windows' %}cp $SDL_DIR/SDL3.dll build/release/{% else %}cp -a $SDL_DIR/libSDL3.so* build/release/{% endif %}",
+  "odin build source/release -out:build/release/$APP_NAME.bin -extra-linker-flags:\"{% if os() == 'windows' %}/LIBPATH:$SDL_DIR{% elif os() == 'macos' %}-L$PWD/$SDL_DIR -Wl,-rpath,@loader_path -sectcreate __TEXT __info_plist Info.plist{% else %}-L$PWD/$SDL_DIR -Wl,-rpath=\\$ORIGIN{% endif %}\" -strict-style -vet -no-bounds-check -o:speed",
   "cp -R resources build/release/",
 ]
 
