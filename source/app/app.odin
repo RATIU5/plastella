@@ -9,6 +9,7 @@ WINDOW_TITLE :: "Plastella"
 WINDOW_WIDTH :: 960
 WINDOW_HEIGHT :: 540
 
+// Define unused var to access runtime, it will only be loaded in ODIN_DEBUG mode
 @(private)
 _ :: runtime.Type_Info
 
@@ -67,7 +68,7 @@ when ODIN_DEBUG {
 @(export)
 app_init :: proc(window: ^sdl.Window) {
 	assert(window != nil, "app_init: window is nil")
-	mem = new(App_Memory)
+	mem = new(App_Memory, context.allocator)
 }
 
 @(export)
@@ -95,6 +96,7 @@ app_update :: proc() {
 
 @(export)
 app_shutdown :: proc() {
+	if mem == nil do return
 	free(mem)
 	mem = nil
 }
@@ -132,36 +134,46 @@ app_memory_size :: proc() -> int {
 
 /*
 	Calls sdl.Init() then returns a newly created Plastella window
+
+	Returns:
+	- The sdl window pointer
 */
 @(export)
 app_window_create :: proc() -> ^sdl.Window {
 	if !sdl.Init({.VIDEO}) {
-		fmt.printf("SDL Error: %s\n", sdl.GetError())
+		fmt.eprintf("SDL Error: %s\n", sdl.GetError())
 		return nil
 	}
 
 	window := sdl.CreateWindow(
-	WINDOW_TITLE,
-	WINDOW_WIDTH,
-	WINDOW_HEIGHT,
-	{
-		.RESIZABLE,
-		.HIGH_PIXEL_DENSITY,
-		// Hide window and show it after it's been configured to avoid white flash
-		.HIDDEN,
-	},
+		WINDOW_TITLE,
+		WINDOW_WIDTH,
+		WINDOW_HEIGHT,
+		{
+			.RESIZABLE,
+			.HIGH_PIXEL_DENSITY,
+			// Hide window and show it after it's been configured to avoid white flash
+			.HIDDEN,
+		},
 	)
 
-	// Will "jump" to center, but hidden will fix that
-	sdl.SetWindowPosition(window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
-	platform.setup_fullsize_titlebar(window)
-	sdl.ShowWindow(window)
+	assert(window != nil, "failed to create window")
+
+	if window != nil {
+		// Will "jump" to center, but hidden will fix that
+		sdl.SetWindowPosition(window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
+		platform.setup_window(window)
+		sdl.ShowWindow(window)
+	}
 
 	return window
 }
 
 /*
 	Destroys the provided window if it exists, and then quits SDL
+
+	Inputs:
+	- window: pointer to sdl window to destroy
 */
 @(export)
 app_window_destroy :: proc(window: ^sdl.Window) {

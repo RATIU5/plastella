@@ -29,6 +29,11 @@ App_API :: struct {
 	memory_layout_hash: proc() -> u64,
 }
 
+#assert(ODIN_OS == .Darwin, "macOS-only support at this time")
+
+/*
+	This main can only run when `ODIN_DEBUG == true`
+*/
 main :: proc() {
 	track: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&track, context.allocator)
@@ -65,6 +70,7 @@ main :: proc() {
 	api.window_destroy(window)
 }
 
+@(require_results)
 load_api :: proc(version: int) -> (api: App_API, ok: bool) {
 	mod, mod_err := os.last_write_time_by_name(DLL)
 	if mod_err != nil {
@@ -95,6 +101,7 @@ load_api :: proc(version: int) -> (api: App_API, ok: bool) {
 
 // Reject a partially-bound dll: initialize_symbols leaves missing procs nil and still
 // returns ok. Reflection means this never needs editing as the contract grows.
+@(require_results)
 api_complete :: proc(a: App_API) -> bool {
 	a := a
 	base := uintptr(&a)

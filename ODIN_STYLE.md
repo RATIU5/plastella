@@ -246,6 +246,7 @@ Odin has opinions. Lean into them, because they encode much of the above for fre
 - In debug builds wrap `context.allocator` in a tracking allocator to catch leaks and bad frees. Keep it on for every debug run and watch the live allocation count.
 - Per scope temp memory is a batching win (see 4). Allocate freely into temp and free it all at once.
 - Library code takes an explicit `allocator` parameter and does not assume the caller temp allocator. Follow the shape `proc(..., allocator := context.allocator, loc := #caller_location)` returning an `Allocator_Error`, so the caller owns the lifetime. The temp allocator is a caller side convenience. Do not bake it into a reusable procedure whose caller may want a different lifetime.
+- Application code is the counterpart: install the persistent and temp allocators once at the boundary and lean on `context`, rather than threading a persistent allocator through every subsystem. Default to `context.allocator`, and reach for a dedicated arena or pool only where one data structure earns it, not as one global funnel for every allocation.
 
 ### 3.6 Use `when` for compile time branching
 
@@ -393,7 +394,7 @@ Read this only if your program keeps mutable state alive across a boundary that 
 
 When you must have long lived global state, make it disciplined.
 
-1. **Concentrate persistent state in one owned graph** reachable from a single root. Everything that must survive a reload, a save, or a subsystem restart lives there.
+1. **Concentrate persistent state in one owned graph** reachable from a single root. Everything that must survive a reload or a save lives there. State that must also outlive a restart which frees that root, like OS or GPU handles (a window, a renderer), belongs one tier up in the host or loader that owns the root, passed into the app per call so there is nothing to repoint.
 2. **Package globals are caches of a pointer, not owners.** If a global points at state that must persist, repoint it after any event that can zero it, in an explicit `*_reload` step. Add such a global and you must add its repoint line, or you get silent corruption.
 3. **Guard layout and version compatibility across boundaries.** When state crosses a reload or serialization boundary, verify layout and version on both sides, for example hash the layout of the old and new build and refuse an incompatible swap. This is a paired assertion across the boundary.
 4. **Keep `init`, `shutdown`, and `reload` symmetric and nil guarded.** Every `*_shutdown` checks `if x == nil do return` and frees exactly what its `*_init` allocated. Watch the per cycle leak count trend to zero.
