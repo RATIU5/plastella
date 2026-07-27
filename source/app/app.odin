@@ -1,9 +1,11 @@
 package app
 
+import gfx "../gfx"
 import platform "../platform"
 import "base:runtime"
 import "core:fmt"
 import sdl "vendor:sdl3"
+import "vendor:sdl3/ttf"
 
 WINDOW_TITLE :: "Plastella"
 WINDOW_WIDTH :: 960
@@ -17,6 +19,8 @@ App_Memory :: struct {
 	should_shutdown: bool,
 	force_reload:    bool,
 	force_restart:   bool,
+	renderer:        ^sdl.Renderer,
+	gfx_mem:         ^gfx.Gfx_Memory,
 }
 mem: ^App_Memory
 
@@ -69,6 +73,16 @@ when ODIN_DEBUG {
 app_init :: proc(window: ^sdl.Window) {
 	assert(window != nil, "app_init: window is nil")
 	mem = new(App_Memory, context.allocator)
+
+	// SDL Renderer memory
+	mem.renderer = sdl.GetRenderer(window)
+
+	// Gfx_Memory (and clay memory)
+	w, h: i32
+	size_ok := sdl.GetRenderOutputSize(mem.renderer, &w, &h)
+	assert(size_ok, cast(string)sdl.GetError())
+
+	mem.gfx_mem = gfx.gfx_init({w, h})
 }
 
 @(export)
@@ -97,6 +111,12 @@ app_update :: proc() {
 @(export)
 app_shutdown :: proc() {
 	if mem == nil do return
+
+	// Gfx_Memory
+	gfx.gfx_shutdown(mem.gfx_mem)
+	mem.gfx_mem = nil
+
+	// App_Memory
 	free(mem)
 	mem = nil
 }
@@ -140,21 +160,25 @@ app_memory_size :: proc() -> int {
 */
 @(export)
 app_window_create :: proc() -> ^sdl.Window {
+	if !ttf.Init() {
+		fmt.eprint("Failed to initialize TTF")
+	}
+
 	if !sdl.Init({.VIDEO}) {
 		fmt.eprintf("SDL Error: %s\n", sdl.GetError())
 		return nil
 	}
 
 	window := sdl.CreateWindow(
-		WINDOW_TITLE,
-		WINDOW_WIDTH,
-		WINDOW_HEIGHT,
-		{
-			.RESIZABLE,
-			.HIGH_PIXEL_DENSITY,
-			// Hide window and show it after it's been configured to avoid white flash
-			.HIDDEN,
-		},
+	WINDOW_TITLE,
+	WINDOW_WIDTH,
+	WINDOW_HEIGHT,
+	{
+		.RESIZABLE,
+		.HIGH_PIXEL_DENSITY,
+		// Hide window and show it after it's been configured to avoid white flash
+		.HIDDEN,
+	},
 	)
 
 	assert(window != nil, "failed to create window")
@@ -180,5 +204,6 @@ app_window_destroy :: proc(window: ^sdl.Window) {
 	if window != nil {
 		sdl.DestroyWindow(window)
 		sdl.Quit()
+		ttf.Quit()
 	}
 }
