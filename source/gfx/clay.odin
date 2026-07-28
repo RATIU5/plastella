@@ -65,12 +65,28 @@ clay_reload :: proc(ctx: ^clay.Context, data: ^Clay_Render_Memory) {
 	clay.SetMeasureTextFunction(measure_text, data)
 }
 
+clay_layout_begin :: proc(
+	render_mem: ^Clay_Render_Memory,
+	clay_trace: ^Clay_Trace,
+	screen_dimensions: clay.Dimensions,
+	mouse_pos: [2]f32,
+	mouse_down: bool,
+	scroll: [2]f32,
+	dt: f32,
+) {
+	clay_error_reset(clay_trace)
+	clay.SetLayoutDimensions(screen_dimensions)
+	clay.SetPointerState(mouse_pos, mouse_down)
+	clay.UpdateScrollContainers(true, scroll, dt)
+	clay.BeginLayout()
+}
+
 // Call at the beginning of a frame
 clay_error_reset :: proc(clay_trace: ^Clay_Trace) {
 	clay_trace.had_error = false
 }
 
-render_clay_commands :: proc(
+clay_render_commands :: proc(
 	data: ^Clay_Render_Memory,
 	commands: ^clay.ClayArray(clay.RenderCommand),
 ) {

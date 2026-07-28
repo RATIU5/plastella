@@ -19,6 +19,9 @@ App_Memory :: struct {
 	should_shutdown: bool,
 	force_reload:    bool,
 	force_restart:   bool,
+	time_prev_ns:    u64,
+	dt:              f32,
+	input:           platform.Input,
 	renderer:        ^sdl.Renderer,
 	gfx_mem:         ^gfx.Gfx_Memory,
 }
@@ -81,31 +84,46 @@ app_init :: proc(window: ^sdl.Window) {
 	w, h: i32
 	size_ok := sdl.GetRenderOutputSize(mem.renderer, &w, &h)
 	assert(size_ok, cast(string)sdl.GetError())
-
 	mem.gfx_mem = gfx.gfx_init({w, h})
+
+	mem.time_prev_ns = sdl.GetTicksNS()
 }
 
 @(export)
 app_update :: proc() {
-	mem.force_reload = false
-	mem.force_restart = false
+	when ODIN_DEBUG {
+		mem.force_reload = false
+		mem.force_restart = false
+	}
 
+	// Delta time computation
+	now_ns := sdl.GetTicksNS()
+	mem.dt = f32(now_ns - mem.time_prev_ns) / 1_000_000_000.0 // ns -> secs
+	mem.time_prev_ns = now_ns
+
+	// Process inputs
+	platform.input_frame_begin(&mem.input)
 	event: sdl.Event
 	poll: for sdl.PollEvent(&event) {
-		#partial switch event.type {
-		case .QUIT:
-			mem.should_shutdown = true
-			break poll
-		case .KEY_DOWN:
-			if event.key.repeat do break
-			#partial switch event.key.scancode {
-			case .F5:
-				mem.force_reload = true
-			case .F6:
-				mem.force_restart = true
-			}
-		}
+		platform.input_event_process(&mem.input, &event)
 	}
+	if mem.input.quit do mem.should_shutdown = true
+	when ODIN_DEBUG {
+		if platform.key_pressed(&mem.input, .F5) do mem.force_reload = true
+		if platform.key_pressed(&mem.input, .F6) do mem.force_restart = true
+	}
+
+	// Process graphics frame
+	gfx.gfx_frame_begin(
+		mem.gfx_mem,
+		mem.renderer,
+		mem.input.mouse.pos,
+		platform.mouse_down(&mem.input, .Left),
+		platform.mouse_scroll(&mem.input),
+		mem.dt,
+	)
+
+	gfx.gfx_frame_end(mem.gfx_mem, mem.dt)
 }
 
 @(export)
@@ -128,8 +146,9 @@ app_memory :: proc() -> rawptr {
 
 @(export)
 app_hot_reloaded :: proc(m: rawptr) {
-	mem = (^App_Memory)(m)
-
+	new_mem := (^App_Memory)(m)
+	mem.renderer = new_mem.renderer
+	mem.gfx_mem = new_mem.gfx_mem
 }
 
 @(export)

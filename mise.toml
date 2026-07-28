@@ -14,6 +14,8 @@ EXE = "app-hr.bin"
 DLL_EXT = "{% if os() == 'macos' %}.dylib{% elif os() == 'windows' %}.dll{% else %}.so{% endif %}"
 # SDL3 built from source by `mise run setup` into a per-OS vendor dir, like vendor/clay.
 SDL_VERSION = "3.4.12"
+# SDL_ttf is a separate repo/release; built from source with vendored freetype+harfbuzz.
+SDL_TTF_VERSION = "3.2.2"
 SDL_DIR = "vendor/sdl3/{% if os() == 'macos' %}macos{% elif os() == 'windows' %}windows{% else %}linux{% endif %}"
 
 # Build SDL3 from source into $SDL_DIR. Idempotent: skips when the stamp exists.
@@ -26,19 +28,32 @@ set -e
 if [ -f "$SDL_DIR/.stamp" ]; then echo "SDL3 $SDL_VERSION already vendored in $SDL_DIR"; exit 0; fi
 mkdir -p "$SDL_DIR" build/.sdl
 cd build/.sdl
-tarball="SDL3-$SDL_VERSION.tar.gz"
-url="https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VERSION/$tarball"
-[ -f "$tarball" ] || curl -fL -o "$tarball" "$url"
-rm -rf "SDL3-$SDL_VERSION" out inst
-tar xf "$tarball"
-cmake -S "SDL3-$SDL_VERSION" -B out -G Ninja -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=ON -DSDL_STATIC=OFF
-cmake --build out
-cmake --install out --prefix inst
+rm -rf inst
+
+# fetch a libsdl-org release, cmake-build it, install into the shared `inst` prefix.
+# args: <repo> <src-name> <version> [extra cmake flags...]. CMAKE_PREFIX_PATH=inst lets
+# each build find the ones installed before it (SDL_ttf needs the SDL3 we build first).
+vendor() {
+  repo=$1; name=$2; ver=$3; shift 3
+  tb="$name-$ver.tar.gz"
+  [ -f "$tb" ] || curl -fL -o "$tb" "https://github.com/libsdl-org/$repo/releases/download/release-$ver/$tb"
+  rm -rf "$name-$ver" "b-$name"
+  tar xf "$tb"
+  cmake -S "$name-$ver" -B "b-$name" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/inst" "$@"
+  cmake --build "b-$name"
+  cmake --install "b-$name" --prefix inst
+}
+
+vendor SDL     SDL3     "$SDL_VERSION"     -DSDL_SHARED=ON -DSDL_STATIC=OFF
+# SDLTTF_VENDORED bundles freetype+harfbuzz so there are no system deps.
+vendor SDL_ttf SDL3_ttf "$SDL_TTF_VERSION" -DBUILD_SHARED_LIBS=ON -DSDLTTF_VENDORED=ON
+
 cd ../..
-# copy the shared lib (+ import lib + version symlinks) flat into the vendor dir; cp -a keeps symlinks
-find build/.sdl/inst \( -name 'libSDL3.so*' -o -name 'libSDL3*.dylib' -o -name 'SDL3.dll' -o -name 'SDL3.lib' \) -exec cp -a {} "$SDL_DIR/" \;
+# copy shared libs (+ import libs + version symlinks) flat into the vendor dir; cp -a keeps symlinks.
+# libSDL3*.dylib / SDL3*.dll / libSDL3*.so* patterns catch both SDL3 and SDL3_ttf.
+find build/.sdl/inst \( -name 'libSDL3*.so*' -o -name 'libSDL3*.dylib' -o -name 'SDL3*.dll' -o -name 'SDL3*.lib' \) -exec cp -a {} "$SDL_DIR/" \;
 touch "$SDL_DIR/.stamp"
-echo "vendored SDL3 $SDL_VERSION -> $SDL_DIR"
+echo "vendored SDL3 $SDL_VERSION + SDL3_ttf $SDL_TTF_VERSION -> $SDL_DIR"
 '''
 
 [tasks.build-app]
@@ -52,7 +67,7 @@ outputs = ["{{ env.HR_OUT }}/{{ env.APP_NAME }}{{ env.DLL_EXT }}"]
 run = [
   "mkdir -p $HR_OUT",
   # stage the SDL3 shared lib next to the dll so its rpath (@loader_path / $ORIGIN) resolves at load time
-  "{% if os() == 'macos' %}cp -a $SDL_DIR/libSDL3*.dylib $HR_OUT/{% elif os() == 'windows' %}cp $SDL_DIR/SDL3.dll $HR_OUT/{% else %}cp -a $SDL_DIR/libSDL3.so* $HR_OUT/{% endif %}",
+  "{% if os() == 'macos' %}cp -a $SDL_DIR/libSDL3*.dylib $HR_OUT/{% elif os() == 'windows' %}cp $SDL_DIR/SDL3*.dll $HR_OUT/{% else %}cp -a $SDL_DIR/libSDL3*.so* $HR_OUT/{% endif %}",
   # compile to a temp name first...
   # \$ORIGIN must stay escaped so the shell doesn't expand it — the linker resolves it at load time (dll-relative)
   "odin build source/app -extra-linker-flags:\"{% if os() == 'windows' %}/LIBPATH:$SDL_DIR{% elif os() == 'macos' %}-L$PWD/$SDL_DIR -Wl,-rpath,@loader_path{% else %}-L$PWD/$SDL_DIR -Wl,-rpath=\\$ORIGIN{% endif %}\" -build-mode:dll -out:$HR_OUT/${APP_NAME}_tmp$DLL_EXT -strict-style -vet -debug",
@@ -93,7 +108,7 @@ depends = ["setup"]
 run = [
   "mkdir -p build/debug",
   # stage SDL3 next to the exe so its rpath finds it
-  "{% if os() == 'macos' %}cp -a $SDL_DIR/libSDL3*.dylib build/debug/{% elif os() == 'windows' %}cp $SDL_DIR/SDL3.dll build/debug/{% else %}cp -a $SDL_DIR/libSDL3.so* build/debug/{% endif %}",
+  "{% if os() == 'macos' %}cp -a $SDL_DIR/libSDL3*.dylib build/debug/{% elif os() == 'windows' %}cp $SDL_DIR/SDL3*.dll build/debug/{% else %}cp -a $SDL_DIR/libSDL3*.so* build/debug/{% endif %}",
   "odin build source/release -out:build/debug/$APP_NAME.bin -extra-linker-flags:\"{% if os() == 'windows' %}/LIBPATH:$SDL_DIR{% elif os() == 'macos' %}-L$PWD/$SDL_DIR -Wl,-rpath,@loader_path -sectcreate __TEXT __info_plist Info.plist{% else %}-L$PWD/$SDL_DIR -Wl,-rpath=\\$ORIGIN{% endif %}\" -strict-style -vet",
   "rm -rf build/debug/resources && ln -s ../../resources build/debug/resources",
   "./build/debug/$APP_NAME.bin",
@@ -109,7 +124,7 @@ run = [
   "rm -rf build/release",
   "mkdir -p build/release",
   # ship the SDL3 shared lib alongside the binary; rpath finds it there
-  "{% if os() == 'macos' %}cp -a $SDL_DIR/libSDL3*.dylib build/release/{% elif os() == 'windows' %}cp $SDL_DIR/SDL3.dll build/release/{% else %}cp -a $SDL_DIR/libSDL3.so* build/release/{% endif %}",
+  "{% if os() == 'macos' %}cp -a $SDL_DIR/libSDL3*.dylib build/release/{% elif os() == 'windows' %}cp $SDL_DIR/SDL3*.dll build/release/{% else %}cp -a $SDL_DIR/libSDL3*.so* build/release/{% endif %}",
   "odin build source/release -out:build/release/$APP_NAME.bin -extra-linker-flags:\"{% if os() == 'windows' %}/LIBPATH:$SDL_DIR{% elif os() == 'macos' %}-L$PWD/$SDL_DIR -Wl,-rpath,@loader_path -sectcreate __TEXT __info_plist Info.plist{% else %}-L$PWD/$SDL_DIR -Wl,-rpath=\\$ORIGIN{% endif %}\" -strict-style -vet -no-bounds-check -o:speed",
   "cp -R resources build/release/",
 ]
