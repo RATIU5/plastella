@@ -211,11 +211,17 @@ TransitionElementConfig :: struct {
 	properties:          TransitionPropertyFlags,
 	interactionHandling: TransitionInteractionHandlingType,
 	enter:               struct {
-		setInitialState: proc "c" (initialState: TransitionData, properties: TransitionPropertyFlags) -> TransitionData,
+		setInitialState: proc "c" (
+			initialState: TransitionData,
+			properties: TransitionPropertyFlags,
+		) -> TransitionData,
 		trigger:         TransitionEnterTriggerType,
 	},
 	exit:                struct {
-		setFinalState:   proc "c" (finalState: TransitionData, properties: TransitionPropertyFlags) -> TransitionData,
+		setFinalState:   proc "c" (
+			finalState: TransitionData,
+			properties: TransitionPropertyFlags,
+		) -> TransitionData,
 		trigger:         TransitionExitTriggerType,
 		siblingOrdering: ExitTransitionSiblingOrdering,
 	},

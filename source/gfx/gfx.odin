@@ -5,19 +5,14 @@ import "core:c"
 import "core:fmt"
 import sdl "vendor:sdl3"
 
-Gfx_Memory :: struct {
-	clay_trace:      ^Clay_Trace,
-	clay_ctx:        ^clay.Context,
-	clay_mem:        [^]u8,
-	clay_render_mem: ^Clay_Render_Memory,
+Gfx :: struct {
+	clay_ctx: ^clay.Context,
+	clay_mem: []u8,
 }
 
-gfx_init :: proc(size: [2]i32) -> ^Gfx_Memory {
-	mem := new(Gfx_Memory)
-
+gfx_init :: proc(g: Gfx, size: [2]i32) -> bool {
 	// Clay Memory
-	mem.clay_trace = new(Clay_Trace)
-	ctx, clay_mem, render_mem := clay_init(size, mem.clay_trace)
+	ctx, clay_mem, render_mem := clay_init(frame)
 	mem.clay_ctx = ctx
 	mem.clay_mem = clay_mem
 	mem.clay_render_mem = render_mem

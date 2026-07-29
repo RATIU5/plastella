@@ -15,10 +15,10 @@ App_API :: struct {
 	lib:                dynlib.Library,
 	version:            int,
 	mod_time:           time.Time,
-	window_create:      proc() -> rawptr,
-	window_destroy:     proc(w: rawptr),
-	init:               proc(w: rawptr),
-	update:             proc(),
+	device_create:      proc() -> rawptr,
+	device_destroy:     proc(d: rawptr),
+	init:               proc(d: rawptr),
+	update:             proc(d: rawptr),
 	shutdown:           proc(),
 	should_run:         proc() -> bool,
 	force_reload:       proc() -> bool,
@@ -49,17 +49,17 @@ main :: proc() {
 	api, ok := load_api(version)
 	assert(ok, "could not load the app library")
 
-	window := api.window_create()
-	api.init(window)
+	device := api.device_create()
+	api.init(device)
 
 	for api.should_run() {
-		api.update()
+		api.update(device)
 		mod, err := os.last_write_time_by_name(DLL)
 		recompiled := err == nil && mod != api.mod_time
 
 		switch {
 		case api.force_restart():
-			hard_restart(&api, &version, &track, window)
+			hard_restart(&api, &version, &track, device)
 		case recompiled || api.force_reload():
 			reload(&api, &version, &track)
 		}
@@ -67,7 +67,7 @@ main :: proc() {
 		free_all(context.temp_allocator)
 	}
 	api.shutdown()
-	api.window_destroy(window)
+	api.device_destroy(device)
 }
 
 @(require_results)
@@ -144,11 +144,11 @@ hard_restart :: proc(
 	api: ^App_API,
 	version: ^int,
 	track: ^mem.Tracking_Allocator,
-	window: rawptr,
+	device: rawptr,
 ) {
 	new_api, ok := load_api(version^ + 1)
 	if !ok do return
-	do_restart(api, version, new_api, track, window)
+	do_restart(api, version, new_api, track, device)
 }
 
 do_restart :: proc(
@@ -156,12 +156,12 @@ do_restart :: proc(
 	version: ^int,
 	new_api: App_API,
 	track: ^mem.Tracking_Allocator,
-	window: rawptr,
+	device: rawptr,
 ) {
 	api.shutdown()
 	old := api^
 	api^ = new_api
-	api.init(window)
+	api.init(device)
 	version^ += 1
 	dynlib.unload_library(old.lib)
 	os.remove(fmt.tprintf("%s_%d%s", APP_NAME, old.version, DLL_EXT))

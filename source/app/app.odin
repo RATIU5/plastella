@@ -1,31 +1,34 @@
 package app
 
+import assets "../assets"
 import gfx "../gfx"
 import platform "../platform"
 import "base:runtime"
 import "core:fmt"
 import sdl "vendor:sdl3"
-import "vendor:sdl3/ttf"
 
-WINDOW_TITLE :: "Plastella"
-WINDOW_WIDTH :: 960
-WINDOW_HEIGHT :: 540
 
 // Define unused var to access runtime, it will only be loaded in ODIN_DEBUG mode
 @(private)
 _ :: runtime.Type_Info
 
-App_Memory :: struct {
-	should_shutdown: bool,
-	force_reload:    bool,
-	force_restart:   bool,
-	time_prev_ns:    u64,
-	dt:              f32,
-	input:           platform.Input,
-	renderer:        ^sdl.Renderer,
-	gfx_mem:         ^gfx.Gfx_Memory,
+App_Flag :: enum u8 {
+	Should_Shutdown,
+	Force_Restart,
+	Force_Reload,
 }
-mem: ^App_Memory
+App_Flags :: distinct bit_set[App_Flag;u8]
+
+App :: struct {
+	time_prev_ns: u64,
+	dt:           f32,
+	flags:        App_Flags,
+	input:        platform.Input,
+	assets:       assets.Assets,
+	gfx:          gfx.Gfx,
+	// ui:           ui.State,
+}
+mem: ^App
 
 when ODIN_DEBUG {
 	@(export)
@@ -73,28 +76,22 @@ when ODIN_DEBUG {
 }
 
 @(export)
-app_init :: proc(window: ^sdl.Window) {
-	assert(window != nil, "app_init: window is nil")
+app_init :: proc(device: ^platform.Device) {
 	mem = new(App_Memory, context.allocator)
 
-	// SDL Renderer memory
-	mem.renderer = sdl.GetRenderer(window)
-	assert(mem.renderer != nil, "cannot get renderer from window")
-
-	// Gfx_Memory (and clay memory)
-	w, h: i32
-	size_ok := sdl.GetRenderOutputSize(mem.renderer, &w, &h)
-	assert(size_ok, cast(string)sdl.GetError())
-	mem.gfx_mem = gfx.gfx_init({w, h})
+	w, h := platform.output_size(device)
+	if w <= 0 || h <= 0 {
+		fmt.eprint("Renderer output size has a 0 value")
+	}
+	mem.gfx_mem = gfx.gfx_init({w, h}, mem.renderer)
 
 	mem.time_prev_ns = sdl.GetTicksNS()
 }
 
 @(export)
-app_update :: proc() {
+app_update :: proc(device: ^platform.Device) {
 	when ODIN_DEBUG {
-		mem.force_reload = false
-		mem.force_restart = false
+		mem.flags -= {.Force_Restart, .Force_Reload}
 	}
 
 	// Delta time computation
@@ -108,10 +105,22 @@ app_update :: proc() {
 	poll: for sdl.PollEvent(&event) {
 		platform.input_event_process(&mem.input, &event)
 	}
-	if mem.input.quit do mem.should_shutdown = true
+	if mem.input.quit do mem.flags += {.Should_Shutdown}
 	when ODIN_DEBUG {
 		if platform.key_pressed(&mem.input, .F5) do mem.force_reload = true
 		if platform.key_pressed(&mem.input, .F6) do mem.force_restart = true
+	}
+
+	w, h := platform.output_size(device)
+	if w <= 0 || h <= 0 {
+		fmt.eprint("Renderer output size has a 0 value")
+	}
+	frame := gfx.Frame { 	// <- lives here, on app_update's stack
+		device = device,
+		assets = &mem.assets,
+		input  = &mem.input,
+		screen = {f32(w), f32(h)},
+		dt     = mem.dt,
 	}
 
 	// Process graphics frame
@@ -147,9 +156,7 @@ app_memory :: proc() -> rawptr {
 
 @(export)
 app_hot_reloaded :: proc(m: rawptr) {
-	new_mem := (^App_Memory)(m)
-	mem.renderer = new_mem.renderer
-	mem.gfx_mem = new_mem.gfx_mem
+	mem := (^App_Memory)(m)
 }
 
 @(export)
@@ -172,64 +179,15 @@ app_memory_size :: proc() -> int {
 	return size_of(App_Memory)
 }
 
-/*
-	Calls sdl.Init() then returns a newly created Plastella window
-
-	Returns:
-	- The sdl window pointer
-*/
 @(export)
-app_window_create :: proc() -> ^sdl.Window {
-	if !ttf.Init() {
-		fmt.eprint("Failed to initialize TTF")
-	}
-
-	if !sdl.Init({.VIDEO}) {
-		fmt.eprintf("SDL Error: %s\n", sdl.GetError())
-		return nil
-	}
-
-	window := sdl.CreateWindow(
-	WINDOW_TITLE,
-	WINDOW_WIDTH,
-	WINDOW_HEIGHT,
-	{
-		.RESIZABLE,
-		.HIGH_PIXEL_DENSITY,
-		// Hide window and show it after it's been configured to avoid white flash
-		.HIDDEN,
-	},
-	)
-
-	assert(window != nil, "failed to create window")
-
-	// The renderer lives with the window (not app_init) so it survives hard
-	// restarts; app_init re-fetches it with sdl.GetRenderer(window).
-	renderer := sdl.CreateRenderer(window, nil)
-	assert(renderer != nil, cast(string)sdl.GetError())
-
-	if window != nil {
-		// Will "jump" to center, but hidden will fix that
-		sdl.SetWindowPosition(window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
-		platform.setup_window(window)
-		sdl.ShowWindow(window)
-	}
-
-	return window
+app_device_create :: proc() -> ^platform.Device {
+	device := platform.device_create()
+	assert(device != nil, "Failed to create platform device")
+	return device
 }
 
-/*
-	Destroys the provided window if it exists, and then quits SDL
-
-	Inputs:
-	- window: pointer to sdl window to destroy
-*/
 @(export)
-app_window_destroy :: proc(window: ^sdl.Window) {
-	if window != nil {
-		sdl.DestroyRenderer(sdl.GetRenderer(window))
-		sdl.DestroyWindow(window)
-		sdl.Quit()
-		ttf.Quit()
-	}
+app_device_destroy :: proc(device: ^platform.Device) {
+	device := cast(^platform.Device)device
+	platform.device_destroy(device)
 }

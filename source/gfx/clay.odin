@@ -1,6 +1,8 @@
 package gfx
 
 import "../../vendor/clay"
+import assets "../assets"
+import platform "../platform"
 import "base:runtime"
 import "core:c"
 import "core:fmt"
@@ -15,12 +17,6 @@ ARC_SEGMENTS_MAX :: 32
 VERTS_MAX :: 12 + 8 * SEGMENTS_MAX
 INDICES_MAX :: 30 + 12 * SEGMENTS_MAX
 
-Clay_Render_Memory :: struct {
-	renderer:    ^sdl.Renderer,
-	text_engine: ^ttf.TextEngine,
-	fonts:       []^ttf.Font,
-}
-
 Clay_Trace :: struct {
 	phase:     string,
 	file:      string,
@@ -28,72 +24,50 @@ Clay_Trace :: struct {
 	had_error: bool,
 }
 
+// Exception to hidden global state: Used for dev tracing not a client-facing feature
+trace: ^Clay_Trace
+
 @(require_results)
-clay_init :: proc(
-	size: [2]i32,
-	clay_trace: ^Clay_Trace,
-) -> (
-	^clay.Context,
-	[^]u8,
-	^Clay_Render_Memory,
-) {
+clay_init :: proc(frame: ^Frame) -> (^clay.Context, [^]u8) {
 	min_size := clay.MinMemorySize()
 	clay_mem := make([^]u8, min_size)
-
 	arena := clay.CreateArenaWithCapacityAndMemory(cast(c.size_t)min_size, clay_mem)
+
 	ctx := clay.Initialize(
 		arena,
-		{f32(size.x), f32(size.y)},
-		{handler = err_handler, userData = clay_trace},
+		{f32(frame.screen.x), f32(frame.screen.y)},
+		{handler = err_handler, userData = trace},
 	)
 
-	if ctx == nil || clay_trace.had_error {
+	if ctx == nil || trace.had_error {
 		fmt.eprint("[clay] initalization failed\n")
 		if clay_mem != nil {
 			free(clay_mem)
 		}
-		return nil, nil, nil
+		return nil, nil
 	}
 
-	mem := new(Clay_Render_Memory)
+	clay.SetMeasureTextFunction(measure_text, nil)
 
-	return ctx, clay_mem, mem
+	return ctx, clay_mem
 }
 
-clay_reload :: proc(ctx: ^clay.Context, data: ^Clay_Render_Memory) {
+clay_reload :: proc(ctx: ^clay.Context) {
 	clay.SetCurrentContext(ctx)
-	clay.SetMeasureTextFunction(measure_text, data)
+	clay.SetMeasureTextFunction(measure_text, nil)
 }
 
-clay_layout_begin :: proc(
-	render_mem: ^Clay_Render_Memory,
-	clay_trace: ^Clay_Trace,
-	screen_dimensions: clay.Dimensions,
-	mouse_pos: [2]f32,
-	mouse_down: bool,
-	scroll: [2]f32,
-	dt: f32,
-) {
-	clay_error_reset(clay_trace)
-	clay.SetLayoutDimensions(screen_dimensions)
-	clay.SetPointerState(mouse_pos, mouse_down)
-	clay.UpdateScrollContainers(true, scroll, dt)
+clay_frame_begin :: proc(frame: ^Frame) {
+	trace.had_error = false
+	clay.SetLayoutDimensions({width = frame.screen.x, height = frame.screen.y})
+	clay.SetPointerState(frame.input.mouse.pos, platform.mouse_pressed(frame.input, .Left))
+	clay.UpdateScrollContainers(true, frame.input.mouse.wheel, frame.dt)
 	clay.BeginLayout()
 }
 
-// Call at the beginning of a frame
-clay_error_reset :: proc(clay_trace: ^Clay_Trace) {
-	clay_trace.had_error = false
-}
 
-clay_render_commands :: proc(
-	data: ^Clay_Render_Memory,
-	commands: ^clay.ClayArray(clay.RenderCommand),
-) {
-	assert(data != nil)
-	assert(data.renderer != nil)
-
-	sdl.SetRenderDrawBlendMode(data.renderer, sdl.BLENDMODE_BLEND)
+clay_render_commands :: proc(frame: ^Frame, commands: ^clay.ClayArray(clay.RenderCommand)) {
+	sdl.SetRenderDrawBlendMode(frame.device.renderer, sdl.BLENDMODE_BLEND)
 
 	for i in 0 ..< commands.length {
 		cmd := clay.RenderCommandArray_Get(commands, i)
@@ -102,20 +76,20 @@ clay_render_commands :: proc(
 
 		#partial switch cmd.commandType {
 		case .Rectangle:
-			render_rectangle(data, rect, cmd.renderData.rectangle)
+			render_rectangle(frame.device.renderer, rect, cmd.renderData.rectangle)
 		case .Text:
-			render_text(data, rect, cmd.renderData.text)
+			render_text(frame, rect, cmd.renderData.text)
 		case .Image:
 			tex := (^sdl.Texture)(cmd.renderData.image.imageData)
 			dst := rect
-			sdl.RenderTexture(data.renderer, tex, nil, &dst)
+			sdl.RenderTexture(frame.device.renderer, tex, nil, &dst)
 		case .Border:
-			render_border(data, rect, cmd.renderData.border)
+			render_border(frame.device.renderer, rect, cmd.renderData.border)
 		case .ScissorStart:
 			clip := sdl.Rect{i32(b.x), i32(b.y), i32(b.width), i32(b.height)}
-			sdl.SetRenderClipRect(data.renderer, &clip)
+			sdl.SetRenderClipRect(frame.device.renderer, &clip)
 		case .ScissorEnd:
-			sdl.SetRenderClipRect(data.renderer, nil)
+			sdl.SetRenderClipRect(frame.device.renderer, nil)
 		case .None, .Custom, .OverlayColorStart, .OverlayColorEnd:
 		// Not implemented
 		}
@@ -123,24 +97,20 @@ clay_render_commands :: proc(
 }
 
 @(private = "file")
-render_rectangle :: proc(
-	data: ^Clay_Render_Memory,
-	rect: sdl.FRect,
-	cfg: clay.RectangleRenderData,
-) {
+render_rectangle :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.RectangleRenderData) {
 	if cfg.cornerRadius.topLeft > 0 {
-		fill_rounded_rect(data, rect, cfg.cornerRadius.topLeft, cfg.backgroundColor)
+		fill_rounded_rect(renderer, rect, cfg.cornerRadius.topLeft, cfg.backgroundColor)
 		return
 	}
 	col := color_u8(cfg.backgroundColor)
-	sdl.SetRenderDrawColor(data.renderer, col.r, col.g, col.b, col.a)
+	sdl.SetRenderDrawColor(renderer, col.r, col.g, col.b, col.a)
 	r := rect
-	sdl.RenderFillRect(data.renderer, &r)
+	sdl.RenderFillRect(renderer, &r)
 }
 
 @(private = "file")
 fill_rounded_rect :: proc(
-	data: ^Clay_Render_Memory,
+	renderer: ^sdl.Renderer,
 	rect: sdl.FRect,
 	radius: f32,
 	color: clay.Color,
@@ -216,7 +186,7 @@ fill_rounded_rect :: proc(
 	assert(vc <= VERTS_MAX)
 	assert(ic <= INDICES_MAX)
 	sdl.RenderGeometry(
-		data.renderer,
+		renderer,
 		nil,
 		raw_data(verts[:]),
 		c.int(vc),
@@ -226,7 +196,7 @@ fill_rounded_rect :: proc(
 }
 
 @(private = "file")
-render_border :: proc(data: ^Clay_Render_Memory, rect: sdl.FRect, cfg: clay.BorderRenderData) {
+render_border :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.BorderRenderData) {
 	min_radius := min(rect.w, rect.h) / 2
 	tl := min(cfg.cornerRadius.topLeft, min_radius)
 	tr := min(cfg.cornerRadius.topRight, min_radius)
@@ -234,43 +204,48 @@ render_border :: proc(data: ^Clay_Render_Memory, rect: sdl.FRect, cfg: clay.Bord
 	br := min(cfg.cornerRadius.bottomRight, min_radius)
 
 	col := color_u8(cfg.color)
-	sdl.SetRenderDrawColor(data.renderer, col.r, col.g, col.b, col.a)
+	sdl.SetRenderDrawColor(renderer, col.r, col.g, col.b, col.a)
 
 	if cfg.width.left > 0 {
 		line := sdl.FRect{rect.x - 1, rect.y, f32(cfg.width.left), rect.h - tr - bl}
-		sdl.RenderFillRect(data.renderer, &line)
+		sdl.RenderFillRect(renderer, &line)
 	}
 	if cfg.width.right > 0 {
 		x := rect.x + rect.w - f32(cfg.width.right) + 1
 		line := sdl.FRect{x, rect.y + tr, f32(cfg.width.right), rect.h - tr - br}
-		sdl.RenderFillRect(data.renderer, &line)
+		sdl.RenderFillRect(renderer, &line)
 	}
 	if cfg.width.top > 0 {
 		line := sdl.FRect{rect.x + tl, rect.y - 1, rect.w - tl - tr, f32(cfg.width.top)}
-		sdl.RenderFillRect(data.renderer, &line)
+		sdl.RenderFillRect(renderer, &line)
 	}
 	if cfg.width.bottom > 0 {
 		y := rect.y + rect.h - f32(cfg.width.bottom) + 1
 		line := sdl.FRect{rect.x + bl, y, rect.w - bl - br, f32(cfg.width.bottom)}
-		sdl.RenderFillRect(data.renderer, &line)
+		sdl.RenderFillRect(renderer, &line)
 	}
 
 	// Rounded corners as stroked arcs, thickness from nearer edge.
 	if cfg.cornerRadius.topLeft > 0 {
 		center := sdl.FPoint{rect.x + tl - 1, rect.y + tl - 1}
-		render_arc(data, center, tl, 180, 270, f32(cfg.width.top), cfg.color)
+		render_arc(renderer, center, tl, 180, 270, f32(cfg.width.top), cfg.color)
 	}
 }
 
 @(private = "file")
-render_text :: proc(data: ^Clay_Render_Memory, rect: sdl.FRect, cfg: clay.TextRenderData) {
-	assert(int(cfg.fontId) < len(data.fonts))
-	font := data.fonts[cfg.fontId]
+render_text :: proc(frame: ^Frame, rect: sdl.FRect, cfg: clay.TextRenderData) {
+	assert(int(cfg.fontId) < len(frame.assets.fonts))
+	font := frame.assets.fonts[cast(assets.Font_Id)cfg.fontId]
 
 	ttf.SetFontSize(font, f32(cfg.fontSize))
 
 	chars := cast(cstring)cfg.stringContents.chars
-	text := ttf.CreateText(data.text_engine, font, chars, c.size_t(cfg.stringContents.length))
+	text := ttf.CreateText(
+		frame.device.text_engine,
+		font,
+		chars,
+		c.size_t(cfg.stringContents.length),
+	)
 	defer ttf.DestroyText(text)
 
 	col := color_u8(cfg.textColor)
@@ -280,13 +255,13 @@ render_text :: proc(data: ^Clay_Render_Memory, rect: sdl.FRect, cfg: clay.TextRe
 
 @(private = "file")
 render_arc :: proc(
-	data: ^Clay_Render_Memory,
+	renderer: ^sdl.Renderer,
 	center: sdl.FPoint,
 	radius, start_deg, end_deg, thickness: f32,
 	color: clay.Color,
 ) {
 	col := color_u8(color)
-	sdl.SetRenderDrawColor(data.renderer, col.r, col.g, col.b, col.a)
+	sdl.SetRenderDrawColor(renderer, col.r, col.g, col.b, col.a)
 
 	rad_start := start_deg * (math.PI / 180)
 	rad_end := end_deg * (math.PI / 180)
@@ -305,7 +280,7 @@ render_arc :: proc(
 				math.round(center.y + math.sin(angle) * r),
 			}
 		}
-		sdl.RenderLines(data.renderer, raw_data(points[:]), c.int(segments + 1))
+		sdl.RenderLines(renderer, raw_data(points[:]), c.int(segments + 1))
 	}
 }
 
@@ -353,11 +328,9 @@ measure_text :: proc "c" (
 ) -> clay.Dimensions {
 	context = runtime.default_context()
 
-	data := cast(^Clay_Render_Memory)user_data
-	assert(data != nil)
-	assert(int(cfg.fontId) < len(data.fonts))
+	frame := cast(^Frame)user_data
 
-	font := data.fonts[cfg.fontId]
+	font := frame.assets.fonts[cast(assets.Font_Id)cfg.fontId]
 	ttf.SetFontSize(font, f32(cfg.fontSize))
 
 	w, h: c.int
