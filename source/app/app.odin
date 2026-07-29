@@ -79,6 +79,7 @@ app_init :: proc(window: ^sdl.Window) {
 
 	// SDL Renderer memory
 	mem.renderer = sdl.GetRenderer(window)
+	assert(mem.renderer != nil, "cannot get renderer from window")
 
 	// Gfx_Memory (and clay memory)
 	w, h: i32
@@ -202,6 +203,11 @@ app_window_create :: proc() -> ^sdl.Window {
 
 	assert(window != nil, "failed to create window")
 
+	// The renderer lives with the window (not app_init) so it survives hard
+	// restarts; app_init re-fetches it with sdl.GetRenderer(window).
+	renderer := sdl.CreateRenderer(window, nil)
+	assert(renderer != nil, cast(string)sdl.GetError())
+
 	if window != nil {
 		// Will "jump" to center, but hidden will fix that
 		sdl.SetWindowPosition(window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
@@ -221,6 +227,7 @@ app_window_create :: proc() -> ^sdl.Window {
 @(export)
 app_window_destroy :: proc(window: ^sdl.Window) {
 	if window != nil {
+		sdl.DestroyRenderer(sdl.GetRenderer(window))
 		sdl.DestroyWindow(window)
 		sdl.Quit()
 		ttf.Quit()
