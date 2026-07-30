@@ -33,6 +33,8 @@ clay_init :: proc(frame: ^Frame) -> (^clay.Context, [^]u8) {
 	clay_mem := make([^]u8, min_size)
 	arena := clay.CreateArenaWithCapacityAndMemory(cast(c.size_t)min_size, clay_mem)
 
+	trace = new(Clay_Trace)
+
 	ctx := clay.Initialize(
 		arena,
 		{f32(frame.screen.x), f32(frame.screen.y)},
@@ -65,6 +67,15 @@ clay_frame_begin :: proc(frame: ^Frame) {
 	clay.BeginLayout()
 }
 
+clay_frame_end :: proc(frame: ^Frame) {
+	commands := clay.EndLayout(frame.dt)
+	clay_render_commands(&commands, frame)
+}
+
+clay_shutdown :: proc(gfx: ^Gfx) {
+	free(gfx.clay_mem)
+	free(trace)
+}
 
 clay_render_commands :: proc(commands: ^clay.ClayArray(clay.RenderCommand), frame: ^Frame) {
 	sdl.SetRenderDrawBlendMode(frame.device.renderer, sdl.BLENDMODE_BLEND)

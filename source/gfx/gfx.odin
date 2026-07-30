@@ -21,10 +21,7 @@ gfx_init :: proc(gfx: ^Gfx, size: [2]i32, frame: ^Frame) -> bool {
 }
 
 gfx_shutdown :: proc(gfx: ^Gfx) {
-	if gfx == nil do return
-	if gfx.clay_mem != nil do free(gfx.clay_mem)
-	if gfx.clay_ctx != nil do free(gfx.clay_ctx)
-	free(gfx)
+	clay_shutdown(gfx)
 }
 
 gfx_reload :: proc(mem: ^Gfx) {
@@ -39,6 +36,5 @@ gfx_frame_begin :: proc(gfx: ^Gfx, frame: ^Frame) {
 }
 
 gfx_frame_end :: proc(frame: ^Frame) {
-	commands := clay.EndLayout(frame.dt)
-	clay_render_commands(&commands, frame)
+	clay_frame_end(frame)
 }

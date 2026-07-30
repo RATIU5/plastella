@@ -164,7 +164,7 @@ app_hot_reloaded :: proc(m: rawptr) {
 
 @(export)
 app_should_run :: proc() -> bool {
-	return .Should_Shutdown in app.flags
+	return .Should_Shutdown not_in app.flags
 }
 
 @(export)
@@ -192,4 +192,5 @@ app_device_create :: proc() -> ^platform.Device {
 @(export)
 app_device_destroy :: proc(device: ^platform.Device) {
 	platform.device_destroy(device)
+	free(device)
 }

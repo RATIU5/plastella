@@ -60,7 +60,7 @@ main :: proc() {
 	defer api.device_destroy(device)
 	defer api.shutdown()
 
-	if app_ok do return
+	if !app_ok do return
 
 	for api.should_run() {
 		api.update(device)

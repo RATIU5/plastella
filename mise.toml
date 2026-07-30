@@ -46,6 +46,12 @@ description = "Build + run with automatic hot reload (watches source/)"
 depends = ["build-app", "build-host"]
 run = "bash scripts/dev.sh"
 
+[tasks."dev:debug"]
+description = "Same as dev, but under lldb — prints a symbolized backtrace on a crash"
+depends = ["build-app", "build-host"]
+env = { LLDB = "1" }
+run = "bash scripts/dev.sh"
+
 [tasks.run]
 description = "Build + run the standalone (non-hot-reload) app"
 alias = "r"
