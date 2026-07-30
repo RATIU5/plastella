@@ -2,6 +2,7 @@ package gfx
 
 import clay "../../vendor/clay"
 import "core:fmt"
+import sdl "vendor:sdl3"
 
 Gfx :: struct {
 	clay_ctx: ^clay.Context,
@@ -31,10 +32,16 @@ gfx_reload :: proc(mem: ^Gfx) {
 }
 
 gfx_frame_begin :: proc(gfx: ^Gfx, frame: ^Frame) {
-	// reset cursor
+	sdl.SetRenderDrawColor(frame.device.renderer, 0, 0, 0, 255)
+
+	clear_ok := sdl.RenderClear(frame.device.renderer)
+	if !clear_ok do fmt.eprint("failed to clear frame")
+
 	clay_frame_begin(frame)
 }
 
 gfx_frame_end :: proc(frame: ^Frame) {
 	clay_frame_end(frame)
+	present_ok := sdl.RenderPresent(frame.device.renderer)
+	if !present_ok do fmt.eprint("failed to present frame")
 }
