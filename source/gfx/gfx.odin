@@ -1,72 +1,44 @@
 package gfx
 
 import clay "../../vendor/clay"
-import "core:c"
 import "core:fmt"
-import sdl "vendor:sdl3"
 
 Gfx :: struct {
 	clay_ctx: ^clay.Context,
-	clay_mem: []u8,
+	clay_mem: [^]u8,
 }
 
-gfx_init :: proc(g: Gfx, size: [2]i32) -> bool {
-	// Clay Memory
-	ctx, clay_mem, render_mem := clay_init(frame)
-	mem.clay_ctx = ctx
-	mem.clay_mem = clay_mem
-	mem.clay_render_mem = render_mem
-
-	return mem
+@(require_results)
+gfx_init :: proc(gfx: ^Gfx, size: [2]i32, frame: ^Frame) -> bool {
+	ctx, clay_mem := clay_init(frame)
+	if ctx == nil || clay_mem == nil {
+		fmt.eprint("failed to initialize clay")
+		return false
+	}
+	gfx.clay_ctx = ctx
+	gfx.clay_mem = clay_mem
+	return true
 }
 
-gfx_shutdown :: proc(mem: ^Gfx_Memory) {
-	if mem == nil do return
-
-	// Clay Memory
-	if mem.clay_render_mem != nil do free(mem.clay_render_mem)
-	if mem.clay_mem != nil do free(mem.clay_mem)
-	if mem.clay_ctx != nil do free(mem.clay_ctx)
-	if mem.clay_trace != nil do free(mem.clay_trace)
-
-	free(mem)
+gfx_shutdown :: proc(gfx: ^Gfx) {
+	if gfx == nil do return
+	if gfx.clay_mem != nil do free(gfx.clay_mem)
+	if gfx.clay_ctx != nil do free(gfx.clay_ctx)
+	free(gfx)
 }
 
-gfx_reload :: proc(mem: ^Gfx_Memory) {
+gfx_reload :: proc(mem: ^Gfx) {
 	assert(mem != nil, "Cannot reload GFX; memory is nil")
-	clay_reload(mem.clay_ctx, mem.clay_render_mem)
+	clay_reload(mem.clay_ctx)
 	// reload textures and fonts
 }
 
-gfx_frame_begin :: proc(
-	mem: ^Gfx_Memory,
-	renderer: ^sdl.Renderer,
-	mouse_pos: [2]f32,
-	mouse_left: bool,
-	mouse_scroll: [2]f32,
-	dt: f32,
-) {
+gfx_frame_begin :: proc(gfx: ^Gfx, frame: ^Frame) {
 	// reset cursor
-	w, h: c.int
-	dimensions_ok := sdl.GetRenderOutputSize(renderer, &w, &h)
-	if !dimensions_ok {
-		fmt.eprint("failed to get screen dimensions for gfx_frame_begin")
-		return
-	}
-	dimensions := clay.Dimensions{cast(f32)w, cast(f32)h}
-
-	clay_layout_begin(
-		mem.clay_render_mem,
-		mem.clay_trace,
-		dimensions,
-		mouse_pos,
-		mouse_left,
-		mouse_scroll,
-		dt,
-	)
+	clay_frame_begin(frame)
 }
 
-gfx_frame_end :: proc(mem: ^Gfx_Memory, dt: f32) {
-	commands := clay.EndLayout(dt)
-	clay_render_commands(mem.clay_render_mem, &commands)
+gfx_frame_end :: proc(frame: ^Frame) {
+	commands := clay.EndLayout(frame.dt)
+	clay_render_commands(&commands, frame)
 }

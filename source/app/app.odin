@@ -14,8 +14,8 @@ _ :: runtime.Type_Info
 
 App_Flag :: enum u8 {
 	Should_Shutdown,
-	Force_Restart,
-	Force_Reload,
+	Should_Restart,
+	Should_Reload,
 }
 App_Flags :: distinct bit_set[App_Flag;u8]
 
@@ -28,14 +28,14 @@ App :: struct {
 	gfx:          gfx.Gfx,
 	// ui:           ui.State,
 }
-mem: ^App
+app: ^App
 
 when ODIN_DEBUG {
 	@(export)
 	app_memory_layout_hash :: proc() -> u64 {
 		FNV_OFFSET :: u64(1469598103934665603)
 		seen := make(map[typeid]bool, 64, context.temp_allocator) // host will free each loop
-		return layout_hash(type_info_of(App_Memory), FNV_OFFSET, &seen)
+		return layout_hash(type_info_of(App), FNV_OFFSET, &seen)
 	}
 
 	layout_hash :: proc(ti: ^runtime.Type_Info, seed: u64, seen: ^map[typeid]bool) -> u64 {
@@ -75,119 +75,121 @@ when ODIN_DEBUG {
 	}
 }
 
-@(export)
-app_init :: proc(device: ^platform.Device) {
-	mem = new(App_Memory, context.allocator)
+@(export, require_results)
+app_init :: proc(device: ^platform.Device) -> bool {
+	app = new(App, context.allocator)
 
-	w, h := platform.output_size(device)
-	if w <= 0 || h <= 0 {
-		fmt.eprint("Renderer output size has a 0 value")
+	w, h, size_ok := platform.output_size(device)
+	if !size_ok {
+		fmt.eprint("Failed to compute output size on device")
+		return false
 	}
-	mem.gfx_mem = gfx.gfx_init({w, h}, mem.renderer)
 
-	mem.time_prev_ns = sdl.GetTicksNS()
+	frame := gfx.Frame {
+		device = device,
+		assets = &app.assets,
+		input  = &app.input,
+		screen = {f32(w), f32(h)},
+		dt     = app.dt,
+	}
+	gfx_ok := gfx.gfx_init(&app.gfx, {w, h}, &frame)
+	if !gfx_ok {
+		fmt.eprint("Failed to initialize gfx")
+		return false
+	}
+
+	app.time_prev_ns = sdl.GetTicksNS()
+
+	return true
 }
 
 @(export)
 app_update :: proc(device: ^platform.Device) {
 	when ODIN_DEBUG {
-		mem.flags -= {.Force_Restart, .Force_Reload}
+		app.flags -= {.Should_Reload, .Should_Restart}
 	}
 
 	// Delta time computation
 	now_ns := sdl.GetTicksNS()
-	mem.dt = f32(now_ns - mem.time_prev_ns) / 1_000_000_000.0 // ns -> secs
-	mem.time_prev_ns = now_ns
+	app.dt = f32(now_ns - app.time_prev_ns) / 1_000_000_000.0 // ns -> secs
+	app.time_prev_ns = now_ns
 
 	// Process inputs
-	platform.input_frame_begin(&mem.input)
+	platform.input_frame_begin(&app.input)
 	event: sdl.Event
 	poll: for sdl.PollEvent(&event) {
-		platform.input_event_process(&mem.input, &event)
+		platform.input_event_process(&app.input, &event)
 	}
-	if mem.input.quit do mem.flags += {.Should_Shutdown}
+	if app.input.quit do app.flags += {.Should_Shutdown}
 	when ODIN_DEBUG {
-		if platform.key_pressed(&mem.input, .F5) do mem.force_reload = true
-		if platform.key_pressed(&mem.input, .F6) do mem.force_restart = true
+		if platform.key_pressed(&app.input, .F5) do app.flags += {.Should_Reload}
+		if platform.key_pressed(&app.input, .F6) do app.flags += {.Should_Restart}
 	}
 
-	w, h := platform.output_size(device)
-	if w <= 0 || h <= 0 {
-		fmt.eprint("Renderer output size has a 0 value")
+	w, h, size_ok := platform.output_size(device)
+	if !size_ok {
+		fmt.eprint("Failed to compute output size on device; defaulting to 0x0")
+		w, h = 0, 0
 	}
-	frame := gfx.Frame { 	// <- lives here, on app_update's stack
+	frame := gfx.Frame {
 		device = device,
-		assets = &mem.assets,
-		input  = &mem.input,
+		assets = &app.assets,
+		input  = &app.input,
 		screen = {f32(w), f32(h)},
-		dt     = mem.dt,
+		dt     = app.dt,
 	}
 
-	// Process graphics frame
-	gfx.gfx_frame_begin(
-		mem.gfx_mem,
-		mem.renderer,
-		mem.input.mouse.pos,
-		platform.mouse_down(&mem.input, .Left),
-		platform.mouse_scroll(&mem.input),
-		mem.dt,
-	)
-
-	gfx.gfx_frame_end(mem.gfx_mem, mem.dt)
+	gfx.gfx_frame_begin(&app.gfx, &frame)
+	// draw UI
+	gfx.gfx_frame_end(&frame)
 }
 
 @(export)
 app_shutdown :: proc() {
-	if mem == nil do return
-
-	// Gfx_Memory
-	gfx.gfx_shutdown(mem.gfx_mem)
-	mem.gfx_mem = nil
-
-	// App_Memory
-	free(mem)
-	mem = nil
+	if app == nil do return
+	gfx.gfx_shutdown(&app.gfx)
+	free(app)
+	app = nil
 }
 
 @(export)
 app_memory :: proc() -> rawptr {
-	return mem
+	return app
 }
 
 @(export)
 app_hot_reloaded :: proc(m: rawptr) {
-	mem := (^App_Memory)(m)
+	app = (^App)(m)
 }
 
 @(export)
 app_should_run :: proc() -> bool {
-	return !mem.should_shutdown
+	return .Should_Shutdown in app.flags
 }
 
 @(export)
 app_force_reload :: proc() -> bool {
-	return mem.force_reload
+	return .Should_Reload in app.flags
 }
 
 @(export)
 app_force_restart :: proc() -> bool {
-	return mem.force_restart
+	return .Should_Restart in app.flags
 }
 
 @(export)
 app_memory_size :: proc() -> int {
-	return size_of(App_Memory)
+	return size_of(App)
 }
 
 @(export)
 app_device_create :: proc() -> ^platform.Device {
-	device := platform.device_create()
-	assert(device != nil, "Failed to create platform device")
+	device := new(platform.Device)
+	if device_ok := platform.device_create(device); !device_ok do return nil
 	return device
 }
 
 @(export)
 app_device_destroy :: proc(device: ^platform.Device) {
-	device := cast(^platform.Device)device
 	platform.device_destroy(device)
 }

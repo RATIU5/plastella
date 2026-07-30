@@ -66,7 +66,7 @@ clay_frame_begin :: proc(frame: ^Frame) {
 }
 
 
-clay_render_commands :: proc(frame: ^Frame, commands: ^clay.ClayArray(clay.RenderCommand)) {
+clay_render_commands :: proc(commands: ^clay.ClayArray(clay.RenderCommand), frame: ^Frame) {
 	sdl.SetRenderDrawBlendMode(frame.device.renderer, sdl.BLENDMODE_BLEND)
 
 	for i in 0 ..< commands.length {
@@ -297,10 +297,7 @@ color_u8 :: proc "contextless" (col: clay.Color) -> [4]u8 {
 @(private = "file")
 err_handler :: proc "c" (err: clay.ErrorData) {
 	context = runtime.default_context()
-	trace := cast(^Clay_Trace)err.userData
-	if trace != nil {
-		trace.had_error = true
-	}
+	trace.had_error = true
 
 	msg := cast(string)(err.errorText.chars)[:err.errorText.length]
 

@@ -18,7 +18,7 @@ Assets :: struct {
 	fonts:    [Font_Id]^ttf.Font,
 	textures: [Texture_Id]^sdl.Texture,
 }
-
+@(require_results)
 assets_load :: proc(a: ^Assets, device: ^platform.Device) -> bool {
 	// TODO: load assets
 	// TODO: assert that Font_Id is less than max for u8 (font ids are u16 in clay)

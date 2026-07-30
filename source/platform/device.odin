@@ -11,11 +11,9 @@ Device :: struct {
 	text_engine: ^ttf.TextEngine,
 }
 
-device_create :: proc() -> ^Device {
-	init_ok := sdl_init()
-	if !init_ok {
-		return nil
-	}
+@(require_results)
+device_create :: proc(device: ^Device) -> bool {
+	if init_ok := sdl_init(); !init_ok do return false
 
 	FLAGS :: sdl.WindowFlags {
 		.RESIZABLE,
@@ -24,23 +22,22 @@ device_create :: proc() -> ^Device {
 		.HIDDEN,
 	}
 	window := sdl.CreateWindow(conf.WINDOW_TITLE, conf.WINDOW_WIDTH, conf.WINDOW_HEIGHT, FLAGS)
-	assert(window != nil, "failed to create window")
+	if window == nil do return false
 
 	renderer := sdl.CreateRenderer(window, nil)
-	assert(renderer != nil, cast(string)sdl.GetError())
+	if renderer == nil do return false
 
 	text_engine := ttf.CreateRendererTextEngine(renderer)
-	assert(text_engine != nil, "Failed to create text engine")
+	if text_engine == nil do return false
 
 	// Configure & show window AFTER setting up renderer and text engine
 	window_configure(window)
 
-	device := new(Device)
 	device.window = window
 	device.renderer = renderer
 	device.text_engine = text_engine
 
-	return device
+	return true
 }
 
 device_destroy :: proc(device: ^Device) {
@@ -52,10 +49,11 @@ device_destroy :: proc(device: ^Device) {
 	}
 }
 
-output_size :: proc(device: ^Device) -> (w, h: i32) {
-	temp_w, temp_h: i32 = 0, 0
-	size_ok := sdl.GetRenderOutputSize(device.renderer, &w, &h)
-	return temp_w, temp_h
+@(require_results)
+output_size :: proc(device: ^Device) -> (i32, i32, bool) {
+	temp_w, temp_h: i32
+	size_ok := sdl.GetRenderOutputSize(device.renderer, &temp_w, &temp_h)
+	return temp_w, temp_h, size_ok
 }
 
 @(private = "file", require_results)

@@ -17,7 +17,7 @@ App_API :: struct {
 	mod_time:           time.Time,
 	device_create:      proc() -> rawptr,
 	device_destroy:     proc(d: rawptr),
-	init:               proc(d: rawptr),
+	init:               proc(d: rawptr) -> bool,
 	update:             proc(d: rawptr),
 	shutdown:           proc(),
 	should_run:         proc() -> bool,
@@ -50,7 +50,17 @@ main :: proc() {
 	assert(ok, "could not load the app library")
 
 	device := api.device_create()
-	api.init(device)
+	if device == nil {
+		fmt.printf("Failed to create device")
+		return
+	}
+
+	app_ok := api.init(device)
+
+	defer api.device_destroy(device)
+	defer api.shutdown()
+
+	if app_ok do return
 
 	for api.should_run() {
 		api.update(device)
@@ -66,8 +76,6 @@ main :: proc() {
 
 		free_all(context.temp_allocator)
 	}
-	api.shutdown()
-	api.device_destroy(device)
 }
 
 @(require_results)
@@ -161,10 +169,12 @@ do_restart :: proc(
 	api.shutdown()
 	old := api^
 	api^ = new_api
-	api.init(device)
-	version^ += 1
-	dynlib.unload_library(old.lib)
-	os.remove(fmt.tprintf("%s_%d%s", APP_NAME, old.version, DLL_EXT))
+	app_ok := api.init(device)
+	if app_ok {
+		version^ += 1
+		dynlib.unload_library(old.lib)
+		os.remove(fmt.tprintf("%s_%d%s", APP_NAME, old.version, DLL_EXT))
+	}
 	check_reload_leaks(track)
 }
 
