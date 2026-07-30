@@ -30,58 +30,19 @@ App :: struct {
 }
 app: ^App
 
-when ODIN_DEBUG {
-	@(export)
-	app_memory_layout_hash :: proc() -> u64 {
-		FNV_OFFSET :: u64(1469598103934665603)
-		seen := make(map[typeid]bool, 64, context.temp_allocator) // host will free each loop
-		return layout_hash(type_info_of(App), FNV_OFFSET, &seen)
-	}
-
-	layout_hash :: proc(ti: ^runtime.Type_Info, seed: u64, seen: ^map[typeid]bool) -> u64 {
-		PRIME :: u64(1099511628211)
-		if ti == nil do return seed // rawptr elem, empty proc results, etc.
-		h := (seed ~ u64(ti.size)) * PRIME
-		if seen[ti.id] do return h // already walked this type
-		seen[ti.id] = true
-
-		#partial switch v in ti.variant {
-		case runtime.Type_Info_Named:
-			h = layout_hash(v.base, h, seen)
-		case runtime.Type_Info_Struct:
-			for i in 0 ..< int(v.field_count) {
-				h = (h ~ u64(v.offsets[i])) * PRIME
-				h = layout_hash(v.types[i], h, seen)
-			}
-		case runtime.Type_Info_Union:
-			for variant in v.variants do h = layout_hash(variant, h, seen)
-		case runtime.Type_Info_Array:
-			h = layout_hash(v.elem, h, seen)
-		case runtime.Type_Info_Enumerated_Array:
-			h = layout_hash(v.elem, h, seen)
-		case runtime.Type_Info_Slice:
-			h = layout_hash(v.elem, h, seen)
-		case runtime.Type_Info_Dynamic_Array:
-			h = layout_hash(v.elem, h, seen)
-		case runtime.Type_Info_Map:
-			h = layout_hash(v.key, h, seen)
-			h = layout_hash(v.value, h, seen)
-		case runtime.Type_Info_Pointer:
-			h = layout_hash(v.elem, h, seen) // nil for rawptr -> stops
-		case runtime.Type_Info_Multi_Pointer:
-			h = layout_hash(v.elem, h, seen)
-		}
-		return h
-	}
-}
-
 @(export, require_results)
 app_init :: proc(device: ^platform.Device) -> bool {
 	app = new(App, context.allocator)
 
 	w, h, size_ok := platform.output_size(device)
 	if !size_ok {
-		fmt.eprint("Failed to compute output size on device")
+		fmt.eprintln("Failed to compute output size on device")
+		return false
+	}
+
+	assets_ok := assets.assets_load(&app.assets, device)
+	if !assets_ok {
+		fmt.println("Failed to load app assets")
 		return false
 	}
 
@@ -94,7 +55,7 @@ app_init :: proc(device: ^platform.Device) -> bool {
 	}
 	gfx_ok := gfx.gfx_init(&app.gfx, {w, h}, &frame)
 	if !gfx_ok {
-		fmt.eprint("Failed to initialize gfx")
+		fmt.eprintln("Failed to initialize gfx")
 		return false
 	}
 
@@ -128,7 +89,7 @@ app_update :: proc(device: ^platform.Device) {
 
 	w, h, size_ok := platform.output_size(device)
 	if !size_ok {
-		fmt.eprint("Failed to compute output size on device; defaulting to 0x0")
+		fmt.eprintln("Failed to compute output size on device; defaulting to 0x0")
 		w, h = 0, 0
 	}
 	frame := gfx.Frame {
@@ -148,6 +109,7 @@ app_update :: proc(device: ^platform.Device) {
 app_shutdown :: proc() {
 	if app == nil do return
 	gfx.gfx_shutdown(&app.gfx)
+	assets.assets_unload(&app.assets)
 	free(app)
 	app = nil
 }
@@ -193,4 +155,49 @@ app_device_create :: proc() -> ^platform.Device {
 app_device_destroy :: proc(device: ^platform.Device) {
 	platform.device_destroy(device)
 	free(device)
+}
+
+when ODIN_DEBUG {
+	@(export)
+	app_memory_layout_hash :: proc() -> u64 {
+		FNV_OFFSET :: u64(1469598103934665603)
+		seen := make(map[typeid]bool, 64, context.temp_allocator) // host will free each loop
+		return layout_hash(type_info_of(App), FNV_OFFSET, &seen)
+	}
+
+	layout_hash :: proc(ti: ^runtime.Type_Info, seed: u64, seen: ^map[typeid]bool) -> u64 {
+		PRIME :: u64(1099511628211)
+		if ti == nil do return seed // rawptr elem, empty proc results, etc.
+		h := (seed ~ u64(ti.size)) * PRIME
+		if seen[ti.id] do return h // already walked this type
+		seen[ti.id] = true
+
+		#partial switch v in ti.variant {
+		case runtime.Type_Info_Named:
+			h = layout_hash(v.base, h, seen)
+		case runtime.Type_Info_Struct:
+			for i in 0 ..< int(v.field_count) {
+				h = (h ~ u64(v.offsets[i])) * PRIME
+				h = layout_hash(v.types[i], h, seen)
+			}
+		case runtime.Type_Info_Union:
+			for variant in v.variants do h = layout_hash(variant, h, seen)
+		case runtime.Type_Info_Array:
+			h = layout_hash(v.elem, h, seen)
+		case runtime.Type_Info_Enumerated_Array:
+			h = layout_hash(v.elem, h, seen)
+		case runtime.Type_Info_Slice:
+			h = layout_hash(v.elem, h, seen)
+		case runtime.Type_Info_Dynamic_Array:
+			h = layout_hash(v.elem, h, seen)
+		case runtime.Type_Info_Map:
+			h = layout_hash(v.key, h, seen)
+			h = layout_hash(v.value, h, seen)
+		case runtime.Type_Info_Pointer:
+			h = layout_hash(v.elem, h, seen) // nil for rawptr -> stops
+		case runtime.Type_Info_Multi_Pointer:
+			h = layout_hash(v.elem, h, seen)
+		}
+		return h
+	}
 }

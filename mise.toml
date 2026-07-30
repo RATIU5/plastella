@@ -11,7 +11,10 @@ APP_NAME = "plastella"
 HR_OUT = "build/hot_reload"
 EXE = "app-hr.bin"
 SDL_VERSION = "3.4.12"
-SDL_TTF_VERSION = "3.2.2"
+# Satellite libs to vendor, "<name>:<version>" — expands to repo SDL_<name>, tarball
+# SDL3_<name>, cmake -DSDL<NAME>_VENDORED=ON. Add one here and rerun `mise run setup`;
+# no linker flags to touch (Odin's `foreign import "system:SDL3_<name>"` emits the -l).
+SDL_SATELLITES = "ttf:3.2.2 image:3.4.4"
 SDL_DIR = "vendor/sdl3/{% if os() == 'macos' %}macos{% else %}linux{% endif %}"
 DLL_EXT = "{% if os() == 'macos' %}.dylib{% else %}.so{% endif %}"
 # find + rpath the SDL3 libs staged next to the binary; $ORIGIN stays literal — the loader resolves it
@@ -22,7 +25,9 @@ EXE_LDFLAGS = "{{ env.SDL_LDFLAGS }}{% if os() == 'macos' %} -sectcreate __TEXT 
 SDL_GLOB = "{% if os() == 'macos' %}libSDL3*.dylib{% else %}libSDL3*.so*{% endif %}"
 
 [tasks.setup]
-description = "Build the vendored SDL3 + SDL3_ttf shared libs (run once, or after a version bump)"
+description = "Build the vendored SDL3 + satellite shared libs (run once, or after a version bump)"
+# mise.toml as a source so editing SDL_SATELLITES / SDL_VERSION re-runs the vendor script
+sources = ["mise.toml"]
 outputs = ["{{ env.SDL_DIR }}/.stamp"]
 run = "bash scripts/vendor-sdl.sh"
 

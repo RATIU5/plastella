@@ -60,14 +60,14 @@ output_size :: proc(device: ^Device) -> (i32, i32, bool) {
 sdl_init :: proc() -> bool {
 
 	if !ttf.Init() {
-		fmt.eprint("Failed to initialize TTF")
+		fmt.eprintln("Failed to initialize TTF")
 		return false
 	}
 
 	FLAGS :: sdl.InitFlags{.VIDEO}
 
 	if !sdl.Init(FLAGS) {
-		fmt.eprintf("SDL Error: %s\n", sdl.GetError())
+		fmt.eprintfln("SDL Error: %s\n", sdl.GetError())
 		return false
 	}
 

@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Build SDL3 + SDL3_ttf from source into $SDL_DIR. Invoked by `mise run setup`,
-# which exports SDL_DIR, SDL_VERSION, and SDL_TTF_VERSION.
-# Idempotent: skips when the stamp exists. macOS + Linux only.
+# Build SDL3 + its satellite libs from source into $SDL_DIR. Invoked by `mise run setup`,
+# which exports SDL_DIR, SDL_VERSION, and SDL_SATELLITES ("ttf:3.2.2 image:3.4.4").
+# macOS + Linux only.
 set -euo pipefail
 
-if [ -f "$SDL_DIR/.stamp" ]; then
-  echo "SDL3 $SDL_VERSION already vendored in $SDL_DIR"
+# The stamp records what was built, so editing SDL_SATELLITES or a version rebuilds
+# rather than silently reusing a stale vendor dir.
+want="SDL3:$SDL_VERSION $SDL_SATELLITES"
+if [ -f "$SDL_DIR/.stamp" ] && [ "$(cat "$SDL_DIR/.stamp")" = "$want" ]; then
+  echo "already vendored in $SDL_DIR: $want"
   exit 0
 fi
 
@@ -30,13 +33,21 @@ vendor() {
   cmake --install "b-$name" --prefix inst
 }
 
-vendor SDL     SDL3     "$SDL_VERSION"     -DSDL_SHARED=ON -DSDL_STATIC=OFF
-# SDLTTF_VENDORED bundles freetype+harfbuzz so there are no system deps.
-vendor SDL_ttf SDL3_ttf "$SDL_TTF_VERSION" -DBUILD_SHARED_LIBS=ON -DSDLTTF_VENDORED=ON
+vendor SDL SDL3 "$SDL_VERSION" -DSDL_SHARED=ON -DSDL_STATIC=OFF
+
+# Each satellite: SDL<NAME>_VENDORED=ON bundles its own third-party deps (ttf ->
+# freetype+harfbuzz, image -> libpng/libjpeg/...) so there are no system deps.
+# tr, not ${name^^} — macOS still ships bash 3.2.
+for sat in $SDL_SATELLITES; do
+  name=${sat%%:*}
+  ver=${sat##*:}
+  upper=$(printf %s "$name" | tr '[:lower:]' '[:upper:]')
+  vendor "SDL_$name" "SDL3_$name" "$ver" -DBUILD_SHARED_LIBS=ON "-DSDL${upper}_VENDORED=ON"
+done
 
 cd ../..
 # copy shared libs (+ import libs + version symlinks) flat into the vendor dir; cp -a keeps symlinks.
 # libSDL3*.dylib / libSDL3*.so* patterns catch both SDL3 and SDL3_ttf.
 find build/.sdl/inst \( -name 'libSDL3*.so*' -o -name 'libSDL3*.dylib' \) -exec cp -a {} "$SDL_DIR/" \;
-touch "$SDL_DIR/.stamp"
-echo "vendored SDL3 $SDL_VERSION + SDL3_ttf $SDL_TTF_VERSION -> $SDL_DIR"
+printf %s "$want" > "$SDL_DIR/.stamp"
+echo "vendored $want -> $SDL_DIR"

@@ -13,7 +13,7 @@ Gfx :: struct {
 gfx_init :: proc(gfx: ^Gfx, size: [2]i32, frame: ^Frame) -> bool {
 	ctx, clay_mem := clay_init(frame)
 	if ctx == nil || clay_mem == nil {
-		fmt.eprint("failed to initialize clay")
+		fmt.eprintln("failed to initialize clay")
 		return false
 	}
 	gfx.clay_ctx = ctx
@@ -35,7 +35,7 @@ gfx_frame_begin :: proc(gfx: ^Gfx, frame: ^Frame) {
 	sdl.SetRenderDrawColor(frame.device.renderer, 0, 0, 0, 255)
 
 	clear_ok := sdl.RenderClear(frame.device.renderer)
-	if !clear_ok do fmt.eprint("failed to clear frame")
+	if !clear_ok do fmt.eprintln("failed to clear frame")
 
 	clay_frame_begin(frame)
 }
@@ -43,5 +43,5 @@ gfx_frame_begin :: proc(gfx: ^Gfx, frame: ^Frame) {
 gfx_frame_end :: proc(frame: ^Frame) {
 	clay_frame_end(frame)
 	present_ok := sdl.RenderPresent(frame.device.renderer)
-	if !present_ok do fmt.eprint("failed to present frame")
+	if !present_ok do fmt.eprintln("failed to present frame")
 }

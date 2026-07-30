@@ -42,7 +42,7 @@ clay_init :: proc(frame: ^Frame) -> (^clay.Context, [^]u8) {
 	)
 
 	if ctx == nil || trace.had_error {
-		fmt.eprint("[clay] initalization failed\n")
+		fmt.eprintln("[clay] initalization failed\n")
 		if clay_mem != nil {
 			free(clay_mem)
 		}
@@ -246,7 +246,7 @@ render_border :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.Border
 @(private = "file")
 render_text :: proc(frame: ^Frame, rect: sdl.FRect, cfg: clay.TextRenderData) {
 	assert(int(cfg.fontId) < len(frame.assets.fonts))
-	font := frame.assets.fonts[cast(assets.Font_Id)cfg.fontId]
+	font := frame.assets.fonts[cast(assets.Font_Type)cfg.fontId]
 
 	ttf.SetFontSize(font, f32(cfg.fontSize))
 
@@ -324,7 +324,7 @@ err_handler :: proc "c" (err: clay.ErrorData) {
 	when ODIN_DEBUG {
 		panic(err)
 	} else {
-		fmt.eprint(err)
+		fmt.eprintln(err)
 	}
 }
 
@@ -338,7 +338,7 @@ measure_text :: proc "c" (
 
 	frame := cast(^Frame)user_data
 
-	font := frame.assets.fonts[cast(assets.Font_Id)cfg.fontId]
+	font := frame.assets.fonts[cast(assets.Font_Type)cfg.fontId]
 	ttf.SetFontSize(font, f32(cfg.fontSize))
 
 	w, h: c.int

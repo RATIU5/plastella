@@ -8,7 +8,7 @@ import "core:fmt"
 main :: proc() {
 	device := app.app_device_create()
 	if device == nil {
-		fmt.eprintf("failed to create device")
+		fmt.eprintlnf("failed to create device")
 		return
 	}
 	app_ok := app.app_init(device)
