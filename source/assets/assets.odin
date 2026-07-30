@@ -1,17 +1,23 @@
 package assets
 
 import platform "../platform"
+import "core:fmt"
 import sdl "vendor:sdl3"
 import "vendor:sdl3/ttf"
 
 Assets :: struct {
-	fonts:    [Font_Type]^ttf.Font,
-	textures: [Texture_Type]^sdl.Texture,
+	fonts:    [Text]^ttf.Font,
+	textures: [Texture_Id]^sdl.Texture,
+	scale:    f32,
 }
 
 @(require_results)
 assets_load :: proc(a: ^Assets, device: ^platform.Device) -> bool {
-	load_fonts(a)
+	fonts_ok := load_fonts(a, device)
+	if !fonts_ok {
+		fmt.eprintln("Failed to load font assets")
+		return false
+	}
 	load_textures(a, device)
 	return true
 }

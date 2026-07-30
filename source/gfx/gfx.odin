@@ -1,6 +1,7 @@
 package gfx
 
 import clay "../../vendor/clay"
+import assets "../assets"
 import "core:fmt"
 import sdl "vendor:sdl3"
 
@@ -8,6 +9,8 @@ Gfx :: struct {
 	clay_ctx: ^clay.Context,
 	clay_mem: [^]u8,
 }
+
+#assert(len(assets.Text) <= int(max(u16)))
 
 @(require_results)
 gfx_init :: proc(gfx: ^Gfx, size: [2]i32, frame: ^Frame) -> bool {
@@ -25,9 +28,9 @@ gfx_shutdown :: proc(gfx: ^Gfx) {
 	clay_shutdown(gfx)
 }
 
-gfx_reload :: proc(mem: ^Gfx) {
+gfx_reload :: proc(mem: ^Gfx, asts: ^assets.Assets) {
 	assert(mem != nil, "Cannot reload GFX; memory is nil")
-	clay_reload(mem.clay_ctx)
+	clay_reload(mem.clay_ctx, asts)
 	// reload textures and fonts
 }
 

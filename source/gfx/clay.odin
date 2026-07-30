@@ -25,7 +25,7 @@ Clay_Trace :: struct {
 }
 
 // Exception to hidden global state: Used for dev tracing not a client-facing feature
-trace: ^Clay_Trace
+trace: Clay_Trace
 
 @(require_results)
 clay_init :: proc(frame: ^Frame) -> (^clay.Context, [^]u8) {
@@ -33,12 +33,10 @@ clay_init :: proc(frame: ^Frame) -> (^clay.Context, [^]u8) {
 	clay_mem := make([^]u8, min_size)
 	arena := clay.CreateArenaWithCapacityAndMemory(cast(c.size_t)min_size, clay_mem)
 
-	trace = new(Clay_Trace)
-
 	ctx := clay.Initialize(
 		arena,
 		{f32(frame.screen.x), f32(frame.screen.y)},
-		{handler = err_handler, userData = trace},
+		{handler = err_handler, userData = &trace},
 	)
 
 	if ctx == nil || trace.had_error {
@@ -49,14 +47,14 @@ clay_init :: proc(frame: ^Frame) -> (^clay.Context, [^]u8) {
 		return nil, nil
 	}
 
-	clay.SetMeasureTextFunction(measure_text, nil)
+	clay.SetMeasureTextFunction(measure_text, frame.assets)
 
 	return ctx, clay_mem
 }
 
-clay_reload :: proc(ctx: ^clay.Context) {
+clay_reload :: proc(ctx: ^clay.Context, asts: ^assets.Assets) {
 	clay.SetCurrentContext(ctx)
-	clay.SetMeasureTextFunction(measure_text, nil)
+	clay.SetMeasureTextFunction(measure_text, asts)
 }
 
 clay_frame_begin :: proc(frame: ^Frame) {
@@ -74,7 +72,24 @@ clay_frame_end :: proc(frame: ^Frame) {
 
 clay_shutdown :: proc(gfx: ^Gfx) {
 	free(gfx.clay_mem)
-	free(trace)
+}
+
+measure_text :: proc "c" (
+	str: clay.StringSlice,
+	cfg: ^clay.TextElementConfig,
+	user_data: rawptr,
+) -> clay.Dimensions {
+	context = runtime.default_context()
+	a := cast(^assets.Assets)user_data
+	assert(int(cfg.fontId) < len(a.fonts))
+	font := a.fonts[assets.Text(cfg.fontId)]
+
+	w, h: c.int
+	if !ttf.GetStringSize(font, (cstring)(str.chars), uint(str.length), &w, &h) {
+		sdl.LogError(i32(sdl.LogCategory.ERROR), "Failed to measure text: %s", sdl.GetError())
+	}
+
+	return {f32(w) / a.scale, f32(h) / a.scale}
 }
 
 clay_render_commands :: proc(commands: ^clay.ClayArray(clay.RenderCommand), frame: ^Frame) {
@@ -246,9 +261,10 @@ render_border :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.Border
 @(private = "file")
 render_text :: proc(frame: ^Frame, rect: sdl.FRect, cfg: clay.TextRenderData) {
 	assert(int(cfg.fontId) < len(frame.assets.fonts))
-	font := frame.assets.fonts[cast(assets.Font_Type)cfg.fontId]
+	font := frame.assets.fonts[assets.Text(cfg.fontId)]
 
-	ttf.SetFontSize(font, f32(cfg.fontSize))
+	d := frame.assets.scale
+	sdl.SetRenderScale(frame.device.renderer, 1, 1) // Set render scale for this text
 
 	chars := cast(cstring)cfg.stringContents.chars
 	text := ttf.CreateText(
@@ -261,7 +277,9 @@ render_text :: proc(frame: ^Frame, rect: sdl.FRect, cfg: clay.TextRenderData) {
 
 	col := color_u8(cfg.textColor)
 	ttf.SetTextColor(text, col.r, col.g, col.b, col.a)
-	ttf.DrawRendererText(text, rect.x, rect.y)
+	ttf.DrawRendererText(text, rect.x * d, rect.y * d)
+
+	sdl.SetRenderScale(frame.device.renderer, d, d) // Unset render scale for new renders
 }
 
 @(private = "file")
@@ -316,9 +334,9 @@ err_handler :: proc "c" (err: clay.ErrorData) {
 		"[clay] %v: %s			phase=%s at %s:%d\n",
 		err.errorType,
 		msg,
-		trace.phase if trace != nil else "?",
-		trace.file if trace != nil else "?",
-		trace.line if trace != nil else 0,
+		trace.phase,
+		trace.file,
+		trace.line,
 	)
 
 	when ODIN_DEBUG {
@@ -328,27 +346,6 @@ err_handler :: proc "c" (err: clay.ErrorData) {
 	}
 }
 
-@(private = "file")
-measure_text :: proc "c" (
-	str: clay.StringSlice,
-	cfg: ^clay.TextElementConfig,
-	user_data: rawptr,
-) -> clay.Dimensions {
-	context = runtime.default_context()
-
-	frame := cast(^Frame)user_data
-
-	font := frame.assets.fonts[cast(assets.Font_Type)cfg.fontId]
-	ttf.SetFontSize(font, f32(cfg.fontSize))
-
-	w, h: c.int
-
-	if !ttf.GetStringSize(font, (cstring)(str.chars), uint(str.length), &w, &h) {
-		sdl.LogError(i32(sdl.LogCategory.ERROR), "Failed to measure text: %s", sdl.GetError())
-	}
-
-	return {f32(w), f32(h)}
-}
 
 // Keep SDL texture package loaded for texture rendering
 _ :: img.LoadTexture

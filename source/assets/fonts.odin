@@ -1,35 +1,63 @@
 package assets
 
+import platform "../platform"
 import "core:fmt"
 import sdl "vendor:sdl3"
 import ttf "vendor:sdl3/ttf"
 
-FONT_SIZE_BASE :: 14
-
-Font_Type :: enum u8 {
+Font_Face :: enum u8 {
 	Body_Med,
 	Body_Med_Italic,
 	Body_Bold,
 	Body_Bold_Italic,
 }
 
-Font_Paths :: [Font_Type]cstring {
+Font :: struct {
+	face: Font_Face,
+	size: f32,
+}
+
+Text_Style :: struct {
+	face:           Font_Face,
+	size:           u16,
+	line_height:    u16,
+	letter_spacing: u16,
+}
+
+Text :: enum u8 {
+	UI_REG_14,
+	UI_REG_13,
+	UI_BLD_13,
+	UI_ICN_18,
+}
+
+@(rodata)
+text_styles := [Text]Text_Style {
+	.UI_REG_14 = {.Body_Med, 14, 14, 0},
+	.UI_REG_13 = {.Body_Med, 13, 13, 0},
+	.UI_BLD_13 = {.Body_Bold, 13, 13, 0},
+	.UI_ICN_18 = {.Body_Med, 18, 18, 0},
+}
+
+@(rodata)
+font_paths := [Font_Face]cstring {
 	.Body_Med         = "resources/fonts/Inter-Medium.ttf",
 	.Body_Med_Italic  = "resources/fonts/Inter-MediumItalic.ttf",
 	.Body_Bold        = "resources/fonts/Inter-Bold.ttf",
 	.Body_Bold_Italic = "resources/fonts/Inter-BoldItalic.ttf",
 }
 
-load_fonts :: proc(a: ^Assets) -> bool {
-	#assert(len(Font_Type) <= int(max(u16)))
-	for path, id in Font_Paths {
-		a.fonts[id] = ttf.OpenFont(path, FONT_SIZE_BASE)
+@(require_results)
+load_fonts :: proc(a: ^Assets, device: ^platform.Device) -> bool {
+	for style, id in text_styles {
+		a.fonts[id] = ttf.OpenFont(font_paths[style.face], f32(style.size) * device.scale)
 		if a.fonts[id] == nil {
-			fmt.eprintfln("failed to open %s: %s", path, sdl.GetError())
+			fmt.eprintfln("failed to open %s: %s", font_paths[style.face], sdl.GetError())
 			unload_fonts(a)
 			return false
 		}
 	}
+	a.scale = device.scale
 	return true
 }
 

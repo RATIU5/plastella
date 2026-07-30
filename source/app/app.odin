@@ -1,6 +1,7 @@
 package app
 
 import assets "../assets"
+import editor "../editor"
 import gfx "../gfx"
 import platform "../platform"
 import "base:runtime"
@@ -16,6 +17,7 @@ App_Flag :: enum u8 {
 	Should_Shutdown,
 	Should_Restart,
 	Should_Reload,
+	Should_Reload_Assets,
 }
 App_Flags :: distinct bit_set[App_Flag;u8]
 
@@ -59,6 +61,12 @@ app_init :: proc(device: ^platform.Device) -> bool {
 		return false
 	}
 
+	editor_ok := editor.editor_init()
+	if !editor_ok {
+		fmt.eprintln("Failed to initialize the editor")
+		return false
+	}
+
 	app.time_prev_ns = sdl.GetTicksNS()
 
 	return true
@@ -68,6 +76,11 @@ app_init :: proc(device: ^platform.Device) -> bool {
 app_update :: proc(device: ^platform.Device) {
 	when ODIN_DEBUG {
 		app.flags -= {.Should_Reload, .Should_Restart}
+		if .Should_Reload_Assets in app.flags {
+			app.flags -= {.Should_Reload_Assets}
+			assets.assets_unload(&app.assets)
+			if !assets.assets_load(&app.assets, device) do app.flags += {.Should_Shutdown}
+		}
 	}
 
 	// Delta time computation
@@ -101,13 +114,14 @@ app_update :: proc(device: ^platform.Device) {
 	}
 
 	gfx.gfx_frame_begin(&app.gfx, &frame)
-	// draw UI
+	editor.editor_frame(&frame)
 	gfx.gfx_frame_end(&frame)
 }
 
 @(export)
 app_shutdown :: proc() {
 	if app == nil do return
+	editor.editor_shutdown()
 	gfx.gfx_shutdown(&app.gfx)
 	assets.assets_unload(&app.assets)
 	free(app)
@@ -122,6 +136,8 @@ app_memory :: proc() -> rawptr {
 @(export)
 app_hot_reloaded :: proc(m: rawptr) {
 	app = (^App)(m)
+	gfx.gfx_reload(&app.gfx, &app.assets)
+	app.flags += {.Should_Reload_Assets}
 }
 
 @(export)
@@ -162,7 +178,8 @@ when ODIN_DEBUG {
 	app_memory_layout_hash :: proc() -> u64 {
 		FNV_OFFSET :: u64(1469598103934665603)
 		seen := make(map[typeid]bool, 64, context.temp_allocator) // host will free each loop
-		return layout_hash(type_info_of(App), FNV_OFFSET, &seen)
+		h := layout_hash(type_info_of(App), FNV_OFFSET, &seen)
+		return layout_hash(type_info_of(platform.Device), h, &seen)
 	}
 
 	layout_hash :: proc(ti: ^runtime.Type_Info, seed: u64, seen: ^map[typeid]bool) -> u64 {

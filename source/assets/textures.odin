@@ -5,11 +5,11 @@ import "core:fmt"
 import sdl "vendor:sdl3"
 import img "vendor:sdl3/image"
 
-Texture_Type :: enum u8 {
+Texture_Id :: enum u8 {
 	Icons,
 }
 
-Texture_Paths :: [Texture_Type]cstring {
+Texture_Paths :: [Texture_Id]cstring {
 	.Icons = "resources/textures/ui_icons.png",
 }
 

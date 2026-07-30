@@ -9,6 +9,7 @@ Device :: struct {
 	window:      ^sdl.Window,
 	renderer:    ^sdl.Renderer,
 	text_engine: ^ttf.TextEngine,
+	scale:       f32,
 }
 
 @(require_results)
@@ -26,6 +27,16 @@ device_create :: proc(device: ^Device) -> bool {
 
 	renderer := sdl.CreateRenderer(window, nil)
 	if renderer == nil do return false
+
+	d := sdl.GetWindowPixelDensity(window)
+	sdl.SetRenderScale(renderer, d, d)
+	device.scale = d
+
+	ow, oh: i32
+	sdl.GetRenderOutputSize(renderer, &ow, &oh)
+	ww, wh: i32
+	sdl.GetWindowSize(window, &ww, &wh)
+	fmt.eprintfln("density=%.2f window=%dx%d output=%dx%d", d, ww, wh, ow, oh)
 
 	text_engine := ttf.CreateRendererTextEngine(renderer)
 	if text_engine == nil do return false
@@ -51,9 +62,9 @@ device_destroy :: proc(device: ^Device) {
 
 @(require_results)
 output_size :: proc(device: ^Device) -> (i32, i32, bool) {
-	temp_w, temp_h: i32
-	size_ok := sdl.GetRenderOutputSize(device.renderer, &temp_w, &temp_h)
-	return temp_w, temp_h, size_ok
+	w, h: i32
+	ok := sdl.GetWindowSize(device.window, &w, &h)
+	return w, h, ok
 }
 
 @(private = "file", require_results)
