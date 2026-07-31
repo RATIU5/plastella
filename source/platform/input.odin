@@ -105,11 +105,14 @@ input_event_process :: proc(inp: ^Input, ev: ^sdl.Event) {
 			inp.keys_released[i] = true
 		}
 	case .TEXT_INPUT:
-		src := cast([^]u8)ev.text.text
-		for i := 0; src[i] != 0 && inp.text.utf8_len < len(inp.text.utf8); i += 1 {
-			inp.text.utf8[inp.text.utf8_len] = src[i]
-			inp.text.utf8_len += 1
+		text := string(ev.text.text) // SDL3 guarantees valid UTF-8
+		if len(text) == 0 do break
+		if inp.text.utf8_len + len(text) > len(inp.text.utf8) {
+			inp.text.dropped += 1
+			break
 		}
+		copy(inp.text.utf8[inp.text.utf8_len:], text)
+		inp.text.utf8_len += len(text)
 	}
 }
 
@@ -141,11 +144,6 @@ mouse_pressed :: proc(inp: ^Input, b: Mouse_Button) -> bool {
 @(require_results)
 mouse_released :: proc(inp: ^Input, b: Mouse_Button) -> bool {
 	return b in inp.btns_released
-}
-
-mouse_scroll :: proc(inp: ^Input) -> [2]f32 {
-
-	return {}
 }
 
 @(private = "file")

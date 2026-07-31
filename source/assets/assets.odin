@@ -18,7 +18,11 @@ assets_load :: proc(a: ^Assets, device: ^platform.Device) -> bool {
 		fmt.eprintln("Failed to load font assets")
 		return false
 	}
-	load_textures(a, device)
+	tex_ok := load_textures(a, device)
+	if !tex_ok {
+		fmt.eprintln("Failed to load texture assets")
+		return false
+	}
 	return true
 }
 

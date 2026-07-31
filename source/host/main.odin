@@ -47,11 +47,13 @@ main :: proc() {
 
 	version := 0
 	api, ok := load_api(version)
-	assert(ok, "could not load the app library")
+	if !ok {
+		fmt.eprintln("Failed to load API properly, see above")
+	}
 
 	device := api.device_create()
 	if device == nil {
-		fmt.printf("Failed to create device")
+		fmt.eprintln("Failed to create device")
 		return
 	}
 
@@ -82,26 +84,35 @@ main :: proc() {
 load_api :: proc(version: int) -> (api: App_API, ok: bool) {
 	mod, mod_err := os.last_write_time_by_name(DLL)
 	if mod_err != nil {
-		fmt.eprintln("cannot stat", DLL, mod_err); return
+		fmt.eprintln("Cannot stat", DLL, mod_err)
+		return
 	}
 
 	copy_name := fmt.tprintf("./%s_%d%s", APP_NAME, version, DLL_EXT)
 	data, read_err := os.read_entire_file(DLL, context.allocator)
-	if read_err != nil do return
+	if read_err != nil {
+		fmt.eprintfln("Failed to read %s: %v", DLL, read_err)
+		return
+	}
 	defer delete(data)
-	if os.write_entire_file(copy_name, data) != nil do return
+	if err := os.write_entire_file(copy_name, data); err != nil {
+		fmt.eprintfln("Failed to copy %s: %v", copy_name, err)
+		return
+	}
 
 	count, syms_ok := dynlib.initialize_symbols(&api, copy_name, "app_", "lib")
 	if !syms_ok || count == 0 {
 		os.remove(copy_name)
+		fmt.eprintln("Failed to initialize API symbols for 'app_'")
 		return
 	}
 	if !api_complete(api) {
-		fmt.eprintln("dll missing exports — stale or misnamed build?")
+		fmt.eprintln("DLL missing exports; stale or misnamed build?")
 		if api.lib != nil do dynlib.unload_library(api.lib)
 		os.remove(copy_name)
 		return
 	}
+
 	api.version = version
 	api.mod_time = mod
 	return api, true

@@ -32,6 +32,7 @@ App :: struct {
 	editor_input:       platform.Input,
 	assets:             assets.Assets,
 	gfx:                gfx.Gfx,
+	editor:             editor.Editor,
 	// ui:           ui.State,
 }
 app: ^App
@@ -59,13 +60,13 @@ app_init :: proc(device: ^platform.Device) -> bool {
 		screen = {f32(w), f32(h)},
 		dt     = app.dt,
 	}
-	gfx_ok := gfx.gfx_init(&app.gfx, {w, h}, &frame)
+	gfx_ok := gfx.gfx_init(&app.gfx, &frame)
 	if !gfx_ok {
 		fmt.eprintln("Failed to initialize gfx")
 		return false
 	}
 
-	editor_ok := editor.editor_init()
+	editor_ok := editor.editor_init(&app.editor)
 	if !editor_ok {
 		fmt.eprintln("Failed to initialize the editor")
 		return false
@@ -85,6 +86,7 @@ app_update :: proc(device: ^platform.Device) {
 			assets.assets_unload(&app.assets)
 			if !assets.assets_load(&app.assets, device) do app.flags += {.Should_Shutdown}
 		}
+		fmt.println(runtime.global_default_temp_allocator_data.arena.temp_count)
 	}
 
 	// Delta time computation
@@ -122,8 +124,8 @@ app_update :: proc(device: ^platform.Device) {
 			dt     = EDITOR_FRAME_DT,
 		}
 
-		gfx.gfx_frame_begin(&app.gfx, &frame)
-		editor.editor_frame(&frame)
+		gfx.gfx_frame_begin(&frame)
+		editor.editor_frame(&app.editor, &frame)
 		platform.input_frame_begin(&app.editor_input)
 		gfx.gfx_frame_end(&frame)
 
@@ -139,7 +141,7 @@ app_update :: proc(device: ^platform.Device) {
 @(export)
 app_shutdown :: proc() {
 	if app == nil do return
-	editor.editor_shutdown()
+	editor.editor_shutdown(&app.editor)
 	gfx.gfx_shutdown(&app.gfx)
 	assets.assets_unload(&app.assets)
 	free(app)

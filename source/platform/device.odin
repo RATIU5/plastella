@@ -23,10 +23,16 @@ device_create :: proc(device: ^Device) -> bool {
 		.HIDDEN,
 	}
 	window := sdl.CreateWindow(conf.WINDOW_TITLE, conf.WINDOW_WIDTH, conf.WINDOW_HEIGHT, FLAGS)
-	if window == nil do return false
+	if window == nil {
+		device_destroy(device)
+		return false
+	}
 
 	renderer := sdl.CreateRenderer(window, nil)
-	if renderer == nil do return false
+	if renderer == nil {
+		device_destroy(device)
+		return false
+	}
 
 	sdl.SetRenderVSync(renderer, 1)
 
@@ -34,13 +40,11 @@ device_create :: proc(device: ^Device) -> bool {
 	sdl.SetRenderScale(renderer, d, d)
 	device.scale = d
 
-	ow, oh: i32
-	sdl.GetRenderOutputSize(renderer, &ow, &oh)
-	ww, wh: i32
-	sdl.GetWindowSize(window, &ww, &wh)
-
 	text_engine := ttf.CreateRendererTextEngine(renderer)
-	if text_engine == nil do return false
+	if text_engine == nil {
+		device_destroy(device)
+		return false
+	}
 
 	// Configure & show window AFTER setting up renderer and text engine
 	window_configure(window)
@@ -54,10 +58,11 @@ device_create :: proc(device: ^Device) -> bool {
 
 device_destroy :: proc(device: ^Device) {
 	if device != nil {
-		sdl.DestroyRenderer(device.renderer)
-		sdl.DestroyWindow(device.window)
-		sdl.Quit()
+		if device.renderer != nil do sdl.DestroyRenderer(device.renderer)
+		if device.window != nil do sdl.DestroyWindow(device.window)
+		if device.text_engine != nil do ttf.DestroyRendererTextEngine(device.text_engine)
 		ttf.Quit()
+		sdl.Quit()
 	}
 }
 

@@ -17,15 +17,9 @@ ARC_SEGMENTS_MAX :: 32
 VERTS_MAX :: 12 + 8 * SEGMENTS_MAX
 INDICES_MAX :: 30 + 12 * SEGMENTS_MAX
 
-Clay_Trace :: struct {
-	phase:     string,
-	file:      string,
-	line:      int,
-	had_error: bool,
-}
-
 // Exception to hidden global state: Used for dev tracing not a client-facing feature
-trace: Clay_Trace
+@(private = "file")
+had_error: bool
 
 @(require_results)
 clay_init :: proc(frame: ^Frame) -> (^clay.Context, [^]u8) {
@@ -36,10 +30,10 @@ clay_init :: proc(frame: ^Frame) -> (^clay.Context, [^]u8) {
 	ctx := clay.Initialize(
 		arena,
 		{f32(frame.screen.x), f32(frame.screen.y)},
-		{handler = err_handler, userData = &trace},
+		{handler = err_handler, userData = &had_error},
 	)
 
-	if ctx == nil || trace.had_error {
+	if ctx == nil || had_error {
 		fmt.eprintln("[clay] initalization failed\n")
 		if clay_mem != nil {
 			free(clay_mem)
@@ -58,7 +52,7 @@ clay_reload :: proc(ctx: ^clay.Context, asts: ^assets.Assets) {
 }
 
 clay_frame_begin :: proc(frame: ^Frame) {
-	trace.had_error = false
+	had_error = false
 	clay.SetLayoutDimensions({width = frame.screen.x, height = frame.screen.y})
 	clay.SetPointerState(frame.input.mouse.pos, platform.mouse_pressed(frame.input, .Left))
 	clay.UpdateScrollContainers(true, frame.input.mouse.wheel, frame.dt)
@@ -164,7 +158,7 @@ fill_rounded_rect :: proc(
 		{rect.x + rr, rect.y + rr, -1, -1}, // top-left, center vertex 0
 		{rect.x + rect.w - rr, rect.y + rr, 1, -1}, // top-right, center vertex 1
 		{rect.x + rect.w - rr, rect.y + rect.h - rr, 1, 1}, // bot-right, center vertex 2
-		{rect.x - rr, rect.y + rect.h - rr, -1, 1}, // bot-left, center vertex 3
+		{rect.x + rr, rect.y + rect.h - rr, -1, 1}, // bot-left, center vertex 3
 	}
 
 
@@ -209,8 +203,6 @@ fill_rounded_rect :: proc(
 		ic += 6
 	}
 
-	assert(vc <= VERTS_MAX)
-	assert(ic <= INDICES_MAX)
 	sdl.RenderGeometry(
 		renderer,
 		nil,
@@ -326,18 +318,10 @@ color_u8 :: proc "contextless" (col: clay.Color) -> [4]u8 {
 @(private = "file")
 err_handler :: proc "c" (err: clay.ErrorData) {
 	context = runtime.default_context()
-	trace.had_error = true
+	had_error = true
 
 	msg := cast(string)(err.errorText.chars)[:err.errorText.length]
-
-	err := fmt.tprintf(
-		"[clay] %v: %s			phase=%s at %s:%d\n",
-		err.errorType,
-		msg,
-		trace.phase,
-		trace.file,
-		trace.line,
-	)
+	err := fmt.tprintf("[clay] %v: %s\n", err.errorType, msg)
 
 	when ODIN_DEBUG {
 		panic(err)

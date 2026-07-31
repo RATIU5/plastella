@@ -3,16 +3,19 @@ package editor
 import clay "../../vendor/clay"
 import gfx "../gfx"
 
+Editor :: struct {}
+
 @(require_results)
-editor_init :: proc() -> bool {
+editor_init :: proc(editor: ^Editor) -> bool {
 	return true
 }
 
-editor_shutdown :: proc() {
-
+editor_shutdown :: proc(editor: ^Editor) {
+	free(editor)
+	editor^ = {}
 }
 
-editor_frame :: proc(frame: ^gfx.Frame) {
+editor_frame :: proc(editor: ^Editor, frame: ^gfx.Frame) {
 	if clay.UI(clay.ID("editor"))(
 	{
 		layout = {

@@ -12,11 +12,6 @@ Font_Face :: enum u8 {
 	Body_Bold_Italic,
 }
 
-Font :: struct {
-	face: Font_Face,
-	size: f32,
-}
-
 Text_Style :: struct {
 	face:           Font_Face,
 	size:           u16,

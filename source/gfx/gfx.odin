@@ -13,7 +13,7 @@ Gfx :: struct {
 #assert(len(assets.Text) <= int(max(u16)))
 
 @(require_results)
-gfx_init :: proc(gfx: ^Gfx, size: [2]i32, frame: ^Frame) -> bool {
+gfx_init :: proc(gfx: ^Gfx, frame: ^Frame) -> bool {
 	ctx, clay_mem := clay_init(frame)
 	if ctx == nil || clay_mem == nil {
 		fmt.eprintln("failed to initialize clay")
@@ -31,10 +31,9 @@ gfx_shutdown :: proc(gfx: ^Gfx) {
 gfx_reload :: proc(mem: ^Gfx, asts: ^assets.Assets) {
 	assert(mem != nil, "Cannot reload GFX; memory is nil")
 	clay_reload(mem.clay_ctx, asts)
-	// reload textures and fonts
 }
 
-gfx_frame_begin :: proc(gfx: ^Gfx, frame: ^Frame) {
+gfx_frame_begin :: proc(frame: ^Frame) {
 	sdl.SetRenderDrawColor(frame.device.renderer, 0, 0, 0, 255)
 
 	clear_ok := sdl.RenderClear(frame.device.renderer)
