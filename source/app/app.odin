@@ -8,6 +8,8 @@ import "base:runtime"
 import "core:fmt"
 import sdl "vendor:sdl3"
 
+APP_FRAME_NS :: u64(1_000_000_000 / 60)
+EDITOR_FRAME_DT :: f32(1.0 / 30.0)
 
 // Define unused var to access runtime, it will only be loaded in ODIN_DEBUG mode
 @(private)
@@ -22,12 +24,14 @@ App_Flag :: enum u8 {
 App_Flags :: distinct bit_set[App_Flag;u8]
 
 App :: struct {
-	time_prev_ns: u64,
-	dt:           f32,
-	flags:        App_Flags,
-	input:        platform.Input,
-	assets:       assets.Assets,
-	gfx:          gfx.Gfx,
+	time_prev_ns:       u64,
+	editor_accumulator: f32,
+	dt:                 f32,
+	flags:              App_Flags,
+	input:              platform.Input,
+	editor_input:       platform.Input,
+	assets:             assets.Assets,
+	gfx:                gfx.Gfx,
 	// ui:           ui.State,
 }
 app: ^App
@@ -93,6 +97,7 @@ app_update :: proc(device: ^platform.Device) {
 	event: sdl.Event
 	poll: for sdl.PollEvent(&event) {
 		platform.input_event_process(&app.input, &event)
+		platform.input_event_process(&app.editor_input, &event)
 	}
 	if app.input.quit do app.flags += {.Should_Shutdown}
 	when ODIN_DEBUG {
@@ -105,17 +110,30 @@ app_update :: proc(device: ^platform.Device) {
 		fmt.eprintln("Failed to compute output size on device; defaulting to 0x0")
 		w, h = 0, 0
 	}
-	frame := gfx.Frame {
-		device = device,
-		assets = &app.assets,
-		input  = &app.input,
-		screen = {f32(w), f32(h)},
-		dt     = app.dt,
+
+	app.editor_accumulator += app.dt
+
+	if app.editor_accumulator >= EDITOR_FRAME_DT {
+		frame := gfx.Frame {
+			device = device,
+			assets = &app.assets,
+			input  = &app.editor_input,
+			screen = {f32(w), f32(h)},
+			dt     = EDITOR_FRAME_DT,
+		}
+
+		gfx.gfx_frame_begin(&app.gfx, &frame)
+		editor.editor_frame(&frame)
+		platform.input_frame_begin(&app.editor_input)
+		gfx.gfx_frame_end(&frame)
+
+		if app.editor_accumulator > EDITOR_FRAME_DT * 2 do app.editor_accumulator = EDITOR_FRAME_DT
 	}
 
-	gfx.gfx_frame_begin(&app.gfx, &frame)
-	editor.editor_frame(&frame)
-	gfx.gfx_frame_end(&frame)
+	elapsed_ns := sdl.GetTicksNS() - now_ns
+	if elapsed_ns < APP_FRAME_NS {
+		sdl.DelayPrecise(APP_FRAME_NS - elapsed_ns)
+	}
 }
 
 @(export)

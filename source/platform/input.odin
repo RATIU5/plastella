@@ -32,32 +32,33 @@ Text_Input :: struct {
 
 Input :: struct {
 	// Mouse
-	mouse:     Mouse_Input,
-	btns_curr: bit_set[Mouse_Button],
-	btns_prev: bit_set[Mouse_Button],
+	mouse:         Mouse_Input,
+	btns_curr:     bit_set[Mouse_Button],
+	btns_pressed:  bit_set[Mouse_Button],
+	btns_released: bit_set[Mouse_Button],
 
 	// Keyboard
-	keys_curr: [KEY_COUNT]bool,
-	keys_prev: [KEY_COUNT]bool,
-	text:      Text_Input,
+	keys_curr:     [KEY_COUNT]bool,
+	keys_pressed:  [KEY_COUNT]bool,
+	keys_released: [KEY_COUNT]bool,
+	text:          Text_Input,
 
 	// Other
-	quit:      bool,
+	quit:          bool,
 }
 
 input_frame_begin :: proc(inp: ^Input) {
-	// Mouse state reset
-	inp.btns_prev = inp.btns_curr
 	inp.mouse.delta = {}
 	inp.mouse.wheel = {}
 
-	// Keyboard state reset
-	inp.keys_prev = inp.keys_curr
+	inp.btns_pressed = {}
+	inp.btns_released = {}
+	inp.keys_pressed = {}
+	inp.keys_released = {}
+
 	inp.text.utf8_len = 0
 	inp.text.presses_len = 0
 	inp.text.dropped = 0
-
-	// Quit state reset (might not be needed)
 	inp.quit = false
 }
 
@@ -72,14 +73,24 @@ input_event_process :: proc(inp: ^Input, ev: ^sdl.Event) {
 		inp.mouse.wheel += {ev.wheel.x, ev.wheel.y}
 	case .MOUSE_BUTTON_DOWN:
 		if b, ok := mouse_button_from_sdl(ev.button.button); ok {
-			inp.btns_curr += {b}
+			if b not_in inp.btns_curr {
+				inp.btns_curr += {b}
+				inp.btns_pressed += {b}
+			}
 		}
 	case .MOUSE_BUTTON_UP:
 		if b, ok := mouse_button_from_sdl(ev.button.button); ok {
-			inp.btns_curr -= {b}
+			if b in inp.btns_curr {
+				inp.btns_curr -= {b}
+				inp.btns_released += {b}
+			}
 		}
 	case .KEY_DOWN:
-		inp.keys_curr[int(ev.key.scancode)] = true
+		i := int(ev.key.scancode)
+		if !inp.keys_curr[i] {
+			inp.keys_curr[i] = true
+			inp.keys_pressed[i] = true
+		}
 
 		if inp.text.presses_len < len(inp.text.presses) {
 			inp.text.presses[inp.text.presses_len] = {ev.key.key, ev.key.mod}
@@ -88,7 +99,11 @@ input_event_process :: proc(inp: ^Input, ev: ^sdl.Event) {
 			inp.text.dropped += 1
 		}
 	case .KEY_UP:
-		inp.keys_curr[int(ev.key.scancode)] = false
+		i := int(ev.key.scancode)
+		if inp.keys_curr[i] {
+			inp.keys_curr[i] = false
+			inp.keys_released[i] = true
+		}
 	case .TEXT_INPUT:
 		src := cast([^]u8)ev.text.text
 		for i := 0; src[i] != 0 && inp.text.utf8_len < len(inp.text.utf8); i += 1 {
@@ -105,12 +120,12 @@ key_down :: proc(inp: ^Input, sc: sdl.Scancode) -> bool {
 
 @(require_results)
 key_pressed :: proc(inp: ^Input, sc: sdl.Scancode) -> bool {
-	return inp.keys_curr[int(sc)] && !inp.keys_prev[int(sc)]
+	return inp.keys_pressed[int(sc)]
 }
 
 @(require_results)
 key_released :: proc(inp: ^Input, sc: sdl.Scancode) -> bool {
-	return !inp.keys_curr[int(sc)] && inp.keys_prev[int(sc)]
+	return inp.keys_released[int(sc)]
 }
 
 @(require_results)
@@ -120,12 +135,12 @@ mouse_down :: proc(inp: ^Input, b: Mouse_Button) -> bool {
 
 @(require_results)
 mouse_pressed :: proc(inp: ^Input, b: Mouse_Button) -> bool {
-	return b in inp.btns_curr && b not_in inp.btns_prev
+	return b in inp.btns_pressed
 }
 
 @(require_results)
 mouse_released :: proc(inp: ^Input, b: Mouse_Button) -> bool {
-	return b not_in inp.btns_curr && b in inp.btns_prev
+	return b in inp.btns_released
 }
 
 mouse_scroll :: proc(inp: ^Input) -> [2]f32 {

@@ -28,6 +28,8 @@ device_create :: proc(device: ^Device) -> bool {
 	renderer := sdl.CreateRenderer(window, nil)
 	if renderer == nil do return false
 
+	sdl.SetRenderVSync(renderer, 1)
+
 	d := sdl.GetWindowPixelDensity(window)
 	sdl.SetRenderScale(renderer, d, d)
 	device.scale = d
@@ -36,7 +38,6 @@ device_create :: proc(device: ^Device) -> bool {
 	sdl.GetRenderOutputSize(renderer, &ow, &oh)
 	ww, wh: i32
 	sdl.GetWindowSize(window, &ww, &wh)
-	fmt.eprintfln("density=%.2f window=%dx%d output=%dx%d", d, ww, wh, ow, oh)
 
 	text_engine := ttf.CreateRendererTextEngine(renderer)
 	if text_engine == nil do return false
