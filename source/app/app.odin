@@ -8,8 +8,16 @@ import "base:runtime"
 import "core:fmt"
 import sdl "vendor:sdl3"
 
-APP_FRAME_NS :: u64(1_000_000_000 / 60)
-EDITOR_FRAME_DT :: f32(1.0 / 30.0)
+// Frames owed after last input. Clay uses several frames for hover/scroll, one event
+// needs a short burst of frames over exactly one.
+FRAMES_AFTER_INPUT :: 3
+
+// Idle wake cap. Used to ensure wake never leaves window frozen & room for slow work (cursor blink)
+IDLE_TIMEOUT_MS :: 100
+
+// Longest dt any consumer sees. Event driven means the gap since last draw frame is unbounded;
+// scroll animation must not integrate across an idle period.
+DT_MAX: f32 : 1.0 / 15.0
 
 // Define unused var to access runtime, it will only be loaded in ODIN_DEBUG mode
 @(private)
@@ -20,19 +28,19 @@ App_Flag :: enum u8 {
 	Should_Restart,
 	Should_Reload,
 	Should_Reload_Assets,
+	Should_Reload_Clay,
 }
 App_Flags :: distinct bit_set[App_Flag;u8]
 
 App :: struct {
-	time_prev_ns:       u64,
-	editor_accumulator: f32,
-	dt:                 f32,
-	flags:              App_Flags,
-	input:              platform.Input,
-	editor_input:       platform.Input,
-	assets:             assets.Assets,
-	gfx:                gfx.Gfx,
-	editor:             editor.Editor,
+	time_prev_ns: u64,
+	dt:           f32,
+	frames_owed:  int,
+	flags:        App_Flags,
+	input:        platform.Input,
+	assets:       assets.Assets,
+	gfx:          gfx.Gfx,
+	editor:       editor.Editor,
 	// ui:           ui.State,
 }
 app: ^App
@@ -41,7 +49,7 @@ app: ^App
 app_init :: proc(device: ^platform.Device) -> bool {
 	app = new(App, context.allocator)
 
-	w, h, size_ok := platform.output_size(device)
+	w, h, size_ok := platform.window_size(device)
 	if !size_ok {
 		fmt.eprintln("Failed to compute output size on device")
 		return false
@@ -54,6 +62,7 @@ app_init :: proc(device: ^platform.Device) -> bool {
 	}
 
 	frame := gfx.Frame {
+		gfx    = &app.gfx,
 		device = device,
 		assets = &app.assets,
 		input  = &app.input,
@@ -81,61 +90,71 @@ app_init :: proc(device: ^platform.Device) -> bool {
 app_update :: proc(device: ^platform.Device) {
 	when ODIN_DEBUG {
 		app.flags -= {.Should_Reload, .Should_Restart}
-		if .Should_Reload_Assets in app.flags {
-			app.flags -= {.Should_Reload_Assets}
-			assets.assets_unload(&app.assets)
-			if !assets.assets_load(&app.assets, device) do app.flags += {.Should_Shutdown}
-		}
-		fmt.println(runtime.global_default_temp_allocator_data.arena.temp_count)
 	}
 
-	// Delta time computation
-	now_ns := sdl.GetTicksNS()
-	app.dt = f32(now_ns - app.time_prev_ns) / 1_000_000_000.0 // ns -> secs
-	app.time_prev_ns = now_ns
-
-	// Process inputs
 	platform.input_frame_begin(&app.input)
+
+	// Block until event, on mid-burst we poll (timeout 0) so burst runs at display rate;
+	// idle we sleep and wake at most 10 times a second.
+	timeout := i32(0) if app.frames_owed > 0 else i32(IDLE_TIMEOUT_MS)
+
 	event: sdl.Event
-	poll: for sdl.PollEvent(&event) {
+	if sdl.WaitEventTimeout(&event, timeout) {
 		platform.input_event_process(&app.input, &event)
-		platform.input_event_process(&app.editor_input, &event)
+		// Drain queue in frame: act in bulk  to never react in mid-render.
+		for sdl.PollEvent(&event) {
+			platform.input_event_process(&app.input, &event)
+		}
+		app.frames_owed = FRAMES_AFTER_INPUT
 	}
+
+	if app.input.scale_changed {
+		if !platform.device_refresh_scale(device) {
+			fmt.eprintln("Failed to refresh device scale")
+		}
+		// Reload assets, as fonts rely on scale
+		app.flags += {.Should_Reload_Assets}
+	}
+
 	if app.input.quit do app.flags += {.Should_Shutdown}
 	when ODIN_DEBUG {
 		if platform.key_pressed(&app.input, .F5) do app.flags += {.Should_Reload}
 		if platform.key_pressed(&app.input, .F6) do app.flags += {.Should_Restart}
 	}
 
-	w, h, size_ok := platform.output_size(device)
+	// A reload changes the code == stale screen; must reload
+
+	if app.flags & {.Should_Reload_Assets, .Should_Reload_Clay} != {} {
+		if !app_reload_subsystems(device) do app.flags += {.Should_Shutdown}
+		app.frames_owed = FRAMES_AFTER_INPUT
+	}
+
+	// No change or owes: don't touch GPU.
+	if app.frames_owed == 0 do return
+	app.frames_owed -= 1
+
+	now_ns := sdl.GetTicksNS()
+	app.dt = min(f32(now_ns - app.time_prev_ns) / 1_000_000_000.0, DT_MAX)
+	app.time_prev_ns = now_ns
+
+	w, h, size_ok := platform.window_size(device)
 	if !size_ok {
 		fmt.eprintln("Failed to compute output size on device; defaulting to 0x0")
-		w, h = 0, 0
+		return
 	}
 
-	app.editor_accumulator += app.dt
-
-	if app.editor_accumulator >= EDITOR_FRAME_DT {
-		frame := gfx.Frame {
-			device = device,
-			assets = &app.assets,
-			input  = &app.editor_input,
-			screen = {f32(w), f32(h)},
-			dt     = EDITOR_FRAME_DT,
-		}
-
-		gfx.gfx_frame_begin(&frame)
-		editor.editor_frame(&app.editor, &frame)
-		platform.input_frame_begin(&app.editor_input)
-		gfx.gfx_frame_end(&frame)
-
-		if app.editor_accumulator > EDITOR_FRAME_DT * 2 do app.editor_accumulator = EDITOR_FRAME_DT
+	frame := gfx.Frame {
+		gfx    = &app.gfx,
+		device = device,
+		assets = &app.assets,
+		input  = &app.input,
+		screen = {f32(w), f32(h)},
+		dt     = app.dt,
 	}
 
-	elapsed_ns := sdl.GetTicksNS() - now_ns
-	if elapsed_ns < APP_FRAME_NS {
-		sdl.DelayPrecise(APP_FRAME_NS - elapsed_ns)
-	}
+	gfx.gfx_frame_begin(&frame)
+	editor.editor_frame(&app.editor, &frame)
+	gfx.gfx_frame_end(&frame)
 }
 
 @(export)
@@ -156,8 +175,7 @@ app_memory :: proc() -> rawptr {
 @(export)
 app_hot_reloaded :: proc(m: rawptr) {
 	app = (^App)(m)
-	gfx.gfx_reload(&app.gfx, &app.assets)
-	app.flags += {.Should_Reload_Assets}
+	app.flags += {.Should_Reload_Clay, .Should_Reload_Assets}
 }
 
 @(export)
@@ -191,6 +209,36 @@ app_device_create :: proc() -> ^platform.Device {
 app_device_destroy :: proc(device: ^platform.Device) {
 	platform.device_destroy(device)
 	free(device)
+}
+
+// Returns false when app cannot draw
+@(require_results)
+app_reload_subsystems :: proc(device: ^platform.Device) -> bool {
+	if .Should_Reload_Clay in app.flags {
+		app.flags -= {.Should_Reload_Clay}
+
+		w, h, size_ok := platform.window_size(device)
+		if !size_ok {
+			fmt.eprintln("Failed to query window size during clay reload")
+			return false
+		}
+
+		// Reload gfx since to set new measure text and error handler callbacks for clay
+		if !gfx.gfx_reload(&app.gfx, &app.assets, {f32(w), f32(h)}) do return false
+	}
+
+	if .Should_Reload_Assets in app.flags {
+		app.flags -= {.Should_Reload_Assets}
+
+		gfx.text_cache_clear(&app.gfx.text_cache)
+
+		assets.assets_unload(&app.assets)
+		if !assets.assets_load(&app.assets, device) {
+			fmt.eprintln("Failed to reload assets")
+			return false
+		}
+	}
+	return true
 }
 
 when ODIN_DEBUG {

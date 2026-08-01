@@ -49,6 +49,7 @@ main :: proc() {
 	api, ok := load_api(version)
 	if !ok {
 		fmt.eprintln("Failed to load API properly, see above")
+		return
 	}
 
 	device := api.device_create()

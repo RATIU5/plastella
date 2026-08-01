@@ -3,7 +3,10 @@ package gfx
 import clay "../../vendor/clay"
 import assets "../assets"
 import "core:c"
-import "core:unicode/utf8"
+import "core:fmt"
+import "core:math"
+import sdl "vendor:sdl3"
+import "vendor:sdl3/ttf"
 
 
 text :: proc(
@@ -34,6 +37,7 @@ text :: proc(
 	)
 }
 
+@(require_results)
 ellipsize_text :: proc(
 	str: string,
 	style: assets.Text,
@@ -42,19 +46,39 @@ ellipsize_text :: proc(
 ) -> string {
 	if text_width(str, style, asts) <= max_w do return str
 
-	dots_w := text_width("...", style, asts)
-	cut := 0
-	for i := 0; i < len(str); {
-		_, w := utf8.decode_rune(str[i:])
-		if text_width(str[:i + w], style, asts) + dots_w > max_w do break
-		i += w
-		cut = i
-	}
-	for cut > 0 && str[cut - 1] == ' ' do cut -= 1 // no phantom gap before "..."
+	dots := "..."
+	dots_w := text_width(dots, style, asts)
+	if dots_w >= max_w do return dots
 
-	buf := make([]u8, cut + 3, context.temp_allocator) // freed by free_all(temp) each frame
+	// Fonts are logical size * device scale; budget must be converted to physical pixels
+	// before it reaches `ttf`; floor as rounding up can overflow the budget by a pixel.
+	budget_px := c.int(math.floor((max_w - dots_w) * asts.scale))
+
+	measured_w: c.int
+	fit_bytes: c.size_t
+	ok := ttf.MeasureString(
+		asts.fonts[style],
+		cstring(raw_data(str)),
+		c.size_t(len(str)),
+		budget_px,
+		&measured_w,
+		&fit_bytes,
+	)
+	if !ok {
+		fmt.eprintfln("[text] MeasureString failed: %s", sdl.GetError())
+		return str
+	}
+
+	cut := int(fit_bytes)
+	assert(cut >= 0)
+	assert(cut <= len(str))
+
+	for cut > 0 && str[cut - 1] == ' ' do cut -= 1 // no phantom gap before "..."
+	if cut == 0 do return dots
+
+	buf := make([]u8, cut + len(dots), context.temp_allocator)
 	copy(buf, str[:cut])
-	copy(buf[cut:], "...")
+	copy(buf[cut:], dots)
 	return string(buf)
 }
 

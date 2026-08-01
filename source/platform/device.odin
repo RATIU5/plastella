@@ -22,52 +22,62 @@ device_create :: proc(device: ^Device) -> bool {
 		// Hide window and show it after it's been configured to avoid white flash
 		.HIDDEN,
 	}
-	window := sdl.CreateWindow(conf.WINDOW_TITLE, conf.WINDOW_WIDTH, conf.WINDOW_HEIGHT, FLAGS)
-	if window == nil {
+	device.window = sdl.CreateWindow(
+		conf.WINDOW_TITLE,
+		conf.WINDOW_WIDTH,
+		conf.WINDOW_HEIGHT,
+		FLAGS,
+	)
+	if device.window == nil {
 		device_destroy(device)
 		return false
 	}
 
-	renderer := sdl.CreateRenderer(window, nil)
-	if renderer == nil {
+	device.renderer = sdl.CreateRenderer(device.window, nil)
+	if device.renderer == nil {
 		device_destroy(device)
 		return false
 	}
 
-	sdl.SetRenderVSync(renderer, 1)
+	sdl.SetRenderVSync(device.renderer, 1)
 
-	d := sdl.GetWindowPixelDensity(window)
-	sdl.SetRenderScale(renderer, d, d)
+	// No SetRenderScale: clay lays out in logical px, and clay_render_commands
+	// converts to physical. Setting scale here would apply it twice.
+	d := sdl.GetWindowPixelDensity(device.window)
 	device.scale = d
 
-	text_engine := ttf.CreateRendererTextEngine(renderer)
-	if text_engine == nil {
+	device.text_engine = ttf.CreateRendererTextEngine(device.renderer)
+	if device.text_engine == nil {
 		device_destroy(device)
 		return false
 	}
 
 	// Configure & show window AFTER setting up renderer and text engine
-	window_configure(window)
-
-	device.window = window
-	device.renderer = renderer
-	device.text_engine = text_engine
+	window_configure(device.window)
 
 	return true
 }
 
 device_destroy :: proc(device: ^Device) {
 	if device != nil {
+		if device.text_engine != nil do ttf.DestroyRendererTextEngine(device.text_engine)
 		if device.renderer != nil do sdl.DestroyRenderer(device.renderer)
 		if device.window != nil do sdl.DestroyWindow(device.window)
-		if device.text_engine != nil do ttf.DestroyRendererTextEngine(device.text_engine)
 		ttf.Quit()
 		sdl.Quit()
 	}
 }
 
 @(require_results)
-output_size :: proc(device: ^Device) -> (i32, i32, bool) {
+device_refresh_scale :: proc(device: ^Device) -> bool {
+	d := sdl.GetWindowPixelDensity(device.window)
+	if d <= 0 do return false
+	device.scale = d
+	return true
+}
+
+@(require_results)
+window_size :: proc(device: ^Device) -> (i32, i32, bool) {
 	w, h: i32
 	ok := sdl.GetWindowSize(device.window, &w, &h)
 	return w, h, ok

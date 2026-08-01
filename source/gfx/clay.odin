@@ -21,8 +21,14 @@ INDICES_MAX :: 30 + 12 * SEGMENTS_MAX
 @(private = "file")
 had_error: bool
 
+// Built once at init so measure_text does not construct a Context on every call.
+// clay invokes it many times per layout. File-scope because it must be re-set after a hot reload.
+@(private = "file")
+measure_ctx: runtime.Context
+
 @(require_results)
 clay_init :: proc(frame: ^Frame) -> (^clay.Context, [^]u8) {
+	measure_ctx = context
 	min_size := clay.MinMemorySize()
 	clay_mem := make([^]u8, min_size)
 	arena := clay.CreateArenaWithCapacityAndMemory(cast(c.size_t)min_size, clay_mem)
@@ -46,9 +52,32 @@ clay_init :: proc(frame: ^Frame) -> (^clay.Context, [^]u8) {
 	return ctx, clay_mem
 }
 
-clay_reload :: proc(ctx: ^clay.Context, asts: ^assets.Assets) {
-	clay.SetCurrentContext(ctx)
+@(require_results)
+clay_reload :: proc(gfx: ^Gfx, asts: ^assets.Assets, screen: [2]f32) -> bool {
+	measure_ctx = context
+
+	size := clay.MinMemorySize()
+	if size != gfx.clay_mem_size {
+		fmt.eprintfln(
+			"[clay] arena size changed %d -> %d; restart required (F6)",
+			gfx.clay_mem_size,
+			size,
+		)
+		return false
+	}
+
+	had_error = false
+	arena := clay.CreateArenaWithCapacityAndMemory(c.size_t(size), gfx.clay_mem)
+	ctx := clay.Initialize(
+		arena,
+		{screen.x, screen.y},
+		{handler = err_handler, userData = nil}, // handler reads the file global directly
+	)
+	if ctx == nil || had_error do return false
+
+	gfx.clay_ctx = ctx
 	clay.SetMeasureTextFunction(measure_text, asts)
+	return true
 }
 
 clay_frame_begin :: proc(frame: ^Frame) {
@@ -73,7 +102,7 @@ measure_text :: proc "c" (
 	cfg: ^clay.TextElementConfig,
 	user_data: rawptr,
 ) -> clay.Dimensions {
-	context = runtime.default_context()
+	context = measure_ctx
 	a := cast(^assets.Assets)user_data
 	assert(int(cfg.fontId) < len(a.fonts))
 	font := a.fonts[assets.Text(cfg.fontId)]
@@ -87,26 +116,37 @@ measure_text :: proc "c" (
 }
 
 clay_render_commands :: proc(commands: ^clay.ClayArray(clay.RenderCommand), frame: ^Frame) {
+	d := frame.assets.scale
 	sdl.SetRenderDrawBlendMode(frame.device.renderer, sdl.BLENDMODE_BLEND)
 
 	for i in 0 ..< commands.length {
 		cmd := clay.RenderCommandArray_Get(commands, i)
 		b := cmd.boundingBox
-		rect := sdl.FRect{f32(i32(b.x)), f32(i32(b.y)), f32(i32(b.width)), f32(i32(b.height))}
+		rect := sdl.FRect {
+			math.round(b.x * d),
+			math.round(b.y * d),
+			math.round(b.width * d),
+			math.round(b.height * d),
+		}
 
-		#partial switch cmd.commandType {
+		switch cmd.commandType {
 		case .Rectangle:
-			render_rectangle(frame.device.renderer, rect, cmd.renderData.rectangle)
+			cfg := cmd.renderData.rectangle
+			cfg.cornerRadius = scale_radius(cfg.cornerRadius, d)
+			render_rectangle(frame.device.renderer, rect, cfg)
 		case .Text:
-			render_text(frame, rect, cmd.renderData.text)
+			render_text(rect, cmd.renderData.text, frame)
 		case .Image:
 			tex := (^sdl.Texture)(cmd.renderData.image.imageData)
 			dst := rect
 			sdl.RenderTexture(frame.device.renderer, tex, nil, &dst)
 		case .Border:
-			render_border(frame.device.renderer, rect, cmd.renderData.border)
+			cfg := cmd.renderData.border
+			cfg.cornerRadius = scale_radius(cfg.cornerRadius, d)
+			cfg.width = scale_border_width(cfg.width, d)
+			render_border(frame.device.renderer, rect, cfg)
 		case .ScissorStart:
-			clip := sdl.Rect{i32(b.x), i32(b.y), i32(b.width), i32(b.height)}
+			clip := sdl.Rect{i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h)}
 			sdl.SetRenderClipRect(frame.device.renderer, &clip)
 		case .ScissorEnd:
 			sdl.SetRenderClipRect(frame.device.renderer, nil)
@@ -138,6 +178,7 @@ fill_rounded_rect :: proc(
 	fc := color_float(color)
 	rr := min(radius, min(rect.w, rect.h) / 2)
 	segments := clamp(int(rr * 0.5), SEGMENTS_BASE, SEGMENTS_MAX)
+	assert(segments <= SEGMENTS_MAX)
 
 	verts: [VERTS_MAX]sdl.Vertex = ---
 	indices: [INDICES_MAX]c.int = ---
@@ -160,7 +201,6 @@ fill_rounded_rect :: proc(
 		{rect.x + rect.w - rr, rect.y + rect.h - rr, 1, 1}, // bot-right, center vertex 2
 		{rect.x + rr, rect.y + rect.h - rr, -1, 1}, // bot-left, center vertex 3
 	}
-
 
 	step := (math.PI * 0.5) / f32(segments)
 	for i in 0 ..< segments {
@@ -214,64 +254,86 @@ fill_rounded_rect :: proc(
 }
 
 @(private = "file")
-render_border :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.BorderRenderData) {
-	min_radius := min(rect.w, rect.h) / 2
-	tl := min(cfg.cornerRadius.topLeft, min_radius)
-	tr := min(cfg.cornerRadius.topRight, min_radius)
-	bl := min(cfg.cornerRadius.bottomLeft, min_radius)
-	br := min(cfg.cornerRadius.bottomRight, min_radius)
+Border_Corner :: struct {
+	radius:    f32,
+	center:    sdl.FPoint,
+	start_deg: f32,
+	end_deg:   f32,
+	thickness: f32,
+}
 
+@(private = "file")
+render_border :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.BorderRenderData) {
 	col := color_u8(cfg.color)
 	sdl.SetRenderDrawColor(renderer, col.r, col.g, col.b, col.a)
 
-	if cfg.width.left > 0 {
-		line := sdl.FRect{rect.x - 1, rect.y, f32(cfg.width.left), rect.h - tr - bl}
-		sdl.RenderFillRect(renderer, &line)
+	// Clamp so two radii on the same axis cannot overlap and produce a negative run.
+	r_max := min(rect.w, rect.h) / 2
+	tl := min(cfg.cornerRadius.topLeft, r_max)
+	tr := min(cfg.cornerRadius.topRight, r_max)
+	br := min(cfg.cornerRadius.bottomRight, r_max)
+	bl := min(cfg.cornerRadius.bottomLeft, r_max)
+
+	w := cfg.width
+
+	// Straight runs sit flush inside the rect and are shortened by the two radii on
+	// their own axis.
+	if w.top > 0 {
+		side := sdl.FRect{rect.x + tl, rect.y, rect.w - tl - tr, f32(w.top)}
+		sdl.RenderFillRect(renderer, &side)
 	}
-	if cfg.width.right > 0 {
-		x := rect.x + rect.w - f32(cfg.width.right) + 1
-		line := sdl.FRect{x, rect.y + tr, f32(cfg.width.right), rect.h - tr - br}
-		sdl.RenderFillRect(renderer, &line)
+	if w.bottom > 0 {
+		y := rect.y + rect.h - f32(w.bottom)
+		side := sdl.FRect{rect.x + bl, y, rect.w - bl - br, f32(w.bottom)}
+		sdl.RenderFillRect(renderer, &side)
 	}
-	if cfg.width.top > 0 {
-		line := sdl.FRect{rect.x + tl, rect.y - 1, rect.w - tl - tr, f32(cfg.width.top)}
-		sdl.RenderFillRect(renderer, &line)
+	if w.left > 0 {
+		side := sdl.FRect{rect.x, rect.y + tl, f32(w.left), rect.h - tl - bl}
+		sdl.RenderFillRect(renderer, &side)
 	}
-	if cfg.width.bottom > 0 {
-		y := rect.y + rect.h - f32(cfg.width.bottom) + 1
-		line := sdl.FRect{rect.x + bl, y, rect.w - bl - br, f32(cfg.width.bottom)}
-		sdl.RenderFillRect(renderer, &line)
+	if w.right > 0 {
+		x := rect.x + rect.w - f32(w.right)
+		side := sdl.FRect{x, rect.y + tr, f32(w.right), rect.h - tr - br}
+		sdl.RenderFillRect(renderer, &side)
 	}
 
-	// Rounded corners as stroked arcs, thickness from nearer edge.
-	if cfg.cornerRadius.topLeft > 0 {
-		center := sdl.FPoint{rect.x + tl - 1, rect.y + tl - 1}
-		render_arc(renderer, center, tl, 180, 270, f32(cfg.width.top), cfg.color)
+	// Angles are SDL screen space, y grows downward, so 180-270 sweeps top-left.
+	// Each arc's center is inset by its own radius, so the arc's outer edge lands
+	// exactly on the rect edge and meets the straight runs with no seam.
+	// Thickness takes the wider of the two adjacent sides, so a corner never reads
+	// thinner than an edge it joins.
+	corners := [4]Border_Corner {
+		{tl, {rect.x + tl, rect.y + tl}, 180, 270, f32(max(w.top, w.left))},
+		{tr, {rect.x + rect.w - tr, rect.y + tr}, 270, 360, f32(max(w.top, w.right))},
+		{br, {rect.x + rect.w - br, rect.y + rect.h - br}, 0, 90, f32(max(w.bottom, w.right))},
+		{bl, {rect.x + bl, rect.y + rect.h - bl}, 90, 180, f32(max(w.bottom, w.left))},
+	}
+
+	for c in corners {
+		if c.radius <= 0 do continue
+		if c.thickness <= 0 do continue
+		render_arc(renderer, c.center, c.radius, c.start_deg, c.end_deg, c.thickness, cfg.color)
 	}
 }
 
 @(private = "file")
-render_text :: proc(frame: ^Frame, rect: sdl.FRect, cfg: clay.TextRenderData) {
+render_text :: proc(rect: sdl.FRect, cfg: clay.TextRenderData, frame: ^Frame) {
 	assert(int(cfg.fontId) < len(frame.assets.fonts))
-	font := frame.assets.fonts[assets.Text(cfg.fontId)]
 
-	d := frame.assets.scale
-	sdl.SetRenderScale(frame.device.renderer, 1, 1) // Set render scale for this text
-
-	chars := cast(cstring)cfg.stringContents.chars
-	text := ttf.CreateText(
-		frame.device.text_engine,
-		font,
-		chars,
-		c.size_t(cfg.stringContents.length),
+	chars := ([^]u8)(cfg.stringContents.chars)
+	str := string(chars[:cfg.stringContents.length])
+	text := text_cache_get(
+		&frame.gfx.text_cache,
+		frame.device,
+		frame.assets,
+		str,
+		assets.Text(cfg.fontId),
 	)
-	defer ttf.DestroyText(text)
+	if text == nil do return
 
 	col := color_u8(cfg.textColor)
 	ttf.SetTextColor(text, col.r, col.g, col.b, col.a)
-	ttf.DrawRendererText(text, rect.x * d, rect.y * d)
-
-	sdl.SetRenderScale(frame.device.renderer, d, d) // Unset render scale for new renders
+	ttf.DrawRendererText(text, rect.x, rect.y)
 }
 
 @(private = "file")
@@ -292,7 +354,7 @@ render_arc :: proc(
 	THICKNESS_STEP :: f32(0.4)
 
 	points: [ARC_SEGMENTS_MAX + 1]sdl.FPoint = ---
-	for t := THICKNESS_STEP; t < thickness - THICKNESS_STEP; t += THICKNESS_STEP {
+	for t := f32(0); t <= thickness - THICKNESS_STEP; t += THICKNESS_STEP {
 		r := max(radius - t, 1)
 		for i in 0 ..= segments {
 			angle := rad_start + f32(i) * angle_step
@@ -313,6 +375,28 @@ color_float :: proc "contextless" (col: clay.Color) -> sdl.FColor {
 @(private = "file")
 color_u8 :: proc "contextless" (col: clay.Color) -> [4]u8 {
 	return {u8(col.r), u8(col.g), u8(col.b), u8(col.a)}
+}
+
+@(private = "file")
+scale_radius :: proc "contextless" (r: clay.CornerRadius, d: f32) -> clay.CornerRadius {
+	return {r.topLeft * d, r.topRight * d, r.bottomLeft * d, r.bottomRight * d}
+}
+
+@(private = "file")
+scale_width :: proc "contextless" (v: u16, d: f32) -> u16 {
+	if v == 0 do return 0
+	return u16(max(math.round(f32(v) * d), 1))
+}
+
+@(private = "file")
+scale_border_width :: proc "contextless" (w: clay.BorderWidth, d: f32) -> clay.BorderWidth {
+	return {
+		left = scale_width(w.left, d),
+		right = scale_width(w.right, d),
+		top = scale_width(w.top, d),
+		bottom = scale_width(w.bottom, d),
+		betweenChildren = scale_width(w.betweenChildren, d),
+	}
 }
 
 @(private = "file")

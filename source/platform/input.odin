@@ -45,6 +45,7 @@ Input :: struct {
 
 	// Other
 	quit:          bool,
+	scale_changed: bool,
 }
 
 input_frame_begin :: proc(inp: ^Input) {
@@ -60,12 +61,15 @@ input_frame_begin :: proc(inp: ^Input) {
 	inp.text.presses_len = 0
 	inp.text.dropped = 0
 	inp.quit = false
+	inp.scale_changed = false
 }
 
 input_event_process :: proc(inp: ^Input, ev: ^sdl.Event) {
 	#partial switch ev.type {
 	case .QUIT:
 		inp.quit = true
+	case .WINDOW_DISPLAY_SCALE_CHANGED:
+		inp.scale_changed = true
 	case .MOUSE_MOTION:
 		inp.mouse.pos = {ev.motion.x, ev.motion.y}
 		inp.mouse.delta += {ev.motion.xrel, ev.motion.yrel}

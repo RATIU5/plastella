@@ -10,10 +10,7 @@ editor_init :: proc(editor: ^Editor) -> bool {
 	return true
 }
 
-editor_shutdown :: proc(editor: ^Editor) {
-	free(editor)
-	editor^ = {}
-}
+editor_shutdown :: proc(editor: ^Editor) {}
 
 editor_frame :: proc(editor: ^Editor, frame: ^gfx.Frame) {
 	if clay.UI(clay.ID("editor"))(

@@ -4,6 +4,7 @@ import assets "../assets"
 import platform "../platform"
 
 Frame :: struct {
+	gfx:    ^Gfx,
 	device: ^platform.Device,
 	assets: ^assets.Assets,
 	input:  ^platform.Input,
