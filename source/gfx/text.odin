@@ -10,10 +10,10 @@ import "vendor:sdl3/ttf"
 
 
 text :: proc(
+	asts: ^assets.Assets,
 	str: string,
 	style: assets.Text,
 	color: clay.Color,
-	asts: ^assets.Assets,
 	align := clay.TextAlignment.Left,
 	wrap := clay.TextWrapMode.Words,
 	ellipsize: f32 = 0,

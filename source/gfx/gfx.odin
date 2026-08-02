@@ -2,6 +2,7 @@ package gfx
 
 import "../../vendor/clay"
 import "../assets"
+import "../platform"
 import "core:fmt"
 import sdl "vendor:sdl3"
 
@@ -10,6 +11,7 @@ Gfx :: struct {
 	clay_mem:      [^]u8,
 	clay_mem_size: u32,
 	text_cache:    Text_Cache,
+	interaction:   Interaction,
 }
 
 #assert(len(assets.Text) <= int(max(u16)))
@@ -54,6 +56,7 @@ gfx_frame_begin :: proc(frame: ^Frame) {
 gfx_frame_end :: proc(frame: ^Frame) {
 	clay_frame_end(frame)
 	text_cache_frame_end(&frame.gfx.text_cache)
+	platform.cursor_apply(frame.device, frame.cursor)
 	present_ok := sdl.RenderPresent(frame.device.renderer)
 	if !present_ok do fmt.eprintln("failed to present frame")
 }

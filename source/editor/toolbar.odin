@@ -1,9 +1,11 @@
 package editor
 
 import "../../vendor/clay"
+import "../assets"
 import "../gfx"
+import "../ui"
 
-toolbar_frame :: proc(frame: ^gfx.Frame) {
+toolbar_frame :: proc(ctx: ^ui.Ctx) {
 	TOOLBAR_HEIGHT: f32 : 32
 	if clay.UI(clay.ID("toolbar"))(
 	{
@@ -26,7 +28,7 @@ toolbar_frame :: proc(frame: ^gfx.Frame) {
 			},
 		},
 		) {
-			gfx.text("Plastella", .UI_BLD_13, {255, 255, 255, 255}, frame.assets)
+			gfx.text(ctx.frame.assets, "Plastella", .UI_BLD_13, {255, 255, 255, 255})
 		}
 
 		// TOOLBAR:CENTER
@@ -40,7 +42,12 @@ toolbar_frame :: proc(frame: ^gfx.Frame) {
 			},
 		},
 		) {
-			gfx.text("Plastella", .UI_BLD_13, {255, 255, 255, 255}, frame.assets)
+			ui.button(ctx, "toolbar:project", assets.Ui_Icons.Project, .DEFAULT)
+			ui.button(ctx, "toolbar:map", assets.Ui_Icons.Map, .DEFAULT)
+			ui.button(ctx, "toolbar:tilesets", assets.Ui_Icons.Tilesets, .DEFAULT)
+			ui.button(ctx, "toolbar:sprites", assets.Ui_Icons.Sprites, .DEFAULT)
+			ui.button(ctx, "toolbar:level_editor", assets.Ui_Icons.Level_Editor, .DEFAULT)
+			ui.button(ctx, "toolbar:settings", assets.Ui_Icons.Settings, .DEFAULT)
 		}
 
 		// TOOLBAR:RIGHT
@@ -54,7 +61,7 @@ toolbar_frame :: proc(frame: ^gfx.Frame) {
 			},
 		},
 		) {
-			gfx.text("Plastella", .UI_BLD_13, {255, 255, 255, 255}, frame.assets)
+			gfx.text(ctx.frame.assets, "Plastella", .UI_BLD_13, {255, 255, 255, 255})
 		}
 	}
 }

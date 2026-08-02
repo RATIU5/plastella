@@ -1,7 +1,7 @@
 package editor
 
 import "../../vendor/clay"
-import "../gfx"
+import "../ui"
 
 Editor :: struct {}
 
@@ -12,7 +12,7 @@ editor_init :: proc(editor: ^Editor) -> bool {
 
 editor_shutdown :: proc(editor: ^Editor) {}
 
-editor_frame :: proc(editor: ^Editor, frame: ^gfx.Frame) {
+editor_frame :: proc(editor: ^Editor, ctx: ^ui.Ctx) {
 	if clay.UI(clay.ID("editor"))(
 	{
 		layout = {
@@ -21,6 +21,6 @@ editor_frame :: proc(editor: ^Editor, frame: ^gfx.Frame) {
 		},
 	},
 	) {
-		toolbar_frame(frame)
+		toolbar_frame(ctx)
 	}
 }

@@ -23,6 +23,7 @@ assets_load :: proc(a: ^Assets, device: ^platform.Device) -> bool {
 		fmt.eprintln("Failed to load texture assets")
 		return false
 	}
+	load_ui_icons(a.textures[.Icons])
 	return true
 }
 

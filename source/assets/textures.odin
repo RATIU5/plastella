@@ -9,6 +9,12 @@ Texture_Id :: enum u8 {
 	Icons,
 }
 
+Texture_Slice :: struct {
+	tex:  ^sdl.Texture,
+	crop: sdl.Rect,
+	tint: [4]f32,
+}
+
 @(rodata)
 texture_paths := [Texture_Id]cstring {
 	.Icons = "resources/textures/ui_icons.png",

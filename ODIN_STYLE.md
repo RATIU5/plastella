@@ -2,13 +2,13 @@
 
 Coding style for Odin, written for humans and for LLMs. Inspired by [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), adapted to Odin. Where TigerStyle and idiomatic Odin disagree, lean toward idiomatic `core` code.
 
-It serves three goals, ordered most to least important.
+It serves three goals, ordered most to least important (though all VERY important).
 
 1. **Safety.** The program does what we think it does, and crashes loudly when it does not.
 2. **Performance.** Respect the machine, batch work, avoid secret costs.
-3. **Developer experience.** The code reads like prose and the next person or model can extend it.
+3. **Developer experience.** The code reads like prose and the next person or model can extend it easily (composable).
 
-**The prime directive.** Keep code small, composable, simple, and stupid, unless a name or comment justifies otherwise in the name of performance. No undefined behavior. No secret allocations. When you break a rule, say why in a comment on the line that breaks it.
+**The prime directive.** Keep code small, composable, simple, and stupid, unless a name or comment justifies otherwise in the name of performance. No undefined behavior. No secret allocations. When you break a rule, say why in a comment on the line that breaks it. Keep the comments small and concise, and to the point. Don't add extra fluff to the comments.
 
 ## 0. How To Use This Document
 
@@ -74,6 +74,7 @@ Safety is first because a fast program that is subtly wrong is worse than useles
   ```
 
   Corollary: when the bound is already provable from a clamp, one precondition assert replaces a pile of trailing ones. Do not delete the check entirely just because it is currently unreachable, because the next edit to the clamp or the fill topology is what makes it reachable.
+
 - **Split compound assertions.** Prefer `assert(a); assert(b)` over `assert(a && b)` so a failure points at the exact condition.
 - **Assert implications on one line.** `if focused do assert(active_id != "")`.
 - **Assert compile time invariants** with `#assert`. They cost nothing at runtime, catch design drift before the program runs, and are never stripped.
@@ -434,6 +435,6 @@ When you must have long lived global state, make it disciplined.
 7. **Know which side's `context` you are running under, and measure it rather than reasoning about it.** A loader and a dynamically loaded module each link `base:runtime`, so it is tempting to assume its globals, including the default temporary allocator arena, are duplicated. Whether they actually are depends on the platform and how the module was linked, and the answer decides who is responsible for freeing scratch memory. Two things make this easy to get wrong in the head and easy to settle at runtime:
 
    - An exported proc with Odin calling convention receives the caller's `context` as an implicit argument, so it allocates wherever the loader points. A `proc "c"` callback has no implicit context, so a `context = runtime.default_context()` inside it builds one from the module's own globals. These are only the same arena if the underlying symbol resolved to one definition.
-   - **Comparing procedure pointers across the boundary does not tell you anything.** A function reference taken inside a module goes through a binding stub, so it will not compare equal to the loader's address for the same procedure even when both reach the same code. Compare *data* addresses instead.
+   - **Comparing procedure pointers across the boundary does not tell you anything.** A function reference taken inside a module goes through a binding stub, so it will not compare equal to the loader's address for the same procedure even when both reach the same code. Compare _data_ addresses instead.
 
-   So print `context.temp_allocator.data` from both sides and compare. If the addresses match there is one arena and whoever calls `free_all` covers everyone. If they differ, the module owns its own scratch lifetime and must free it. Sample usage at the *end* of the module's update, not the start, or the loader's `free_all` will have already run and every reading will be zero.
+   So print `context.temp_allocator.data` from both sides and compare. If the addresses match there is one arena and whoever calls `free_all` covers everyone. If they differ, the module owns its own scratch lifetime and must free it. Sample usage at the _end_ of the module's update, not the start, or the loader's `free_all` will have already run and every reading will be zero.

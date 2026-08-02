@@ -20,18 +20,18 @@ Text_Style :: struct {
 }
 
 Text :: enum u8 {
+	UI_REG_16,
 	UI_REG_14,
 	UI_REG_13,
 	UI_BLD_13,
-	UI_ICN_18,
 }
 
 @(rodata)
 text_styles := [Text]Text_Style {
+	.UI_REG_16 = {.Body_Med, 16, 16, 0},
 	.UI_REG_14 = {.Body_Med, 14, 14, 0},
 	.UI_REG_13 = {.Body_Med, 13, 13, 0},
 	.UI_BLD_13 = {.Body_Bold, 13, 13, 0},
-	.UI_ICN_18 = {.Body_Med, 18, 18, 0},
 }
 
 @(rodata)

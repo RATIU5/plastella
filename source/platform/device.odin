@@ -6,10 +6,12 @@ import sdl "vendor:sdl3"
 import "vendor:sdl3/ttf"
 
 Device :: struct {
-	window:      ^sdl.Window,
-	renderer:    ^sdl.Renderer,
-	text_engine: ^ttf.TextEngine,
-	scale:       f32,
+	window:         ^sdl.Window,
+	renderer:       ^sdl.Renderer,
+	text_engine:    ^ttf.TextEngine,
+	scale:          f32,
+	cursors:        [Cursor]^sdl.Cursor,
+	cursor_current: Cursor,
 }
 
 @(require_results)
@@ -52,6 +54,14 @@ device_create :: proc(device: ^Device) -> bool {
 		return false
 	}
 
+	for kind, cursor in cursor_sdl_kind {
+		device.cursors[cursor] = sdl.CreateSystemCursor(kind)
+		if device.cursors[cursor] == nil {
+			device_destroy(device)
+			return false
+		}
+	}
+
 	// Configure & show window AFTER setting up renderer and text engine
 	window_configure(device.window)
 
@@ -60,6 +70,9 @@ device_create :: proc(device: ^Device) -> bool {
 
 device_destroy :: proc(device: ^Device) {
 	if device != nil {
+		for c in device.cursors {
+			if c != nil do sdl.DestroyCursor(c)
+		}
 		if device.text_engine != nil do ttf.DestroyRendererTextEngine(device.text_engine)
 		if device.renderer != nil do sdl.DestroyRenderer(device.renderer)
 		if device.window != nil do sdl.DestroyWindow(device.window)

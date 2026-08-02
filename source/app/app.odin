@@ -4,6 +4,7 @@ import "../assets"
 import "../editor"
 import "../gfx"
 import "../platform"
+import "../ui"
 import "base:runtime"
 import "core:fmt"
 import "core:mem"
@@ -42,7 +43,7 @@ App :: struct {
 	assets:       assets.Assets,
 	gfx:          gfx.Gfx,
 	editor:       editor.Editor,
-	// ui:           ui.State,
+	ui:           ui.Ui,
 }
 app: ^App
 
@@ -66,6 +67,12 @@ app_init :: proc(device: ^platform.Device) -> bool {
 	gfx_ok := gfx.gfx_init(&app.gfx, &frame)
 	if !gfx_ok {
 		fmt.eprintln("Failed to initialize gfx")
+		return false
+	}
+
+	ui_ok := ui.ui_init(&app.ui)
+	if !ui_ok {
+		fmt.eprintln("Failed to initialize core ui")
 		return false
 	}
 
@@ -138,9 +145,12 @@ app_update :: proc(device: ^platform.Device) {
 	}
 
 	frame := frame_make(app, device, {f32(w), f32(h)})
+	ctx := ctx_make(&app.ui, &frame)
 
 	gfx.gfx_frame_begin(&frame)
-	editor.editor_frame(&app.editor, &frame)
+	ui.ui_frame_start(&ctx)
+	editor.editor_frame(&app.editor, &ctx)
+	ui.ui_frame_end(&app.ui)
 	gfx.gfx_frame_end(&frame)
 }
 
@@ -148,6 +158,7 @@ app_update :: proc(device: ^platform.Device) {
 app_shutdown :: proc() {
 	if app == nil do return
 	editor.editor_shutdown(&app.editor)
+	ui.ui_shutdown(&app.ui)
 	gfx.gfx_shutdown(&app.gfx)
 	assets.assets_unload(&app.assets)
 	free(app)
@@ -239,6 +250,11 @@ frame_make :: proc(app: ^App, device: ^platform.Device, screen: [2]f32) -> gfx.F
 		screen = screen,
 		dt = app.dt,
 	}
+}
+
+@(private = "file")
+ctx_make :: proc(u: ^ui.Ui, frame: ^gfx.Frame) -> ui.Ctx {
+	return {ui = u, frame = frame}
 }
 
 when ODIN_DEBUG {

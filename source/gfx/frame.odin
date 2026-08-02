@@ -10,4 +10,5 @@ Frame :: struct {
 	input:  ^platform.Input,
 	screen: [2]f32,
 	dt:     f32,
+	cursor: platform.Cursor,
 }

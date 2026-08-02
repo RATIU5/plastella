@@ -137,9 +137,14 @@ clay_render_commands :: proc(commands: ^clay.ClayArray(clay.RenderCommand), fram
 		case .Text:
 			render_text(rect, cmd.renderData.text, frame)
 		case .Image:
-			tex := (^sdl.Texture)(cmd.renderData.image.imageData)
+			slice := (^assets.Texture_Slice)(cmd.renderData.image.imageData)
 			dst := rect
-			sdl.RenderTexture(frame.device.renderer, tex, nil, &dst)
+			src: sdl.FRect
+			sdl.RectToFRect(slice.crop, &src)
+			tint := color_u8(clay.Color(slice.tint))
+			sdl.SetTextureColorMod(slice.tex, tint.r, tint.g, tint.b)
+			sdl.SetTextureAlphaMod(slice.tex, tint.a)
+			sdl.RenderTexture(frame.device.renderer, slice.tex, &src, &dst)
 		case .Border:
 			cfg := cmd.renderData.border
 			cfg.cornerRadius = scale_radius(cfg.cornerRadius, d)
