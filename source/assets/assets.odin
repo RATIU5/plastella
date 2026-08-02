@@ -1,6 +1,6 @@
 package assets
 
-import platform "../platform"
+import "../platform"
 import "core:fmt"
 import sdl "vendor:sdl3"
 import "vendor:sdl3/ttf"

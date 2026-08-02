@@ -1,6 +1,6 @@
 package main
 
-import app "../app"
+import "../app"
 import "core:fmt"
 
 #assert(ODIN_OS == .Darwin, "macOS-only support at this time")
@@ -8,7 +8,7 @@ import "core:fmt"
 main :: proc() {
 	device := app.app_device_create()
 	if device == nil {
-		fmt.eprintlnf("failed to create device")
+		fmt.eprintfln("failed to create device")
 		return
 	}
 	app_ok := app.app_init(device)

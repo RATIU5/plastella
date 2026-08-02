@@ -1,6 +1,6 @@
 package assets
 
-import platform "../platform"
+import "../platform"
 import "core:fmt"
 import sdl "vendor:sdl3"
 import img "vendor:sdl3/image"
@@ -9,12 +9,14 @@ Texture_Id :: enum u8 {
 	Icons,
 }
 
-Texture_Paths :: [Texture_Id]cstring {
+@(rodata)
+texture_paths := [Texture_Id]cstring {
 	.Icons = "resources/textures/ui_icons.png",
 }
 
+@(require_results)
 load_textures :: proc(a: ^Assets, device: ^platform.Device) -> bool {
-	for path, type in Texture_Paths {
+	for path, type in texture_paths {
 		a.textures[type] = img.LoadTexture(device.renderer, path)
 		if a.textures[type] == nil {
 			fmt.eprintfln("failed to load %s: %s", path, sdl.GetError())

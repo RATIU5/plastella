@@ -1,7 +1,7 @@
 package gfx
 
-import assets "../assets"
-import platform "../platform"
+import "../assets"
+import "../platform"
 
 Frame :: struct {
 	gfx:    ^Gfx,

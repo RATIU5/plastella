@@ -1,11 +1,12 @@
 package app
 
-import assets "../assets"
-import editor "../editor"
-import gfx "../gfx"
-import platform "../platform"
+import "../assets"
+import "../editor"
+import "../gfx"
+import "../platform"
 import "base:runtime"
 import "core:fmt"
+import "core:mem"
 import sdl "vendor:sdl3"
 
 // Frames owed after last input. Clay uses several frames for hover/scroll, one event
@@ -61,14 +62,7 @@ app_init :: proc(device: ^platform.Device) -> bool {
 		return false
 	}
 
-	frame := gfx.Frame {
-		gfx    = &app.gfx,
-		device = device,
-		assets = &app.assets,
-		input  = &app.input,
-		screen = {f32(w), f32(h)},
-		dt     = app.dt,
-	}
+	frame := frame_make(app, device, {f32(w), f32(h)})
 	gfx_ok := gfx.gfx_init(&app.gfx, &frame)
 	if !gfx_ok {
 		fmt.eprintln("Failed to initialize gfx")
@@ -143,14 +137,7 @@ app_update :: proc(device: ^platform.Device) {
 		return
 	}
 
-	frame := gfx.Frame {
-		gfx    = &app.gfx,
-		device = device,
-		assets = &app.assets,
-		input  = &app.input,
-		screen = {f32(w), f32(h)},
-		dt     = app.dt,
-	}
+	frame := frame_make(app, device, {f32(w), f32(h)})
 
 	gfx.gfx_frame_begin(&frame)
 	editor.editor_frame(&app.editor, &frame)
@@ -173,9 +160,10 @@ app_memory :: proc() -> rawptr {
 }
 
 @(export)
-app_hot_reloaded :: proc(m: rawptr) {
+app_hot_reloaded :: proc(m: rawptr, assets_changed: bool) {
 	app = (^App)(m)
-	app.flags += {.Should_Reload_Clay, .Should_Reload_Assets}
+	app.flags += {.Should_Reload_Clay}
+	if assets_changed do app.flags += {.Should_Reload_Assets}
 }
 
 @(export)
@@ -241,6 +229,18 @@ app_reload_subsystems :: proc(device: ^platform.Device) -> bool {
 	return true
 }
 
+@(private = "file")
+frame_make :: proc(app: ^App, device: ^platform.Device, screen: [2]f32) -> gfx.Frame {
+	return {
+		gfx = &app.gfx,
+		device = device,
+		assets = &app.assets,
+		input = &app.input,
+		screen = screen,
+		dt = app.dt,
+	}
+}
+
 when ODIN_DEBUG {
 	@(export)
 	app_memory_layout_hash :: proc() -> u64 {
@@ -248,6 +248,23 @@ when ODIN_DEBUG {
 		seen := make(map[typeid]bool, 64, context.temp_allocator) // host will free each loop
 		h := layout_hash(type_info_of(App), FNV_OFFSET, &seen)
 		return layout_hash(type_info_of(platform.Device), h, &seen)
+	}
+
+	@(export)
+	app_assets_table_hash :: proc() -> u64 {
+		FNV_OFFSET :: u64(1469598103934665603)
+		FNV_PRIME :: u64(1099511628211)
+		h := FNV_OFFSET
+		for b in mem.byte_slice(&assets.text_styles, size_of(assets.text_styles)) {
+			h = (h ~ u64(b)) * FNV_PRIME
+		}
+		for b in mem.byte_slice(&assets.font_paths, size_of(assets.font_paths)) {
+			h = (h ~ u64(b)) * FNV_PRIME
+		}
+		for b in mem.byte_slice(&assets.texture_paths, size_of(assets.texture_paths)) {
+			h = (h ~ u64(b)) * FNV_PRIME
+		}
+		return h
 	}
 
 	layout_hash :: proc(ti: ^runtime.Type_Info, seed: u64, seen: ^map[typeid]bool) -> u64 {

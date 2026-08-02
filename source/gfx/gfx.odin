@@ -1,7 +1,7 @@
 package gfx
 
-import clay "../../vendor/clay"
-import assets "../assets"
+import "../../vendor/clay"
+import "../assets"
 import "core:fmt"
 import sdl "vendor:sdl3"
 

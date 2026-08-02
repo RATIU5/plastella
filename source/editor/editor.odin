@@ -1,7 +1,7 @@
 package editor
 
-import clay "../../vendor/clay"
-import gfx "../gfx"
+import "../../vendor/clay"
+import "../gfx"
 
 Editor :: struct {}
 

@@ -3,7 +3,7 @@ package platform
 import conf "../config"
 import "core:fmt"
 import sdl "vendor:sdl3"
-import ttf "vendor:sdl3/ttf"
+import "vendor:sdl3/ttf"
 
 Device :: struct {
 	window:      ^sdl.Window,
@@ -85,19 +85,16 @@ window_size :: proc(device: ^Device) -> (i32, i32, bool) {
 
 @(private = "file", require_results)
 sdl_init :: proc() -> bool {
-
-	if !ttf.Init() {
-		fmt.eprintln("Failed to initialize TTF")
-		return false
-	}
-
 	FLAGS :: sdl.InitFlags{.VIDEO}
-
 	if !sdl.Init(FLAGS) {
 		fmt.eprintfln("SDL Error: %s\n", sdl.GetError())
 		return false
 	}
 
+	if !ttf.Init() {
+		fmt.eprintln("Failed to initialize TTF")
+		return false
+	}
 	return true
 }
 

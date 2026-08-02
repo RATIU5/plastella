@@ -1,9 +1,9 @@
 package assets
 
-import platform "../platform"
+import "../platform"
 import "core:fmt"
 import sdl "vendor:sdl3"
-import ttf "vendor:sdl3/ttf"
+import "vendor:sdl3/ttf"
 
 Font_Face :: enum u8 {
 	Body_Med,

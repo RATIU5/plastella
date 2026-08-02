@@ -1,7 +1,7 @@
 package gfx
 
-import clay "../../vendor/clay"
-import assets "../assets"
+import "../../vendor/clay"
+import "../assets"
 import "core:c"
 import "core:fmt"
 import "core:math"
@@ -37,6 +37,9 @@ text :: proc(
 	)
 }
 
+// Returns str unchanged if it already fits max_w, or truncated copy (...)
+// Truncated result asliases ccontext.temp_allocator storage; clone it before
+// current temp scope is freed if it must outlive the frame.
 @(require_results)
 ellipsize_text :: proc(
 	str: string,

@@ -1,7 +1,7 @@
 package editor
 
-import clay "../../vendor/clay"
-import gfx "../gfx"
+import "../../vendor/clay"
+import "../gfx"
 
 toolbar_frame :: proc(frame: ^gfx.Frame) {
 	TOOLBAR_HEIGHT: f32 : 32

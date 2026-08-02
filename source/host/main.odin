@@ -15,6 +15,7 @@ App_API :: struct {
 	lib:                dynlib.Library,
 	version:            int,
 	mod_time:           time.Time,
+	last_alloc_len:     int,
 	device_create:      proc() -> rawptr,
 	device_destroy:     proc(d: rawptr),
 	init:               proc(d: rawptr) -> bool,
@@ -24,9 +25,10 @@ App_API :: struct {
 	force_reload:       proc() -> bool,
 	force_restart:      proc() -> bool,
 	memory:             proc() -> rawptr,
-	hot_reloaded:       proc(m: rawptr),
+	hot_reloaded:       proc(m: rawptr, assets_reloaded: bool),
 	memory_size:        proc() -> int,
 	memory_layout_hash: proc() -> u64,
+	assets_table_hash:  proc() -> u64,
 }
 
 #assert(ODIN_OS == .Darwin, "macOS-only support at this time")
@@ -46,7 +48,7 @@ main :: proc() {
 	}
 
 	version := 0
-	api, ok := load_api(version)
+	api, ok := load_api(version, &track)
 	if !ok {
 		fmt.eprintln("Failed to load API properly, see above")
 		return
@@ -82,7 +84,7 @@ main :: proc() {
 }
 
 @(require_results)
-load_api :: proc(version: int) -> (api: App_API, ok: bool) {
+load_api :: proc(version: int, track: ^mem.Tracking_Allocator) -> (api: App_API, ok: bool) {
 	mod, mod_err := os.last_write_time_by_name(DLL)
 	if mod_err != nil {
 		fmt.eprintln("Cannot stat", DLL, mod_err)
@@ -116,6 +118,7 @@ load_api :: proc(version: int) -> (api: App_API, ok: bool) {
 
 	api.version = version
 	api.mod_time = mod
+	api.last_alloc_len = len(track.allocation_map)
 	return api, true
 }
 
@@ -133,7 +136,7 @@ api_complete :: proc(a: App_API) -> bool {
 }
 
 reload :: proc(api: ^App_API, version: ^int, track: ^mem.Tracking_Allocator) {
-	new_api, ok := load_api(version^ + 1)
+	new_api, ok := load_api(version^ + 1, track)
 	if !ok do return
 
 	incompatible :=
@@ -150,14 +153,16 @@ reload :: proc(api: ^App_API, version: ^int, track: ^mem.Tracking_Allocator) {
 		return
 	}
 
+	assets_changed := new_api.assets_table_hash() != api.assets_table_hash()
+
 	state := api.memory()
 	old := api^
 	api^ = new_api
-	api.hot_reloaded(state)
+	api.hot_reloaded(state, assets_changed)
 	version^ += 1
 	dynlib.unload_library(old.lib)
 	os.remove(fmt.tprintf("%s_%d%s", APP_NAME, old.version, DLL_EXT))
-	check_reload_leaks(track)
+	check_reload_leaks(track, api)
 }
 
 hard_restart :: proc(
@@ -166,7 +171,7 @@ hard_restart :: proc(
 	track: ^mem.Tracking_Allocator,
 	device: rawptr,
 ) {
-	new_api, ok := load_api(version^ + 1)
+	new_api, ok := load_api(version^ + 1, track)
 	if !ok do return
 	do_restart(api, version, new_api, track, device)
 }
@@ -182,16 +187,26 @@ do_restart :: proc(
 	old := api^
 	api^ = new_api
 	app_ok := api.init(device)
-	if app_ok {
-		version^ += 1
+	if !app_ok {
+		fmt.eprintln("Restart failed to re-init app; exiting")
+		dynlib.unload_library(new_api.lib)
+		os.remove(fmt.tprintf("%s_%d%s", APP_NAME, new_api.version, DLL_EXT))
 		dynlib.unload_library(old.lib)
 		os.remove(fmt.tprintf("%s_%d%s", APP_NAME, old.version, DLL_EXT))
+		os.exit(1)
 	}
-	check_reload_leaks(track)
+	version^ += 1
+	dynlib.unload_library(old.lib)
+	os.remove(fmt.tprintf("%s_%d%s", APP_NAME, old.version, DLL_EXT))
+	check_reload_leaks(track, api)
 }
 
-check_reload_leaks :: proc(track: ^mem.Tracking_Allocator) {
-	for bad in track.bad_free_array do fmt.eprintfln("bad free during reload at %v", bad.location)
+check_reload_leaks :: proc(track: ^mem.Tracking_Allocator, api: ^App_API) {
+	for bad in track.bad_free_array do fmt.eprintfln("[WARNING] Bad free during reload at %v", bad.location)
 	clear(&track.bad_free_array)
-	fmt.eprintfln("live allocations after reload: %d", len(track.allocation_map))
+	curr_alloc_len := len(track.allocation_map)
+	if curr_alloc_len > api.last_alloc_len {
+		fmt.eprintfln("[WARNING] Live allocations after reload: %d", curr_alloc_len)
+		api.last_alloc_len = curr_alloc_len
+	}
 }

@@ -1,8 +1,8 @@
 package gfx
 
 import "../../vendor/clay"
-import assets "../assets"
-import platform "../platform"
+import "../assets"
+import "../platform"
 import "base:runtime"
 import "core:c"
 import "core:fmt"
