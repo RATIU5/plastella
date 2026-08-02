@@ -1,6 +1,7 @@
 package app
 
 import "../assets"
+import "../config"
 import "../editor"
 import "../gfx"
 import "../platform"
@@ -146,6 +147,8 @@ app_update :: proc(device: ^platform.Device) {
 
 	frame := frame_make(app, device, {f32(w), f32(h)})
 	ctx := ctx_make(&app.ui, &frame)
+
+	platform.reposition_traffic_lights(device.window, config.TOOLBAR_HEIGHT)
 
 	gfx.gfx_frame_begin(&frame)
 	ui.ui_frame_start(&ctx)

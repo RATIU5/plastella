@@ -116,7 +116,7 @@ window_configure :: proc(window: ^sdl.Window) {
 	if window != nil {
 		// Will "jump" to center, but hidden will fix that
 		sdl.SetWindowPosition(window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
-		setup_window(window)
+		setup_window(window, conf.TOOLBAR_HEIGHT)
 		sdl.ShowWindow(window)
 	}
 }

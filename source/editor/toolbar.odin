@@ -2,15 +2,16 @@ package editor
 
 import "../../vendor/clay"
 import "../assets"
+import "../config"
 import "../gfx"
 import "../ui"
 
 toolbar_frame :: proc(ctx: ^ui.Ctx) {
-	TOOLBAR_HEIGHT: f32 : 32
+
 	if clay.UI(clay.ID("toolbar"))(
 	{
 		layout = {
-			sizing = {width = clay.SizingGrow(), height = clay.SizingFixed(TOOLBAR_HEIGHT)},
+			sizing = {width = clay.SizingGrow(), height = clay.SizingFixed(config.TOOLBAR_HEIGHT)},
 			// padding = {top = 10, left = 90},
 		},
 		backgroundColor = gfx.COLOR_GREY_850,
@@ -21,7 +22,10 @@ toolbar_frame :: proc(ctx: ^ui.Ctx) {
 		if clay.UI(clay.ID("toolbar:left"))(
 		{
 			layout = {
-				sizing = {width = clay.SizingGrow(), height = clay.SizingFixed(TOOLBAR_HEIGHT)},
+				sizing = {
+					width = clay.SizingGrow(),
+					height = clay.SizingFixed(config.TOOLBAR_HEIGHT),
+				},
 				layoutDirection = .LeftToRight,
 				childAlignment = {x = .Left, y = .Center},
 				padding = {left = 90, right = 10, top = 10, bottom = 10},
@@ -35,7 +39,10 @@ toolbar_frame :: proc(ctx: ^ui.Ctx) {
 		if clay.UI(clay.ID("toolbar:center"))(
 		{
 			layout = {
-				sizing = {width = clay.SizingGrow(), height = clay.SizingFixed(TOOLBAR_HEIGHT)},
+				sizing = {
+					width = clay.SizingGrow(),
+					height = clay.SizingFixed(config.TOOLBAR_HEIGHT),
+				},
 				layoutDirection = .LeftToRight,
 				childAlignment = {x = .Center, y = .Center},
 				padding = {left = 10, right = 10, top = 10, bottom = 10},
@@ -54,7 +61,10 @@ toolbar_frame :: proc(ctx: ^ui.Ctx) {
 		if clay.UI(clay.ID("toolbar:right"))(
 		{
 			layout = {
-				sizing = {width = clay.SizingGrow(), height = clay.SizingFixed(TOOLBAR_HEIGHT)},
+				sizing = {
+					width = clay.SizingGrow(),
+					height = clay.SizingFixed(config.TOOLBAR_HEIGHT),
+				},
 				layoutDirection = .LeftToRight,
 				childAlignment = {x = .Right, y = .Center},
 				padding = {left = 10, right = 10, top = 10, bottom = 10},
