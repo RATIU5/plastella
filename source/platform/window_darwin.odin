@@ -1,24 +1,56 @@
 package platform
 
-import "base:intrinsics"
-import "core:fmt"
+// Reposition the native macOS traffic-light buttons (close / minimise / zoom)
+// so they sit vertically centred inside a taller-than-standard custom header.
+// Their horizontal positions and inter-button spacing are left to AppKit — we
+// only shift Y and grow their container.
+//
+// Called every frame from app_update. It's idempotent — setting a frame to
+// the value it already has is essentially free — and running it per-frame
+// means we self-heal from any AppKit relayout (live resize, fullscreen
+// transition, deminiaturise, style-mask change) without any observer /
+// notification / delegate plumbing. Notification-driven attempts were tried
+// and abandoned: AppKit's chrome relayout timing does not line up cleanly
+// with any single public notification, and the runloop-mode / show-time
+// ordering makes deferred selectors unreliable in an SDL event loop.
+//
+// APPROACHES CONSIDERED AND REJECTED (do not reintroduce):
+//
+//   1. Moving individual NSButton frames WITHOUT also growing their group
+//      container (close.superview.superview). AppKit keys the shared hover-
+//      glyph state to the group's geometry; a button moved out of that
+//      geometry stops lighting up with its siblings on hover.
+//
+//   2. Moving only close.superview. AppKit re-applies its own titlebar
+//      layout to that view on live resize and silently reverts the change.
+//
+//   3. Overriding -updateTrackingAreas on views we own to try to un-stick
+//      hover. The group-hover tracking lives on AppKit-private ancestor
+//      views; replacing tracking areas on views we DO own does nothing and
+//      can strip legitimate tracking areas.
+//
+//   4. Private-API KVC into _titlebarContainerView / NSThemeFrame. Unstable
+//      across macOS releases and App Store hostile.
+//
+// APPROACH USED (Electron / Zed pattern): grow the button cluster's grand-
+// parent container (close.superview.superview) to the header height and
+// top-anchor it, then set each button's Y (leaving X alone so AppKit's own
+// spacing is preserved). Buttons are always fetched live via
+// standardWindowButton: — never cached — because AppKit can recreate them
+// across fullscreen / style-mask changes.
+//
+// KNOWN CAVEAT: on some macOS versions a private ancestor keeps a "ghost"
+// group-hover tracking area at the original geometry that we can't remove.
+// If it surfaces, drop back to a stock-height titlebar.
+
 import NS "core:sys/darwin/Foundation"
+import "base:intrinsics"
 import sdl "vendor:sdl3"
 
-@(private = "file")
-Traffic_Light :: enum NS.UInteger {
-	Close       = 0,
-	Miniaturize = 1,
-	Zoom        = 2,
-}
-
-// Minimal binding for NSTitlebarAccessoryViewController — just enough to alloc, init,
-// and set its view. The objc_class tag lets NS.new resolve the runtime class exactly
-// like the vendored Window/View bindings do.
-@(private = "file", objc_class = "NSTitlebarAccessoryViewController")
-Titlebar_Accessory :: struct {
-	using _: NS.Object,
-}
+// NSAutoresizingMaskOptions: NSViewWidthSizable (2) | NSViewMinYMargin (8)
+// = width tracks the window, bottom margin flexes so the container stays
+// pinned to the top of the window during live resize.
+@(private = "file") AUTORESIZE_WIDTH_TOP :: NS.UInteger(2 | 8)
 
 cocoa_window :: proc(window: ^sdl.Window) -> ^NS.Window {
 	props := sdl.GetWindowProperties(window)
@@ -27,106 +59,77 @@ cocoa_window :: proc(window: ^sdl.Window) -> ^NS.Window {
 
 setup_window :: proc(window: ^sdl.Window, bar_height: f32) {
 	nswindow := cocoa_window(window)
+	if nswindow == nil do return
 	NS.Window_setStyleMask(
 		nswindow,
 		{.Titled, .Closable, .Miniaturizable, .Resizable, .FullSizeContentView},
 	)
 	NS.Window_setTitlebarAppearsTransparent(nswindow, true)
 	NS.Window_setTitleVisibility(nswindow, .Hidden)
-
-	grow_titlebar(nswindow, bar_height)
-	nudge_tracking_areas(nswindow)
-	reposition_traffic_lights(window, bar_height)
 }
 
 reposition_traffic_lights :: proc(window: ^sdl.Window, bar_height: f32) {
 	nswindow := cocoa_window(window)
+	if nswindow == nil do return
 
-	for light in Traffic_Light {
-		btn := standard_window_button(nswindow, light)
-		if btn == nil do continue
+	// NEVER cache these across calls — AppKit may recreate button views on
+	// fullscreen / style-mask changes and any stashed pointer dangles.
+	close_btn := std_window_button(nswindow, 0)
+	mini_btn  := std_window_button(nswindow, 1)
+	zoom_btn  := std_window_button(nswindow, 2)
+	if close_btn == nil || mini_btn == nil || zoom_btn == nil do return
 
-		frame := view_frame(btn)
-		sup := view_superview(btn)
-		sup_frame := view_frame(sup)
-		sup_flipped := view_is_flipped(sup)
+	parent := view_superview(close_btn)
+	if parent == nil do return
+	container := view_superview(parent)
+	if container == nil do return
 
-		target_y := (bar_height - f32(frame.height)) / 2
-		view_set_frame_origin(btn, {frame.x, NS.Float(target_y)})
-		fmt.eprintfln(
-			"[traffic] %v btn_frame=%v super_frame=%v super_flipped=%v bar_height=%f",
-			light,
-			frame,
-			sup_frame,
-			sup_flipped,
-			bar_height,
-		)
+	win_frame := NS.Window_frame(nswindow)
+	h := NS.Float(bar_height)
+
+	// Grow the group container to the tall header, pinned to the top of the
+	// window. Required — without this the buttons move out of the group's
+	// original geometry and grouped hover breaks (see "won't work" #1 above).
+	view_set_frame(container, NS.Rect{
+		origin = {x = 0, y = win_frame.size.height - h},
+		size   = {width = win_frame.size.width, height = h},
+	})
+	view_set_autoresizing_mask(container, AUTORESIZE_WIDTH_TOP)
+
+	// Vertically centre each button. Leave X alone so AppKit's default
+	// leading margin and inter-button spacing are preserved.
+	btn_h := view_frame(close_btn).size.height
+	origin_y := (h - btn_h) * 0.5
+	for btn in ([3]^NS.View{close_btn, mini_btn, zoom_btn}) {
+		f := view_frame(btn)
+		view_set_frame_origin(btn, {x = f.origin.x, y = origin_y})
 	}
 }
 
-/*
-   Grows the real titlebar to `bar_height` via NSTitlebarAccessoryViewController — a public
-   API that enlarges the window's actual chrome, rather than us just drawing taller content
-   underneath it. This keeps the traffic lights in their native superview on purpose: that
-   superview clips to its own bounds (hence the earlier disappearing act) and drives their
-   hover glyph via an undocumented `_mouseInGroup:` call on itself (hence the lost hover
-   when we reparented them into our own view). Leaving them native sidesteps both.
-   */
+// --- Objective-C selectors not already bound in core:sys/darwin/Foundation ---
+// NSButton IS-A NSView, so ^NS.View is a valid receiver for all of these.
+
 @(private = "file")
-grow_titlebar :: proc(window: ^NS.Window, bar_height: f32) {
-	win_frame := NS.Window_frame(window)
-	standard_mask := NS.WindowStyleMask{.Titled, .Closable, .Miniaturizable, .Resizable}
-	content_rect := NS.Window_contentRectForFrameRectType(win_frame, standard_mask)
-	default_h := f32(win_frame.height) - f32(content_rect.height)
-	extra_h := max(bar_height - default_h, 0)
-	fmt.eprintfln(
-		"[titlebar] win_frame=%v content_rect=%v default_h=%f extra_h=%f",
-		win_frame,
-		content_rect,
-		default_h,
-		extra_h,
-	)
-	if extra_h == 0 do return
-
-	spacer := NS.View_initWithFrame(NS.View_alloc(), {{0, 0}, {1, NS.Float(extra_h)}})
-	accessory := NS.new(Titlebar_Accessory)
-	intrinsics.objc_send(nil, accessory, "setView:", spacer)
-	intrinsics.objc_send(nil, window, "addTitlebarAccessoryViewController:", accessory)
-
-	after_spacer_frame := view_frame(spacer)
-	fmt.eprintfln("[titlebar] spacer_frame_after_add=%v", after_spacer_frame)
+std_window_button :: proc "c" (win: ^NS.Window, which: NS.UInteger) -> ^NS.View {
+	return intrinsics.objc_send(^NS.View, win, "standardWindowButton:", which)
 }
-
 @(private = "file")
-nudge_tracking_areas :: proc(window: ^NS.Window) {
-	frame := NS.Window_frame(window)
-	grown := frame
-	grown.height += 1
-	NS.Window_setFrame(window, grown, false)
-	NS.Window_setFrame(window, frame, false)
+view_superview :: proc "c" (v: ^NS.View) -> ^NS.View {
+	return intrinsics.objc_send(^NS.View, v, "superview")
 }
-
 @(private = "file")
-view_superview :: proc(view: ^NS.View) -> ^NS.View {
-	return intrinsics.objc_send(^NS.View, view, "superview")
+view_frame :: proc "c" (v: ^NS.View) -> NS.Rect {
+	return intrinsics.objc_send(NS.Rect, v, "frame")
 }
-
 @(private = "file")
-view_is_flipped :: proc(view: ^NS.View) -> NS.BOOL {
-	return intrinsics.objc_send(NS.BOOL, view, "isFlipped")
+view_set_frame :: proc "c" (v: ^NS.View, r: NS.Rect) {
+	intrinsics.objc_send(nil, v, "setFrame:", r)
 }
-
 @(private = "file")
-standard_window_button :: proc(window: ^NS.Window, light: Traffic_Light) -> ^NS.View {
-	return intrinsics.objc_send(^NS.View, window, "standardWindowButton:", light)
+view_set_frame_origin :: proc "c" (v: ^NS.View, p: NS.Point) {
+	intrinsics.objc_send(nil, v, "setFrameOrigin:", p)
 }
-
 @(private = "file")
-view_frame :: proc(view: ^NS.View) -> NS.Rect {
-	return intrinsics.objc_send(NS.Rect, view, "frame")
-}
-
-@(private = "file")
-view_set_frame_origin :: proc(view: ^NS.View, origin: NS.Point) {
-	intrinsics.objc_send(nil, view, "setFrameOrigin:", origin)
+view_set_autoresizing_mask :: proc "c" (v: ^NS.View, mask: NS.UInteger) {
+	intrinsics.objc_send(nil, v, "setAutoresizingMask:", mask)
 }
