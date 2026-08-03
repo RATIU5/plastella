@@ -7,12 +7,22 @@ package platform
 //
 // Called every frame from app_update. It's idempotent — setting a frame to
 // the value it already has is essentially free — and running it per-frame
-// means we self-heal from any AppKit relayout (live resize, fullscreen
-// transition, deminiaturise, style-mask change) without any observer /
-// notification / delegate plumbing. Notification-driven attempts were tried
-// and abandoned: AppKit's chrome relayout timing does not line up cleanly
-// with any single public notification, and the runloop-mode / show-time
-// ordering makes deferred selectors unreliable in an SDL event loop.
+// means we self-heal from any AppKit relayout (fullscreen transition,
+// deminiaturise, style-mask change) without any observer / notification /
+// delegate plumbing. Notification-driven attempts were tried and abandoned:
+// AppKit's chrome relayout timing does not line up cleanly with any single
+// public notification, and the runloop-mode / show-time ordering makes
+// deferred selectors unreliable in an SDL event loop.
+//
+// LIVE RESIZE special case: macOS runs live resize in a modal
+// NSEventTrackingRunLoopMode. SDL_WaitEventTimeout blocks in the default
+// mode until resize ends, so app_update stops ticking mid-drag and the
+// per-frame call can't keep up with AppKit re-laying-out the titlebar.
+// SDL_AddEventWatch fires from AppKit's dispatch on the main thread even
+// while the SDL event loop is blocked — SDL's own docs call this out for
+// WINDOW_EXPOSED — so we reposition from the watch callback on
+// WINDOW_RESIZED / PIXEL_SIZE_CHANGED to keep the buttons pinned during
+// the drag.
 //
 // APPROACHES CONSIDERED AND REJECTED (do not reintroduce):
 //
@@ -45,12 +55,19 @@ package platform
 
 import NS "core:sys/darwin/Foundation"
 import "base:intrinsics"
+import "base:runtime"
 import sdl "vendor:sdl3"
 
 // NSAutoresizingMaskOptions: NSViewWidthSizable (2) | NSViewMinYMargin (8)
 // = width tracks the window, bottom margin flexes so the container stays
 // pinned to the top of the window during live resize.
 @(private = "file") AUTORESIZE_WIDTH_TOP :: NS.UInteger(2 | 8)
+
+// The event-watch callback is on the main thread but the per-frame path
+// also writes these, so keep the shape trivial (single-word writes).
+@(private = "file") g_watch_window     : ^sdl.Window
+@(private = "file") g_watch_bar_height : f32
+@(private = "file") g_watch_installed  : bool
 
 cocoa_window :: proc(window: ^sdl.Window) -> ^NS.Window {
 	props := sdl.GetWindowProperties(window)
@@ -66,6 +83,28 @@ setup_window :: proc(window: ^sdl.Window, bar_height: f32) {
 	)
 	NS.Window_setTitlebarAppearsTransparent(nswindow, true)
 	NS.Window_setTitleVisibility(nswindow, .Hidden)
+
+	g_watch_window     = window
+	g_watch_bar_height = bar_height
+	if !g_watch_installed {
+		_ = sdl.AddEventWatch(resize_watch, nil)
+		g_watch_installed = true
+	}
+}
+
+// Fires from AppKit's dispatch on the main thread, including during live
+// resize when app_update is blocked. Kept small: just re-run the reposition
+// so the buttons stay pinned mid-drag.
+@(private = "file")
+resize_watch :: proc "c" (userdata: rawptr, event: ^sdl.Event) -> bool {
+	#partial switch event.type {
+	case .WINDOW_RESIZED, .WINDOW_PIXEL_SIZE_CHANGED:
+		if g_watch_window != nil {
+			context = runtime.default_context()
+			reposition_traffic_lights(g_watch_window, g_watch_bar_height)
+		}
+	}
+	return true
 }
 
 reposition_traffic_lights :: proc(window: ^sdl.Window, bar_height: f32) {
