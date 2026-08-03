@@ -3,7 +3,18 @@ package editor
 import "../../vendor/clay"
 import "../ui"
 
-Editor :: struct {}
+Toolbar_Tab :: enum u8 {
+	Project,
+	Map,
+	Tileset,
+	Sprites,
+	Level,
+	Settings,
+}
+
+Editor :: struct {
+	tab: Toolbar_Tab,
+}
 
 @(require_results)
 editor_init :: proc(editor: ^Editor) -> bool {
@@ -21,6 +32,6 @@ editor_frame :: proc(editor: ^Editor, ctx: ^ui.Ctx) {
 		},
 	},
 	) {
-		toolbar_frame(ctx)
+		toolbar_frame(ctx, editor)
 	}
 }

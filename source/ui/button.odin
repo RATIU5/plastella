@@ -18,12 +18,13 @@ Button_Style :: struct {
 
 BUTTON :: enum u8 {
 	DEFAULT,
+	TAB_TEXT,
 }
 
 button_styles := [BUTTON]Button_Style {
 	.DEFAULT = {
 		font = .UI_REG_16,
-		padding = {top = 6, left = 6, right = 6, bottom = 6},
+		padding = {6, 6, 6, 6},
 		bg_color = {
 			.Normal = gfx.COLOR_TRANSPARENT,
 			.Hover = gfx.COLOR_GREY_805,
@@ -48,7 +49,36 @@ button_styles := [BUTTON]Button_Style {
 			.Focus_Active = gfx.COLOR_GREY_240,
 			.Disabled = gfx.COLOR_GREY_605,
 		},
-		radius = {topLeft = 5, topRight = 5, bottomLeft = 5, bottomRight = 5},
+		radius = {5, 5, 5, 5},
+	},
+	.TAB_TEXT = {
+		font = .UI_REG_13,
+		padding = {9, 9, 5, 5},
+		bg_color = {
+			.Normal = gfx.COLOR_TRANSPARENT,
+			.Hover = gfx.COLOR_GREY_740,
+			.Active = gfx.COLOR_GREY_740,
+			.Engaged = gfx.COLOR_ACCENT,
+			.Engaged_Hover = gfx.COLOR_ACCENT,
+			.Engaged_Active = gfx.COLOR_ACCENT,
+			.Focus = gfx.COLOR_GREY_805,
+			.Focus_Hover = gfx.COLOR_GREY_805,
+			.Focus_Active = gfx.COLOR_GREY_850,
+			.Disabled = gfx.COLOR_TRANSPARENT,
+		},
+		fg_color = {
+			.Normal = gfx.COLOR_GREY_240,
+			.Hover = gfx.COLOR_GREY_150,
+			.Active = gfx.COLOR_GREY_150,
+			.Engaged = gfx.COLOR_GREY_30,
+			.Engaged_Hover = gfx.COLOR_GREY_30,
+			.Engaged_Active = gfx.COLOR_GREY_30,
+			.Focus = gfx.COLOR_GREY_240,
+			.Focus_Hover = gfx.COLOR_GREY_240,
+			.Focus_Active = gfx.COLOR_GREY_240,
+			.Disabled = gfx.COLOR_GREY_500,
+		},
+		radius = {5, 5, 5, 5},
 	},
 }
 
@@ -99,7 +129,7 @@ button_text :: proc(
 		cornerRadius = style.radius,
 	},
 	) {
-		gfx.text(ctx.frame.assets, label, .UI_REG_13, fg, .Center, .None)
+		gfx.text(ctx.frame.assets, label, style.font, fg, .Center, .None)
 	}
 
 	return clicked

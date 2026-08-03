@@ -348,28 +348,49 @@ render_arc :: proc(
 	radius, start_deg, end_deg, thickness: f32,
 	color: clay.Color,
 ) {
-	col := color_u8(color)
-	sdl.SetRenderDrawColor(renderer, col.r, col.g, col.b, col.a)
+	// Fill a quarter-annulus as geometry, matching fill_rounded_rect, so the
+	// corner joins the straight RenderFillRect runs with no seam and reads at a
+	// uniform thickness. The old stacked-polyline approach rounded every vertex
+	// to the pixel grid, which staircased the arc and made the stroke wander
+	// between one and two pixels.
+	fc := color_float(color)
+	r_out := radius
+	r_in := max(radius - thickness, 0) // inner ring lands on the straight-edge inner boundary.
 
 	rad_start := start_deg * (math.PI / 180)
 	rad_end := end_deg * (math.PI / 180)
 	segments := clamp(int(radius * 1.5), SEGMENTS_BASE, ARC_SEGMENTS_MAX)
+	assert(segments <= ARC_SEGMENTS_MAX) // buffers below are sized for exactly this, checked before the first write.
 	angle_step := (rad_end - rad_start) / f32(segments)
 
-	THICKNESS_STEP :: f32(0.4)
+	// One outer/inner vertex pair per ring step, one quad (two tris) per segment.
+	verts: [(ARC_SEGMENTS_MAX + 1) * 2]sdl.Vertex = ---
+	indices: [ARC_SEGMENTS_MAX * 6]c.int = ---
+	vc, ic := 0, 0
 
-	points: [ARC_SEGMENTS_MAX + 1]sdl.FPoint = ---
-	for t := f32(0); t <= thickness - THICKNESS_STEP; t += THICKNESS_STEP {
-		r := max(radius - t, 1)
-		for i in 0 ..= segments {
-			angle := rad_start + f32(i) * angle_step
-			points[i] = {
-				math.round(center.x + math.cos(angle) * r),
-				math.round(center.y + math.sin(angle) * r),
-			}
+	for i in 0 ..= segments {
+		angle := rad_start + f32(i) * angle_step
+		cos, sin := math.cos(angle), math.sin(angle)
+		verts[vc] = {{center.x + cos * r_out, center.y + sin * r_out}, fc, {0, 0}}
+		verts[vc + 1] = {{center.x + cos * r_in, center.y + sin * r_in}, fc, {0, 0}}
+		if i < segments {
+			o0, i0 := c.int(vc), c.int(vc + 1)
+			o1, i1 := c.int(vc + 2), c.int(vc + 3)
+			indices[ic], indices[ic + 1], indices[ic + 2] = o0, o1, i0
+			indices[ic + 3], indices[ic + 4], indices[ic + 5] = o1, i1, i0
+			ic += 6
 		}
-		sdl.RenderLines(renderer, raw_data(points[:]), c.int(segments + 1))
+		vc += 2
 	}
+
+	sdl.RenderGeometry(
+		renderer,
+		nil,
+		raw_data(verts[:]),
+		c.int(vc),
+		raw_data(indices[:]),
+		c.int(ic),
+	)
 }
 
 @(private = "file")

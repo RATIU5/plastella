@@ -45,7 +45,7 @@ gfx_reload :: proc(gfx: ^Gfx, asts: ^assets.Assets, size: [2]f32) -> bool {
 }
 
 gfx_frame_begin :: proc(frame: ^Frame) {
-	sdl.SetRenderDrawColor(frame.device.renderer, 0, 0, 0, 255)
+	sdl.SetRenderDrawColor(frame.device.renderer, 18, 18, 18, 255)
 
 	clear_ok := sdl.RenderClear(frame.device.renderer)
 	if !clear_ok do fmt.eprintln("failed to clear frame")

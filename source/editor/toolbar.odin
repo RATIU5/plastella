@@ -1,12 +1,20 @@
 package editor
 
 import "../../vendor/clay"
-import "../assets"
 import "../config"
 import "../gfx"
 import "../ui"
 
-toolbar_frame :: proc(ctx: ^ui.Ctx) {
+toolbar_tabs := [Toolbar_Tab]ui.Tab {
+	.Project = {id = "toolbar:tab:project", label = "Project"},
+	.Map = {id = "toolbar:tab:map", label = "Map", disabled = true},
+	.Tileset = {id = "toolbar:tab:tileset", label = "Tileset", disabled = true},
+	.Sprites = {id = "toolbar:tab:sprites", label = "Sprites", disabled = true},
+	.Level = {id = "toolbar:tab:level", label = "Level", disabled = true},
+	.Settings = {id = "toolbar:tab:settings", label = "Settings", disabled = true},
+}
+
+toolbar_frame :: proc(ctx: ^ui.Ctx, editor: ^Editor) {
 
 	if clay.UI(clay.ID("toolbar"))(
 	{
@@ -49,12 +57,7 @@ toolbar_frame :: proc(ctx: ^ui.Ctx) {
 			},
 		},
 		) {
-			ui.button(ctx, "toolbar:project", assets.Ui_Icons.Project, .DEFAULT)
-			ui.button(ctx, "toolbar:map", assets.Ui_Icons.Map, .DEFAULT)
-			ui.button(ctx, "toolbar:tilesets", assets.Ui_Icons.Tilesets, .DEFAULT)
-			ui.button(ctx, "toolbar:sprites", assets.Ui_Icons.Sprites, .DEFAULT)
-			ui.button(ctx, "toolbar:level_editor", assets.Ui_Icons.Level_Editor, .DEFAULT)
-			ui.button(ctx, "toolbar:settings", assets.Ui_Icons.Settings, .DEFAULT)
+			editor.tab = ui.segmented_control(ctx, "toolbar:tabs", editor.tab, toolbar_tabs)
 		}
 
 		// TOOLBAR:RIGHT
