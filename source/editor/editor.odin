@@ -2,28 +2,16 @@ package editor
 
 import "../../vendor/clay"
 import "../ui"
-
-Toolbar_Tab :: enum u8 {
-	Project,
-	Map,
-	Tileset,
-	Sprites,
-	Level,
-	Settings,
-}
-
-Editor :: struct {
-	tab: Toolbar_Tab,
-}
+import "./editor_types"
 
 @(require_results)
-editor_init :: proc(editor: ^Editor) -> bool {
+editor_init :: proc(editor: ^editor_types.Editor) -> bool {
 	return true
 }
 
-editor_shutdown :: proc(editor: ^Editor) {}
+editor_shutdown :: proc(editor: ^editor_types.Editor) {}
 
-editor_frame :: proc(editor: ^Editor, ctx: ^ui.Ctx) {
+editor_frame :: proc(editor: ^editor_types.Editor, ctx: ^ui.Ctx) {
 	if clay.UI(clay.ID("editor"))(
 	{
 		layout = {
@@ -33,5 +21,7 @@ editor_frame :: proc(editor: ^Editor, ctx: ^ui.Ctx) {
 	},
 	) {
 		toolbar_frame(ctx, editor)
+		main_editor_frame(ctx, editor)
+		statusbar_frame(ctx, editor)
 	}
 }

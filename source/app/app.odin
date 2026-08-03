@@ -3,8 +3,10 @@ package app
 import "../assets"
 import "../config"
 import "../editor"
+import "../editor/editor_types"
 import "../gfx"
 import "../platform"
+import "../project"
 import "../ui"
 import "base:runtime"
 import "core:fmt"
@@ -46,7 +48,8 @@ App :: struct {
 	input:        platform.Input,
 	assets:       assets.Assets,
 	gfx:          gfx.Gfx,
-	editor:       editor.Editor,
+	editor:       editor_types.Editor,
+	project:      project.Project,
 	ui:           ui.Ui,
 }
 app: ^App

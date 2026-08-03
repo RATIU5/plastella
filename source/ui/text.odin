@@ -1,7 +1,8 @@
-package gfx
+package ui
 
 import "../../vendor/clay"
 import "../assets"
+import "../gfx"
 import "core:c"
 import "core:fmt"
 import "core:math"
@@ -97,5 +98,5 @@ text_width :: proc(str: string, style: assets.Text, asts: ^assets.Assets) -> f32
 		length = i32(len(str)),
 		chars  = ([^]c.char)(raw_data(str)),
 	}
-	return measure_text(slice, &cfg, asts).width
+	return gfx.measure_text(slice, &cfg, asts).width
 }

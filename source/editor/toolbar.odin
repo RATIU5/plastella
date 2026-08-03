@@ -4,8 +4,10 @@ import "../../vendor/clay"
 import "../config"
 import "../gfx"
 import "../ui"
+import "./editor_types"
 
-toolbar_tabs := [Toolbar_Tab]ui.Tab {
+
+toolbar_tabs := [editor_types.Toolbar_Tab]ui.Tab {
 	.Project = {id = "toolbar:tab:project", label = "Project"},
 	.Map = {id = "toolbar:tab:map", label = "Map", disabled = true},
 	.Tileset = {id = "toolbar:tab:tileset", label = "Tileset", disabled = true},
@@ -14,7 +16,7 @@ toolbar_tabs := [Toolbar_Tab]ui.Tab {
 	.Settings = {id = "toolbar:tab:settings", label = "Settings", disabled = true},
 }
 
-toolbar_frame :: proc(ctx: ^ui.Ctx, editor: ^Editor) {
+toolbar_frame :: proc(ctx: ^ui.Ctx, editor: ^editor_types.Editor) {
 
 	if clay.UI(clay.ID("toolbar"))(
 	{
@@ -40,7 +42,7 @@ toolbar_frame :: proc(ctx: ^ui.Ctx, editor: ^Editor) {
 			},
 		},
 		) {
-			gfx.text(ctx.frame.assets, "Plastella", .UI_BLD_13, {255, 255, 255, 255})
+			ui.text(ctx.frame.assets, "Plastella", .UI_BLD_13, {255, 255, 255, 255})
 		}
 
 		// TOOLBAR:CENTER
@@ -74,7 +76,7 @@ toolbar_frame :: proc(ctx: ^ui.Ctx, editor: ^Editor) {
 			},
 		},
 		) {
-			gfx.text(ctx.frame.assets, "Plastella", .UI_BLD_13, {255, 255, 255, 255})
+			// TODO
 		}
 	}
 }

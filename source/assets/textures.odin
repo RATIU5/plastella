@@ -7,6 +7,7 @@ import img "vendor:sdl3/image"
 
 Texture_Id :: enum u8 {
 	Icons,
+	Logo,
 }
 
 Texture_Slice :: struct {
@@ -18,6 +19,7 @@ Texture_Slice :: struct {
 @(rodata)
 texture_paths := [Texture_Id]cstring {
 	.Icons = "resources/textures/ui_icons.png",
+	.Logo  = "resources/textures/logo.png",
 }
 
 @(require_results)
@@ -38,4 +40,10 @@ unload_textures :: proc(a: ^Assets) {
 	for tex in a.textures do if tex != nil do sdl.DestroyTexture(tex)
 	a.textures = {}
 	a.ui_icons = {} // icon slices cache the atlas texture pointer; zero together.
+}
+
+@(require_results)
+image :: proc(a: ^Assets, id: Texture_Id) -> Texture_Slice {
+	tex := a.textures[id]
+	return {tex = tex, crop = {x = 0, y = 0, w = tex.w, h = tex.h}, tint = {255, 255, 255, 255}}
 }

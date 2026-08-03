@@ -34,7 +34,7 @@ tab_bar_styles := [TAB_BAR]Tab_Bar_Style {
 		border_width = {1, 1, 1, 1, 0},
 		border_color = gfx.COLOR_GREY_710,
 		radius = {8, 8, 8, 8},
-		button = .TAB_TEXT,
+		button = .SEG_CTRL_TEXT,
 	},
 }
 

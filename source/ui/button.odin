@@ -18,13 +18,13 @@ Button_Style :: struct {
 
 BUTTON :: enum u8 {
 	DEFAULT,
-	TAB_TEXT,
+	SEG_CTRL_TEXT,
 }
 
 button_styles := [BUTTON]Button_Style {
 	.DEFAULT = {
-		font = .UI_REG_16,
-		padding = {6, 6, 6, 6},
+		font = .UI_REG_13,
+		padding = {12, 12, 6, 6},
 		bg_color = {
 			.Normal = gfx.COLOR_TRANSPARENT,
 			.Hover = gfx.COLOR_GREY_805,
@@ -51,7 +51,7 @@ button_styles := [BUTTON]Button_Style {
 		},
 		radius = {5, 5, 5, 5},
 	},
-	.TAB_TEXT = {
+	.SEG_CTRL_TEXT = {
 		font = .UI_REG_13,
 		padding = {9, 9, 5, 5},
 		bg_color = {
@@ -129,7 +129,7 @@ button_text :: proc(
 		cornerRadius = style.radius,
 	},
 	) {
-		gfx.text(ctx.frame.assets, label, style.font, fg, .Center, .None)
+		text(ctx.frame.assets, label, style.font, fg, .Center, .None)
 	}
 
 	return clicked
