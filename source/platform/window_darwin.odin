@@ -2,81 +2,98 @@ package platform
 
 // Reposition the native macOS traffic-light buttons (close / minimise / zoom)
 // so they sit vertically centred inside a taller-than-standard custom header.
-// Their horizontal positions and inter-button spacing are left to AppKit — we
-// only shift Y and grow their container.
 //
-// Called every frame from app_update. It's idempotent — setting a frame to
-// the value it already has is essentially free — and running it per-frame
-// means we self-heal from any AppKit relayout (fullscreen transition,
-// deminiaturise, style-mask change) without any observer / notification /
-// delegate plumbing. Notification-driven attempts were tried and abandoned:
-// AppKit's chrome relayout timing does not line up cleanly with any single
-// public notification, and the runloop-mode / show-time ordering makes
-// deferred selectors unreliable in an SDL event loop.
-//
-// LIVE RESIZE special case: macOS runs live resize in a modal
-// NSEventTrackingRunLoopMode. SDL_WaitEventTimeout blocks in the default
-// mode until resize ends, so app_update stops ticking mid-drag and the
-// per-frame call can't keep up with AppKit re-laying-out the titlebar.
-// SDL_AddEventWatch fires from AppKit's dispatch on the main thread even
-// while the SDL event loop is blocked — SDL's own docs call this out for
-// WINDOW_EXPOSED — so we reposition from the watch callback on
-// WINDOW_RESIZED / PIXEL_SIZE_CHANGED to keep the buttons pinned during
-// the drag.
-//
-// APPROACHES CONSIDERED AND REJECTED (do not reintroduce):
-//
-//   1. Moving individual NSButton frames WITHOUT also growing their group
-//      container (close.superview.superview). AppKit keys the shared hover-
-//      glyph state to the group's geometry; a button moved out of that
-//      geometry stops lighting up with its siblings on hover.
-//
-//   2. Moving only close.superview. AppKit re-applies its own titlebar
-//      layout to that view on live resize and silently reverts the change.
-//
-//   3. Overriding -updateTrackingAreas on views we own to try to un-stick
-//      hover. The group-hover tracking lives on AppKit-private ancestor
-//      views; replacing tracking areas on views we DO own does nothing and
-//      can strip legitimate tracking areas.
-//
+// APPROACHES REJECTED — do not reintroduce:
+//   1. Moving individual NSButton frames without also growing their group
+//      container (close.superview.superview). AppKit keys grouped-hover
+//      glyph state to the group's geometry; a button moved out of it stops
+//      lighting up with its siblings.
+//   2. Moving only close.superview. AppKit reapplies its own titlebar layout
+//      to that view on live resize and reverts the change.
+//   3. Overriding -updateTrackingAreas on views we own. Group-hover tracking
+//      lives on AppKit-private ancestor views; replacing tracking areas on
+//      views we own does nothing and can strip legitimate ones.
 //   4. Private-API KVC into _titlebarContainerView / NSThemeFrame. Unstable
 //      across macOS releases and App Store hostile.
 //
-// APPROACH USED (Electron / Zed pattern): grow the button cluster's grand-
-// parent container (close.superview.superview) to the header height and
-// top-anchor it, then set each button's Y (leaving X alone so AppKit's own
-// spacing is preserved). Buttons are always fetched live via
-// standardWindowButton: — never cached — because AppKit can recreate them
-// across fullscreen / style-mask changes.
-//
-// KNOWN CAVEAT: on some macOS versions a private ancestor keeps a "ghost"
-// group-hover tracking area at the original geometry that we can't remove.
-// If it surfaces, drop back to a stock-height titlebar.
+// APPROACH: grow close.superview.superview to the header height and top-
+// anchor it via NSAutoresizingMask, then set each button's Y (leaving X to
+// AppKit so default leading margin and inter-button spacing are preserved).
+// Buttons are always fetched live via standardWindowButton: — never cached —
+// because AppKit can recreate them across fullscreen / style-mask changes.
 
-import NS "core:sys/darwin/Foundation"
 import "base:intrinsics"
 import "base:runtime"
+import NS "core:sys/darwin/Foundation"
 import sdl "vendor:sdl3"
 
-// NSAutoresizingMaskOptions: NSViewWidthSizable (2) | NSViewMinYMargin (8)
-// = width tracks the window, bottom margin flexes so the container stays
-// pinned to the top of the window during live resize.
-@(private = "file") AUTORESIZE_WIDTH_TOP :: NS.UInteger(2 | 8)
+Window_Button :: enum NS.UInteger {
+	Close       = 0,
+	Miniaturize = 1,
+	Zoom        = 2,
+}
 
-// The event-watch callback is on the main thread but the per-frame path
-// also writes these, so keep the shape trivial (single-word writes).
-@(private = "file") g_watch_window     : ^sdl.Window
-@(private = "file") g_watch_bar_height : f32
-@(private = "file") g_watch_installed  : bool
+// NSAutoresizingMaskOptions: NSViewWidthSizable (2) | NSViewMinYMargin (8).
+// Container tracks window width and stays pinned to the top on live resize.
+@(private = "file")
+CONTAINER_AUTORESIZE :: NS.UInteger(2 | 8)
 
+// Cap the resize render at ~60 fps. Vsync does the fine pacing; this stops a
+// 120 Hz panel from burning GPU during a drag. Traffic-light reposition is not
+// throttled, it must track the mouse frame-accurate.
+RESIZE_RENDER_INTERVAL_NS :: u64(16_000_000)
+
+Render_Callback :: #type proc "c" ()
+
+// File-scoped singleton justified: one window per process, and SDL's event
+// watch userdata is an untyped rawptr that cannot carry inline state cheaply.
+@(private = "file")
+Watch :: struct {
+	window:         ^sdl.Window,
+	bar_height:     f32,
+	installed:      bool,
+	render:         Render_Callback,
+	render_last_ns: u64,
+	// Guards RenderPresent re-firing this watch mid-frame; a nested
+	// clay.BeginLayout would corrupt the command buffer.
+	render_active:  bool,
+}
+@(private = "file")
+watch: Watch
+
+/*
+Returns the underlying NSWindow backing an SDL window on macOS.
+
+Inputs:
+- window: A live SDL_Window.
+
+Returns:
+- The NSWindow, or nil if SDL did not populate the Cocoa property.
+*/
+@(require_results)
 cocoa_window :: proc(window: ^sdl.Window) -> ^NS.Window {
+	assert(window != nil)
 	props := sdl.GetWindowProperties(window)
 	return (^NS.Window)(sdl.GetPointerProperty(props, sdl.PROP_WINDOW_COCOA_WINDOW_POINTER, nil))
 }
 
-setup_window :: proc(window: ^sdl.Window, bar_height: f32) {
+/*
+Configures the window to draw content edge-to-edge behind a transparent
+titlebar and installs the resize event watch. Call once at window creation,
+before ShowWindow. Pair with window_teardown.
+
+Inputs:
+- window: A live SDL_Window.
+- bar_height: Height in points of the custom header the buttons will be
+  centred inside.
+*/
+window_setup :: proc(window: ^sdl.Window, bar_height: f32) {
+	assert(window != nil)
+	assert(bar_height > 0)
+
 	nswindow := cocoa_window(window)
 	if nswindow == nil do return
+
 	NS.Window_setStyleMask(
 		nswindow,
 		{.Titled, .Closable, .Miniaturizable, .Resizable, .FullSizeContentView},
@@ -84,91 +101,148 @@ setup_window :: proc(window: ^sdl.Window, bar_height: f32) {
 	NS.Window_setTitlebarAppearsTransparent(nswindow, true)
 	NS.Window_setTitleVisibility(nswindow, .Hidden)
 
-	g_watch_window     = window
-	g_watch_bar_height = bar_height
-	if !g_watch_installed {
+	watch.window = window
+	watch.bar_height = bar_height
+	if !watch.installed {
+		// Ignored: failure only degrades live resize; the per-frame call from
+		// app_update still repositions on every non-resize frame.
 		_ = sdl.AddEventWatch(resize_watch, nil)
-		g_watch_installed = true
+		watch.installed = true
 	}
 }
 
-// Fires from AppKit's dispatch on the main thread, including during live
-// resize when app_update is blocked. Kept small: just re-run the reposition
-// so the buttons stay pinned mid-drag.
-@(private = "file")
-resize_watch :: proc "c" (userdata: rawptr, event: ^sdl.Event) -> bool {
-	#partial switch event.type {
-	case .WINDOW_RESIZED, .WINDOW_PIXEL_SIZE_CHANGED:
-		if g_watch_window != nil {
-			context = runtime.default_context()
-			reposition_traffic_lights(g_watch_window, g_watch_bar_height)
-		}
+/*
+Removes the resize event watch installed by window_setup. Idempotent and
+nil-safe so it is fine to call from partial-construction cleanup paths.
+*/
+window_teardown :: proc() {
+	if watch.installed {
+		sdl.RemoveEventWatch(resize_watch, nil)
 	}
-	return true
+	watch = {}
 }
 
+/*
+Registers the render callback the resize watch drives during macOS live resize.
+Must be re-registered after every hot reload (Appendix A rule 6): SDL keeps the
+watch proc pointer, and the callback's address changes when the module swaps.
+
+Inputs:
+- cb: The render callback, or nil to disable.
+*/
+window_set_render_callback :: proc(cb: Render_Callback) {
+	watch.render = cb
+	watch.render_last_ns = 0
+}
+
+/*
+Repositions the traffic lights inside the custom header. Idempotent — setting
+a frame to its current value is free — and safe to call every frame from
+app_update. It is also called from the resize event watch during macOS live
+resize, when the SDL event loop is blocked in NSEventTrackingRunLoopMode and
+per-frame ticks stop firing.
+
+Inputs:
+- window: A live SDL_Window.
+- bar_height: Header height in points.
+*/
 reposition_traffic_lights :: proc(window: ^sdl.Window, bar_height: f32) {
+	assert(window != nil)
+	assert(bar_height > 0)
+
 	nswindow := cocoa_window(window)
 	if nswindow == nil do return
 
-	// NEVER cache these across calls — AppKit may recreate button views on
-	// fullscreen / style-mask changes and any stashed pointer dangles.
-	close_btn := std_window_button(nswindow, 0)
-	mini_btn  := std_window_button(nswindow, 1)
-	zoom_btn  := std_window_button(nswindow, 2)
-	if close_btn == nil || mini_btn == nil || zoom_btn == nil do return
+	// NEVER cache these across calls: AppKit may recreate button views on
+	// fullscreen / style-mask changes and any stashed pointer dangles. All
+	// nil-returns below are transient AppKit states (window not yet titled,
+	// buttons being rebuilt), not programmer errors.
+	close_button := standard_window_button(nswindow, .Close)
+	miniaturize_button := standard_window_button(nswindow, .Miniaturize)
+	zoom_button := standard_window_button(nswindow, .Zoom)
+	if close_button == nil || miniaturize_button == nil || zoom_button == nil do return
 
-	parent := view_superview(close_btn)
+	parent := view_superview(close_button)
 	if parent == nil do return
 	container := view_superview(parent)
 	if container == nil do return
 
-	win_frame := NS.Window_frame(nswindow)
+	window_frame := NS.Window_frame(nswindow)
 	h := NS.Float(bar_height)
 
 	// Grow the group container to the tall header, pinned to the top of the
-	// window. Required — without this the buttons move out of the group's
-	// original geometry and grouped hover breaks (see "won't work" #1 above).
-	view_set_frame(container, NS.Rect{
-		origin = {x = 0, y = win_frame.size.height - h},
-		size   = {width = win_frame.size.width, height = h},
-	})
-	view_set_autoresizing_mask(container, AUTORESIZE_WIDTH_TOP)
+	// window. Without this the buttons drift outside the group's tracking
+	// geometry and grouped hover breaks (rejected approach #1 in file header).
+	view_set_frame(
+		container,
+		NS.Rect {
+			origin = {x = 0, y = window_frame.size.height - h},
+			size = {width = window_frame.size.width, height = h},
+		},
+	)
+	view_set_autoresizing_mask(container, CONTAINER_AUTORESIZE)
 
-	// Vertically centre each button. Leave X alone so AppKit's default
+	// Vertically center each button. Leave X alone so AppKit's default
 	// leading margin and inter-button spacing are preserved.
-	btn_h := view_frame(close_btn).size.height
-	origin_y := (h - btn_h) * 0.5
-	for btn in ([3]^NS.View{close_btn, mini_btn, zoom_btn}) {
-		f := view_frame(btn)
-		view_set_frame_origin(btn, {x = f.origin.x, y = origin_y})
+	button_height := view_frame(close_button).size.height
+	origin_y := (h - button_height) * 0.5
+	buttons := [?]^NS.View{close_button, miniaturize_button, zoom_button}
+	for button in buttons {
+		frame := view_frame(button)
+		view_set_frame_origin(button, {x = frame.origin.x, y = origin_y})
 	}
 }
 
-// --- Objective-C selectors not already bound in core:sys/darwin/Foundation ---
-// NSButton IS-A NSView, so ^NS.View is a valid receiver for all of these.
+// Fires on AppKit's main-thread dispatch even while WaitEventTimeout is parked
+// in NSEventTrackingRunLoopMode. Render is driven off PIXEL_SIZE_CHANGED only:
+// it fires after Metal resizes the drawable, so GetCurrentRenderOutputSize
+// returns the fresh size. RESIZED fires first with a stale drawable, so
+// rendering on it produces a visible axis smash on fast drags.
+@(private = "file")
+resize_watch :: proc "c" (_userdata: rawptr, event: ^sdl.Event) -> bool {
+	if watch.window == nil do return true
+	context = runtime.default_context()
 
-@(private = "file")
-std_window_button :: proc "c" (win: ^NS.Window, which: NS.UInteger) -> ^NS.View {
-	return intrinsics.objc_send(^NS.View, win, "standardWindowButton:", which)
+	#partial switch event.type {
+	case .WINDOW_RESIZED:
+		reposition_traffic_lights(watch.window, watch.bar_height)
+	case .WINDOW_PIXEL_SIZE_CHANGED:
+		reposition_traffic_lights(watch.window, watch.bar_height)
+
+		if watch.render == nil do return true
+		if watch.render_active do return true // reentrant fire from RenderPresent.
+		now := sdl.GetTicksNS()
+		if now - watch.render_last_ns < RESIZE_RENDER_INTERVAL_NS do return true
+
+		watch.render_last_ns = now
+		watch.render_active = true
+		watch.render()
+		watch.render_active = false
+	}
+	return true
+}
+
+@(private = "file", require_results)
+standard_window_button :: proc "c" (window: ^NS.Window, which: Window_Button) -> ^NS.View {
+	return intrinsics.objc_send(^NS.View, window, "standardWindowButton:", which)
+}
+@(private = "file", require_results)
+view_superview :: proc "c" (view: ^NS.View) -> ^NS.View {
+	return intrinsics.objc_send(^NS.View, view, "superview")
+}
+@(private = "file", require_results)
+view_frame :: proc "c" (view: ^NS.View) -> NS.Rect {
+	return intrinsics.objc_send(NS.Rect, view, "frame")
 }
 @(private = "file")
-view_superview :: proc "c" (v: ^NS.View) -> ^NS.View {
-	return intrinsics.objc_send(^NS.View, v, "superview")
+view_set_frame :: proc "c" (view: ^NS.View, rect: NS.Rect) {
+	intrinsics.objc_send(nil, view, "setFrame:", rect)
 }
 @(private = "file")
-view_frame :: proc "c" (v: ^NS.View) -> NS.Rect {
-	return intrinsics.objc_send(NS.Rect, v, "frame")
+view_set_frame_origin :: proc "c" (view: ^NS.View, point: NS.Point) {
+	intrinsics.objc_send(nil, view, "setFrameOrigin:", point)
 }
 @(private = "file")
-view_set_frame :: proc "c" (v: ^NS.View, r: NS.Rect) {
-	intrinsics.objc_send(nil, v, "setFrame:", r)
-}
-@(private = "file")
-view_set_frame_origin :: proc "c" (v: ^NS.View, p: NS.Point) {
-	intrinsics.objc_send(nil, v, "setFrameOrigin:", p)
-}
-@(private = "file")
-view_set_autoresizing_mask :: proc "c" (v: ^NS.View, mask: NS.UInteger) {
-	intrinsics.objc_send(nil, v, "setAutoresizingMask:", mask)
+view_set_autoresizing_mask :: proc "c" (view: ^NS.View, mask: NS.UInteger) {
+	intrinsics.objc_send(nil, view, "setAutoresizingMask:", mask)
 }

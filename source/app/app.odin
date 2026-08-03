@@ -36,6 +36,9 @@ App_Flag :: enum u8 {
 App_Flags :: distinct bit_set[App_Flag;u8]
 
 App :: struct {
+	// Borrowed from the host, survives reloads. Stashed so the resize-watch
+	// render callback can find it without a userdata plumbing round-trip.
+	device:       ^platform.Device,
 	time_prev_ns: u64,
 	dt:           f32,
 	frames_owed:  int,
@@ -51,6 +54,7 @@ app: ^App
 @(export, require_results)
 app_init :: proc(device: ^platform.Device) -> bool {
 	app = new(App, context.allocator)
+	app.device = device
 
 	w, h, size_ok := platform.window_size(device)
 	if !size_ok {
@@ -84,6 +88,9 @@ app_init :: proc(device: ^platform.Device) -> bool {
 	}
 
 	app.time_prev_ns = sdl.GetTicksNS()
+
+	// Paired with re-register in app_hot_reloaded (Appendix A rule 6).
+	platform.window_set_render_callback(app_render_c)
 
 	return true
 }
@@ -134,18 +141,29 @@ app_update :: proc(device: ^platform.Device) {
 	// No change or owes: don't touch GPU.
 	if app.frames_owed == 0 do return
 	app.frames_owed -= 1
+	app_render(device)
+}
 
+// Pure render path. No SDL polling, no flag mutation. Safe to call from the
+// resize watch as well as app_update.
+@(private = "file")
+app_render :: proc(device: ^platform.Device) {
 	now_ns := sdl.GetTicksNS()
 	app.dt = min(f32(now_ns - app.time_prev_ns) / 1_000_000_000.0, DT_MAX)
 	app.time_prev_ns = now_ns
 
-	w, h, size_ok := platform.window_size(device)
+	// Lay out to the drawable, not the window; the two disagree mid live-resize.
+	w_px, h_px, size_ok := platform.render_output_size(device)
 	if !size_ok {
-		fmt.eprintln("Failed to compute output size on device; defaulting to 0x0")
+		fmt.eprintln("Failed to query render output size")
 		return
 	}
+	scale := app.assets.scale
+	assert(scale > 0) // divide-by-zero would collapse the clay layout to +Inf.
+	w := f32(w_px) / scale
+	h := f32(h_px) / scale
 
-	frame := frame_make(app, device, {f32(w), f32(h)})
+	frame := frame_make(app, device, {w, h})
 	ctx := ctx_make(&app.ui, &frame)
 
 	platform.reposition_traffic_lights(device.window, config.TOOLBAR_HEIGHT)
@@ -155,6 +173,17 @@ app_update :: proc(device: ^platform.Device) {
 	editor.editor_frame(&app.editor, &ctx)
 	ui.ui_frame_end(&app.ui)
 	gfx.gfx_frame_end(&frame)
+}
+
+// C-ABI trampoline for the resize watch. Runs with default_context, so
+// context.allocator is not the host's tracking allocator: keep the render
+// path allocation-free.
+@(private = "file")
+app_render_c :: proc "c" () {
+	context = runtime.default_context()
+	if app == nil || app.device == nil do return
+	app_render(app.device)
+	free_all(context.temp_allocator)
 }
 
 @(export)
@@ -178,6 +207,8 @@ app_hot_reloaded :: proc(m: rawptr, assets_changed: bool) {
 	app = (^App)(m)
 	app.flags += {.Should_Reload_Clay}
 	if assets_changed do app.flags += {.Should_Reload_Assets}
+	// Repoint SDL at this module's callback address (Appendix A rule 6).
+	platform.window_set_render_callback(app_render_c)
 }
 
 @(export)

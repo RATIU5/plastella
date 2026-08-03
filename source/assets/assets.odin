@@ -8,6 +8,7 @@ import "vendor:sdl3/ttf"
 Assets :: struct {
 	fonts:    [Text]^ttf.Font,
 	textures: [Texture_Id]^sdl.Texture,
+	ui_icons: [Ui_Icons]Texture_Slice,
 	scale:    f32,
 }
 
@@ -23,7 +24,7 @@ assets_load :: proc(a: ^Assets, device: ^platform.Device) -> bool {
 		fmt.eprintln("Failed to load texture assets")
 		return false
 	}
-	load_ui_icons(a.textures[.Icons])
+	load_ui_icons(a, a.textures[.Icons])
 	return true
 }
 

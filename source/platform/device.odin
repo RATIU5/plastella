@@ -70,6 +70,7 @@ device_create :: proc(device: ^Device) -> bool {
 
 device_destroy :: proc(device: ^Device) {
 	if device != nil {
+		window_teardown()
 		for c in device.cursors {
 			if c != nil do sdl.DestroyCursor(c)
 		}
@@ -96,6 +97,16 @@ window_size :: proc(device: ^Device) -> (i32, i32, bool) {
 	return w, h, ok
 }
 
+// Drawable size in pixels of the current render target. Prefer this over
+// window_size in the render path so clay lays out at exactly the size Metal
+// will present into; during live resize the two can transiently disagree.
+@(require_results)
+render_output_size :: proc(device: ^Device) -> (i32, i32, bool) {
+	w, h: i32
+	ok := sdl.GetCurrentRenderOutputSize(device.renderer, &w, &h)
+	return w, h, ok
+}
+
 @(private = "file", require_results)
 sdl_init :: proc() -> bool {
 	FLAGS :: sdl.InitFlags{.VIDEO}
@@ -116,7 +127,8 @@ window_configure :: proc(window: ^sdl.Window) {
 	if window != nil {
 		// Will "jump" to center, but hidden will fix that
 		sdl.SetWindowPosition(window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
-		setup_window(window, conf.TOOLBAR_HEIGHT)
+		sdl.SetWindowMinimumSize(window, 800, 600)
+		window_setup(window, conf.TOOLBAR_HEIGHT)
 		sdl.ShowWindow(window)
 	}
 }

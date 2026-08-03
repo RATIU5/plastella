@@ -37,4 +37,5 @@ load_textures :: proc(a: ^Assets, device: ^platform.Device) -> bool {
 unload_textures :: proc(a: ^Assets) {
 	for tex in a.textures do if tex != nil do sdl.DestroyTexture(tex)
 	a.textures = {}
+	a.ui_icons = {} // icon slices cache the atlas texture pointer; zero together.
 }

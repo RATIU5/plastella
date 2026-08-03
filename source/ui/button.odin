@@ -129,7 +129,9 @@ button_icon :: proc(
 	bg := style.bg_color[st]
 	br := style.border_color[st]
 
-	icon_inst := assets.ui_icon(icon)
+	// Clay stores imageData as rawptr, so the instance must outlive this scope;
+	// heap-into-temp gives it a frame lifetime with no ownership question.
+	icon_inst := new_clone(assets.ui_icon(ctx.frame.assets, icon), context.temp_allocator)
 	icon_inst.tint = fg
 
 	clicked := gfx.clicked(ctx.frame, id)
