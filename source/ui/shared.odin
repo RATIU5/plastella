@@ -3,8 +3,8 @@ package ui
 import clay "../../vendor/clay"
 
 Sizing_Auto :: enum u8 {
-	GROW,
-	FIT,
+	Grow,
+	Fit,
 }
 
 Sizing :: union {
@@ -12,15 +12,15 @@ Sizing :: union {
 	f32,
 }
 
-sizing_to_clay :: proc(width: Sizing, height: Sizing = .FIT) -> clay.Sizing {
+sizing_to_clay :: proc(width: Sizing, height: Sizing = .Fit) -> clay.Sizing {
 	new_width: clay.SizingAxis
 	new_height: clay.SizingAxis
 
 	switch type in width {
 	case Sizing_Auto:
-		if type == .GROW {
+		if type == .Grow {
 			new_width = clay.SizingGrow()
-		} else if type == .FIT {
+		} else if type == .Fit {
 			new_width = clay.SizingFit()
 		} else {
 			new_width = clay.SizingFit()
@@ -31,9 +31,9 @@ sizing_to_clay :: proc(width: Sizing, height: Sizing = .FIT) -> clay.Sizing {
 
 	switch type in height {
 	case Sizing_Auto:
-		if type == .GROW {
+		if type == .Grow {
 			new_height = clay.SizingGrow()
-		} else if type == .FIT {
+		} else if type == .Fit {
 			new_height = clay.SizingFit()
 		} else {
 			new_height = clay.SizingFit()

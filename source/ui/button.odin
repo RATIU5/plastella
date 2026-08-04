@@ -4,7 +4,6 @@ import "../../vendor/clay"
 import "../assets"
 import "../gfx"
 import "../platform"
-import "core:strings"
 
 Button_Style :: struct {
 	font:         assets.Text,
@@ -14,10 +13,13 @@ Button_Style :: struct {
 	bg_color:     [gfx.Color_State]clay.Color,
 	fg_color:     [gfx.Color_State]clay.Color,
 	radius:       clay.CornerRadius,
+	child_align:  clay.ChildAlignment,
+	sizing:       Sizing,
 }
 
 BUTTON :: enum u8 {
 	DEFAULT,
+	WIDE_ACTION,
 	SEG_CTRL_TEXT,
 }
 
@@ -50,6 +52,39 @@ button_styles := [BUTTON]Button_Style {
 			.Disabled = gfx.COLOR_GREY_605,
 		},
 		radius = {5, 5, 5, 5},
+		child_align = {.Center, .Center},
+		sizing = .Fit,
+	},
+	.WIDE_ACTION = {
+		font = .UI_REG_13,
+		padding = {12, 12, 6, 6},
+		bg_color = {
+			.Normal = gfx.COLOR_TRANSPARENT,
+			.Hover = gfx.COLOR_GREY_805,
+			.Active = gfx.COLOR_GREY_850,
+			.Engaged = gfx.COLOR_TRANSPARENT,
+			.Engaged_Hover = gfx.COLOR_GREY_805,
+			.Engaged_Active = gfx.COLOR_GREY_850,
+			.Focus = gfx.COLOR_GREY_805,
+			.Focus_Hover = gfx.COLOR_GREY_805,
+			.Focus_Active = gfx.COLOR_GREY_850,
+			.Disabled = gfx.COLOR_TRANSPARENT,
+		},
+		fg_color = {
+			.Normal = gfx.COLOR_GREY_340,
+			.Hover = gfx.COLOR_GREY_290,
+			.Active = gfx.COLOR_GREY_290,
+			.Engaged = gfx.COLOR_ACCENT,
+			.Engaged_Hover = gfx.COLOR_ACCENT,
+			.Engaged_Active = gfx.COLOR_ACCENT,
+			.Focus = gfx.COLOR_GREY_240,
+			.Focus_Hover = gfx.COLOR_GREY_240,
+			.Focus_Active = gfx.COLOR_GREY_240,
+			.Disabled = gfx.COLOR_GREY_605,
+		},
+		radius = {5, 5, 5, 5},
+		child_align = {.Left, .Center},
+		sizing = .Grow,
 	},
 	.SEG_CTRL_TEXT = {
 		font = .UI_REG_13,
@@ -79,24 +114,46 @@ button_styles := [BUTTON]Button_Style {
 			.Disabled = gfx.COLOR_GREY_500,
 		},
 		radius = {5, 5, 5, 5},
+		child_align = {.Center, .Center},
+		sizing = .Fit,
 	},
 }
 
-button :: proc {
-	button_text,
-	button_icon,
+Button_Option :: enum u8 {
+	DISABLED,
+	SELECTED,
+}
+
+Button_Options :: bit_set[Button_Option;u8]
+
+Button_State :: struct {
+	clicked: bool,
+	font:    assets.Text,
+	fg:      clay.Color,
 }
 
 @(private = "file")
-button_text :: proc(
+Button_Pending :: struct {
+	color_state:    gfx.Color_State,
+	clicked:        bool,
+	awaiting_style: bool,
+}
+
+@(private = "file")
+button_pending: Button_Pending
+
+@(deferred_none = button_end)
+button :: proc(
 	ctx: ^Ctx,
 	id: string,
-	label: string,
-	theme: BUTTON,
-	sizing: Sizing = .FIT,
-	disabled := false,
-	selected := false,
-) -> bool {
+	options: Button_Options = {},
+) -> (
+	proc(theme: BUTTON) -> (Button_State, bool),
+) {
+	assert(!button_pending.awaiting_style, "button style must be supplied immediately")
+
+	disabled := .DISABLED in options
+	selected := .SELECTED in options
 	hover := !disabled && gfx.pointer_over(id)
 	active := !disabled && gfx.active_over(ctx.frame, id)
 	register_focusable(ctx, id)
@@ -104,99 +161,50 @@ button_text :: proc(
 
 	if hover do ctx.frame.cursor = .Pointer
 
-	st := gfx.color_state(active, hover, selected, focus, disabled)
-	style := button_styles[theme]
-	fg := style.fg_color[st]
-	bg := style.bg_color[st]
-	br := style.border_color[st]
-
-	clicked := gfx.clicked(ctx.frame, id)
-	if focus &&
+	clicked := !disabled && gfx.clicked(ctx.frame, id)
+	if !disabled &&
+	   focus &&
 	   (platform.key_pressed(ctx.frame.input, .RETURN) ||
 			   platform.key_pressed(ctx.frame.input, .SPACE)) {
 		clicked = true
 	}
 
-	if clay.UI(clay.ID(id))(
-	{
-		layout = {
-			padding = style.padding,
-			childAlignment = {x = .Center, y = .Center},
-			sizing = sizing_to_clay(sizing),
-		},
-		border = {width = style.border_width, color = br},
-		backgroundColor = bg,
-		cornerRadius = style.radius,
-	},
-	) {
-		text(ctx.frame.assets, label, style.font, fg, .Center, .None)
+	button_pending = {
+		color_state    = gfx.color_state(active, hover, selected, focus, disabled),
+		clicked        = clicked,
+		awaiting_style = true,
 	}
-
-	return clicked
+	clay._OpenElementWithId(clay.ID(id))
+	return button_configure
 }
 
 @(private = "file")
-button_icon :: proc(
-	ctx: ^Ctx,
-	id: string,
-	icon: assets.Ui_Icons,
-	theme: BUTTON,
-	sizing: Sizing = .FIT,
-	disabled := false,
-	selected := false,
-) -> bool {
-	hover := !disabled && gfx.pointer_over(id)
-	active := !disabled && gfx.active_over(ctx.frame, id)
-	register_focusable(ctx, id)
-	focus := ctx.ui.focused == id
+button_configure :: proc(theme: BUTTON) -> (Button_State, bool) {
+	assert(button_pending.awaiting_style, "button has no pending style")
 
-	if hover do ctx.frame.cursor = .Pointer
-
-	st := gfx.color_state(active, hover, selected, focus, disabled)
+	pending := button_pending
+	button_pending.awaiting_style = false
 	style := button_styles[theme]
-	text_style := assets.text_styles[style.font]
-	fg := style.fg_color[st]
-	bg := style.bg_color[st]
-	br := style.border_color[st]
+	st := pending.color_state
 
-	// Clay stores imageData as rawptr, so the instance must outlive this scope;
-	// heap-into-temp gives it a frame lifetime with no ownership question.
-	icon_inst := new_clone(assets.ui_icon(ctx.frame.assets, icon), context.temp_allocator)
-	icon_inst.tint = fg
-
-	clicked := gfx.clicked(ctx.frame, id)
-	if focus &&
-	   (platform.key_pressed(ctx.frame.input, .RETURN) ||
-			   platform.key_pressed(ctx.frame.input, .SPACE)) {
-		clicked = true
-	}
-
-	if clay.UI(clay.ID(id))(
-	{
-		layout = {
-			padding = style.padding,
-			childAlignment = {x = .Center, y = .Center},
-			sizing = sizing_to_clay(sizing),
-		},
-		border = {width = style.border_width, color = br},
-		backgroundColor = bg,
-		cornerRadius = style.radius,
-	},
-	) {
-		icon_id := strings.concatenate([]string{id, "_icon"}, context.temp_allocator)
-		icon_h := f32(text_style.size)
-		icon_w := icon_h * (f32(icon_inst.crop.w) / f32(icon_inst.crop.h))
-
-		if clay.UI(clay.ID(icon_id))(
+	clay.ConfigureOpenElement(
 		{
 			layout = {
-				sizing = {width = clay.SizingFixed(icon_w), height = clay.SizingFixed(icon_h)},
+				padding = style.padding,
+				childAlignment = style.child_align,
+				sizing = sizing_to_clay(style.sizing),
 			},
-			image = {imageData = rawptr(icon_inst)},
-			aspectRatio = {f32(icon_inst.crop.w) / f32(icon_inst.crop.h)},
+			border = {width = style.border_width, color = style.border_color[st]},
+			backgroundColor = style.bg_color[st],
+			cornerRadius = style.radius,
 		},
-		) {}
-	}
+	)
 
-	return clicked
+	return {clicked = pending.clicked, font = style.font, fg = style.fg_color[st]}, true
+}
+
+@(private = "file")
+button_end :: proc() {
+	button_pending.awaiting_style = false
+	clay._CloseElement()
 }

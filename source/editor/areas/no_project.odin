@@ -6,7 +6,7 @@ import "../editor_types"
 
 no_project :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 	if edtr.project == nil &&
-	   clay.UI(clay.ID("main_area:no_project"))(
+	   clay.UI(clay.ID("area:no_project"))(
 	   {
 		   layout = {
 			   sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()},
@@ -15,18 +15,34 @@ no_project :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 		   },
 	   },
 	   ) {
-		if clay.UI(clay.ID("main_area:no_project:inner"))(
+		if clay.UI(clay.ID("area:no_project:inner"))(
 		{
 			layout = {
-				sizing = {width = clay.SizingPercent(0.5), height = clay.SizingPercent(0.5)},
+				sizing = {width = clay.SizingFixed(250), height = clay.SizingPercent(0.5)},
 				layoutDirection = .TopToBottom,
 				childAlignment = {x = .Center, y = .Center},
 				childGap = 16,
 			},
 		},
 		) {
-			ui.image(ctx, "main_area:no_project:logo", .Logo, 200)
-			ui.button(ctx, "main_area:no_project:button_new", "New Project", .DEFAULT)
+			ui.image(ctx, "area:no_project:logo", .Logo, 200)
+			if clay.UI(clay.ID("area:no_project:quick_actions"))(
+			{
+				layout = {
+					sizing = {width = clay.SizingGrow()},
+					layoutDirection = .TopToBottom,
+					childAlignment = {x = .Center, y = .Center},
+					childGap = 8,
+				},
+			},
+			) {
+				if btn, open := ui.button(ctx, "area:no_project:button_new")(.WIDE_ACTION); open {
+					ui.text(ctx.frame.assets, "New Project", btn.font, btn.fg, .Center, .None)
+				}
+				if btn, open := ui.button(ctx, "area:no_project:button_open")(.WIDE_ACTION); open {
+					ui.text(ctx.frame.assets, "Open Project", btn.font, btn.fg, .Center, .None)
+				}
+			}
 		}
 	}
 }

@@ -65,13 +65,22 @@ segmented_control :: proc(
 		for tab in T {
 			item := tabs[tab]
 			sel := tab == active
-			icon, has_icon := item.icon.?
-			if has_icon {
-				assert(item.label == "")
-				if button(ctx, item.id, icon, st.button, selected = sel, disabled = item.disabled) && !item.disabled do result = tab
-			} else {
-				assert(item.label != "")
-				if button(ctx, item.id, item.label, st.button, selected = sel, disabled = item.disabled) && !item.disabled do result = tab
+			icon_id, has_icon := item.icon.?
+			options: Button_Options
+			if sel do options += {.SELECTED}
+			if item.disabled do options += {.DISABLED}
+
+			if btn, open := button(ctx, item.id, options)(st.button); open {
+				if has_icon {
+					assert(item.label == "")
+					icon_h := f32(assets.text_styles[btn.font].size)
+					icon(ctx, item.id, icon_id, icon_h, btn.fg)
+				} else {
+					assert(item.label != "")
+					text(ctx.frame.assets, item.label, btn.font, btn.fg, .Center, .None)
+				}
+
+				if btn.clicked && !item.disabled do result = tab
 			}
 		}
 	}
