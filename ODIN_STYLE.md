@@ -122,7 +122,7 @@ Safety is first because a fast program that is subtly wrong is worse than useles
 ### 2.5 Memory, no secret allocations
 
 - **Know who owns every allocation and when it is freed.** Bracket a resource lifetime with blank lines, allocation on one side and its `defer delete` on the other, so a leak is visually obvious.
-- **Prefer caller owned memory over hidden global state.** A global `map[string]State` that clones keys, scans linearly, and juggles `delete` on teardown is a pile of secret allocations. Let the caller own the `State` and pass `^State`. Ownership is explicit, a default is plain struct initialization, and the bookkeeping is gone.
+- **Prefer caller owned memory over hidden global state, once the shape is known.** Global and static variables are a fine way to rough-draft state early, when you do not yet know the shape of the problem — cheap to iterate, nothing to thread through call sites. But a global `map[string]State` that clones keys, scans linearly, and juggles `delete` on teardown is a pile of secret allocations. Once the state stabilizes, factor it into a struct the caller owns and passes as `^State`. Ownership becomes explicit, a default is plain struct initialization, and the bookkeeping is gone.
 - **No per call allocation in a hot loop without a comment justifying it.** Helpers like `strings.concatenate` or `strings.clone` churn memory every call. A temp allocator makes them leak safe but they are still work. Precompute once, or state the cost is intentional and bounded.
 - **Use a scoped temp allocator for scratch** and free it all at once at the boundary with `free_all(context.temp_allocator)`. Anything returned that lives in temp memory must say so at the call site, for example `// Returned string aliases temp storage, clone to keep.`
 - **Name allocators by role.** Use `gpa` versus `arena` versus a temp allocator so the name tells the reader whether they must free.
@@ -220,6 +220,7 @@ Odin has opinions. Lean into them, because they encode much of the above for fre
 - Variables use `snake_case`, like `byte_offset` and `read_count`.
 - Constants use `SCREAMING_SNAKE_CASE`, like `DEFAULT_BUF_SIZE` and `MAX_DEPTH`.
 - **Do not alias an import; the package name is already the namespace.** Write `import "core:strings"` and call `strings.to_upper`, the way `core` does. An alias that merely repeats the package name, like `import assets "../assets"`, is noise on every file. Alias only to disambiguate two packages with the same base name, or to shorten a genuinely unwieldy foreign name, and keep the alias `snake_case` and one word where possible, like `sdl`, `ttf`, `img`, `conf`.
+- **Prefer few, coarse packages over many single-purpose ones.** Packages are units of distribution, not organization: a package that exists to hold one five-line file is a folder tax, not a boundary. Split code into files within a package first; reach for a new package only when the code is meant to be imported, versioned, or reused independently of the rest.
 - Acronyms keep caps together, like `JSON_Value`, not `Json_Value`.
 - **The package is the namespace, so name procedures for their subject.** Odin has no methods, so prefix a procedure with its subject role, like `reader_init`, `reader_destroy`, `builder_make`, and `builder_reset`, called as `bufio.reader_init`. Pair `init` with `destroy` and `make` with `delete`. Do not name a bare `init` in a package that manages more than one type.
 - **Do not over abbreviate, but honor established short names.** Spell out `source` and `target` when derived names must line up, like `source_offset` and `target_offset`. Freely use the conventional short names every Odin reader knows, like `len`, `cap`, `ptr`, `buf`, `n`, `i`, `j`, `r` and `w` for read and write cursors, and `lo` and `hi`. Prefer a clear full word for a domain concept and a short name for a mechanical one.
@@ -350,7 +351,7 @@ Odin has opinions. Lean into them, because they encode much of the above for fre
 - **`do` is for a single trailing statement, and never nests.** `if !ok do return false` reads better than four lines of braces and is idiomatic Odin. `for f in fonts do if f != nil do close(f)` is two decisions hidden on one line, which is the readability failure `-disallow-do` exists to prevent. Prefer the one line form for a single guard or a single assignment; brace it the moment a second decision appears. Do not enable `-disallow-do` unless you intend to give up the guard form too.
 - **Tabs for indentation, spaces for alignment.** Indent with tabs and align continuation lines and columns with spaces so alignment survives any tab width. Enforce it with `-vet-tabs` rather than by review, so it cannot drift.
 - **About 100 columns, soft.** Nothing important should hide behind a horizontal scrollbar. Wrap long signatures or calls with a trailing comma and let the formatter finish.
-- **About 70 lines per procedure, soft.** There is a real cognitive cliff when a function stops fitting on a screen. Split by pushing control flow up and nonbranchy fragments down. Good shape is an inverted hourglass, few params, a simple return, a meaty middle.
+- **About 70 lines per procedure, soft.** There is a real cognitive cliff when a function stops fitting on a screen. Split by pushing control flow up and nonbranchy fragments down. Good shape is an inverted hourglass, few params, a simple return, a meaty middle. A flat, non-branchy proc — sequential setup, table construction, a layout tree — earns more slack than a proc full of decisions, since length there costs less than length in a proc full of decisions; the cognitive cliff comes from branching, not line count alone.
 - **Braces at the end of the line** for both procs and types.
 - **Declare variables at the smallest scope**, as close to first use as possible. Do not introduce a variable early or leave it lingering.
 - **Comments are prose.** Capital letter, full stop, and a space after `//`. End of line comments may be terse phrases. Explain why, and explain how for tests.
@@ -378,7 +379,7 @@ Odin has opinions. Lean into them, because they encode much of the above for fre
 
 - [ ] No secret allocations, and every alloc has a known owner and a visible free.
 - [ ] Per scope scratch uses a temp allocator, and nothing owned by temp escapes its scope unflagged.
-- [ ] Caller owned state preferred over hidden global state.
+- [ ] Global/static state used only for early rough-draft prototyping, or graduated into caller owned state once its shape is known.
 - [ ] Every foreign `Create*` has its `Destroy*`, torn down in reverse order, with handles assigned as created so early returns can clean up.
 - [ ] Nothing `free`s an interior pointer or a handle it did not allocate.
 
@@ -386,7 +387,8 @@ Odin has opinions. Lean into them, because they encode much of the above for fre
 
 - [ ] Small procs over plain data, and table driven over copy pasted `switch` logic.
 - [ ] Prefer passing `^State` over reaching into hidden global state.
-- [ ] About 70 lines per proc, about 100 columns per line, hourglass shape.
+- [ ] Few, coarse packages; files preferred over new packages for organization.
+- [ ] About 70 lines per proc (more for flat, non-branchy procs), about 100 columns per line, hourglass shape.
 
 **Odin idiom**
 
