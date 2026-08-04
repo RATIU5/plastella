@@ -14,6 +14,7 @@ Button_Style :: struct {
 	fg_color:     [gfx.Color_State]clay.Color,
 	radius:       clay.CornerRadius,
 	child_align:  clay.ChildAlignment,
+	child_gap:    u16,
 	sizing:       Sizing,
 }
 
@@ -53,11 +54,12 @@ button_styles := [BUTTON]Button_Style {
 		},
 		radius = {5, 5, 5, 5},
 		child_align = {.Center, .Center},
+		child_gap = 8,
 		sizing = .Fit,
 	},
 	.WIDE_ACTION = {
 		font = .UI_REG_13,
-		padding = {12, 12, 6, 6},
+		padding = {10, 10, 6, 6},
 		bg_color = {
 			.Normal = gfx.COLOR_TRANSPARENT,
 			.Hover = gfx.COLOR_GREY_805,
@@ -84,6 +86,7 @@ button_styles := [BUTTON]Button_Style {
 		},
 		radius = {5, 5, 5, 5},
 		child_align = {.Left, .Center},
+		child_gap = 8,
 		sizing = .Grow,
 	},
 	.SEG_CTRL_TEXT = {
@@ -115,6 +118,7 @@ button_styles := [BUTTON]Button_Style {
 		},
 		radius = {5, 5, 5, 5},
 		child_align = {.Center, .Center},
+		child_gap = 8,
 		sizing = .Fit,
 	},
 }
@@ -192,6 +196,7 @@ button_configure :: proc(theme: BUTTON) -> (Button_State, bool) {
 			layout = {
 				padding = style.padding,
 				childAlignment = style.child_align,
+				childGap = style.child_gap,
 				sizing = sizing_to_clay(style.sizing),
 			},
 			border = {width = style.border_width, color = style.border_color[st]},

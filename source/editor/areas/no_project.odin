@@ -21,7 +21,7 @@ no_project :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 				sizing = {width = clay.SizingFixed(250), height = clay.SizingPercent(0.5)},
 				layoutDirection = .TopToBottom,
 				childAlignment = {x = .Center, y = .Center},
-				childGap = 16,
+				childGap = 20,
 			},
 		},
 		) {
@@ -37,12 +37,25 @@ no_project :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 			},
 			) {
 				if btn, open := ui.button(ctx, "area:no_project:button_new")(.WIDE_ACTION); open {
-					ui.text(ctx.frame.assets, "New Project", btn.font, btn.fg, .Center, .None)
+					if clay.UI(clay.ID("area:no_project:button_new:left"))(
+					{layout = {sizing = {width = clay.SizingGrow()}, childGap = 6}},
+					) {
+						ui.icon(ctx, "area:no_project:button_new:icon", .Add, 14, btn.fg)
+						ui.text(ctx.frame.assets, "New Project", btn.font, btn.fg, .Center, .None)
+					}
+					ui.text(ctx.frame.assets, "Cmd + N", .UI_REG_12, btn.fg)
 				}
 				if btn, open := ui.button(ctx, "area:no_project:button_open")(.WIDE_ACTION); open {
-					ui.text(ctx.frame.assets, "Open Project", btn.font, btn.fg, .Center, .None)
+					if clay.UI(clay.ID("area:no_project:button_open:left"))(
+					{layout = {sizing = {width = clay.SizingGrow()}, childGap = 6}},
+					) {
+						ui.icon(ctx, "area:no_project:button_open:icon", .Project, 14, btn.fg)
+						ui.text(ctx.frame.assets, "Open Project", btn.font, btn.fg, .Center, .None)
+					}
+					ui.text(ctx.frame.assets, "Cmd + O", .UI_REG_12, btn.fg)
 				}
 			}
+
 		}
 	}
 }

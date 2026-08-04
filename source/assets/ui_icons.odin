@@ -3,8 +3,8 @@ package assets
 import "core:c"
 import sdl "vendor:sdl3"
 
-ICON_CELL :: 64
-ICON_COLS :: 16
+ICON_CELL :: 128
+ICON_COLS :: 8
 
 Ui_Icons :: enum u16 {
 	Project      = 0,
@@ -14,6 +14,7 @@ Ui_Icons :: enum u16 {
 	Level_Editor = 4,
 	Settings     = 5,
 	Close        = 6,
+	Add          = 7,
 }
 
 // A new icon must have an atlas slot; grow ICON_COLS or add a second row first.
