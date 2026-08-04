@@ -7,16 +7,29 @@ import "../ui"
 import "./editor_types"
 
 
-toolbar_tabs := [editor_types.Toolbar_Tab]ui.Tab {
-	.Project = {id = "toolbar:tab:project", label = "Project"},
-	.Map = {id = "toolbar:tab:map", label = "Map", disabled = true},
-	.Tileset = {id = "toolbar:tab:tileset", label = "Tileset", disabled = true},
-	.Sprites = {id = "toolbar:tab:sprites", label = "Sprites", disabled = true},
-	.Level = {id = "toolbar:tab:level", label = "Level", disabled = true},
-	.Settings = {id = "toolbar:tab:settings", label = "Settings", disabled = true},
-}
+toolbar_frame :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
+	toolbar_tabs := [editor_types.Toolbar_Tab]ui.Tab {
+		.Project = {id = "toolbar:tab:project", label = "Project"},
+		.Map = {id = "toolbar:tab:map", label = "Map", disabled = !edtr.project.initialized},
+		.Tileset = {
+			id = "toolbar:tab:tileset",
+			label = "Tileset",
+			disabled = !edtr.project.initialized,
+		},
+		.Sprites = {
+			id = "toolbar:tab:sprites",
+			label = "Sprites",
+			disabled = !edtr.project.initialized,
+		},
+		.Level = {id = "toolbar:tab:level", label = "Level", disabled = !edtr.project.initialized},
+		.Settings = {
+			id = "toolbar:tab:settings",
+			label = "Settings",
+			disabled = !edtr.project.initialized,
+		},
+	}
 
-toolbar_frame :: proc(ctx: ^ui.Ctx, editor: ^editor_types.Editor) {
+	window_title := "Plastella" if !edtr.project.initialized else edtr.project.name
 
 	if clay.UI(clay.ID("toolbar"))(
 	{
@@ -42,7 +55,7 @@ toolbar_frame :: proc(ctx: ^ui.Ctx, editor: ^editor_types.Editor) {
 			},
 		},
 		) {
-			ui.text(ctx.frame.assets, "Plastella", .UI_BLD_13, {255, 255, 255, 255})
+			ui.text(ctx.frame.assets, window_title, .UI_BLD_13, {255, 255, 255, 255})
 		}
 
 		// TOOLBAR:CENTER
@@ -59,7 +72,7 @@ toolbar_frame :: proc(ctx: ^ui.Ctx, editor: ^editor_types.Editor) {
 			},
 		},
 		) {
-			editor.tab = ui.segmented_control(ctx, "toolbar:tabs", editor.tab, toolbar_tabs)
+			edtr.tab = ui.segmented_control(ctx, "toolbar:tabs", edtr.tab, toolbar_tabs)
 		}
 
 		// TOOLBAR:RIGHT

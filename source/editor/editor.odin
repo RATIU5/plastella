@@ -1,11 +1,13 @@
 package editor
 
 import "../../vendor/clay"
+import "../project"
 import "../ui"
 import "./editor_types"
 
 @(require_results)
-editor_init :: proc(editor: ^editor_types.Editor) -> bool {
+editor_init :: proc(editor: ^editor_types.Editor, prj: ^project.Project) -> bool {
+	editor.project = prj
 	return true
 }
 

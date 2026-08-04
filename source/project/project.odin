@@ -1,11 +1,13 @@
 package project
 
 Project :: struct {
-	name: string,
+	initialized: bool,
+	name:        string,
 }
 
 project_init :: proc(prj: ^Project, name: string = "Untitled Project") {
 	prj.name = name
+	prj.initialized = true
 }
 
 project_shutdown :: proc(project_mem: ^Project) {

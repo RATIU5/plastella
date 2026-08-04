@@ -1,20 +1,22 @@
 package area
 
 import "../../../vendor/clay"
+import "../../project"
 import "../../ui"
 import "../editor_types"
 
 no_project :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
-	if edtr.project == nil &&
-	   clay.UI(clay.ID("area:no_project"))(
-	   {
-		   layout = {
-			   sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()},
-			   layoutDirection = .TopToBottom,
-			   childAlignment = {x = .Center, y = .Center},
-		   },
-	   },
-	   ) {
+	if edtr.project == nil || edtr.project.initialized do return
+
+	if clay.UI(clay.ID("area:no_project"))(
+	{
+		layout = {
+			sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()},
+			layoutDirection = .TopToBottom,
+			childAlignment = {x = .Center, y = .Center},
+		},
+	},
+	) {
 		if clay.UI(clay.ID("area:no_project:inner"))(
 		{
 			layout = {
@@ -44,6 +46,10 @@ no_project :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 						ui.text(ctx.frame.assets, "New Project", btn.font, btn.fg, .Center, .None)
 					}
 					ui.text(ctx.frame.assets, "Cmd + N", .UI_REG_12, btn.fg)
+
+					if btn.clicked {
+						project.project_init(edtr.project)
+					}
 				}
 				if btn, open := ui.button(ctx, "area:no_project:button_open")(.WIDE_ACTION); open {
 					if clay.UI(clay.ID("area:no_project:button_open:left"))(
@@ -55,7 +61,6 @@ no_project :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 					ui.text(ctx.frame.assets, "Cmd + O", .UI_REG_12, btn.fg)
 				}
 			}
-
 		}
 	}
 }

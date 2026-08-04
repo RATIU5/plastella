@@ -84,7 +84,7 @@ app_init :: proc(device: ^platform.Device) -> bool {
 		return false
 	}
 
-	editor_ok := editor.editor_init(&app.editor)
+	editor_ok := editor.editor_init(&app.editor, &app.project)
 	if !editor_ok {
 		fmt.eprintln("Failed to initialize the editor")
 		return false
@@ -113,7 +113,6 @@ app_update :: proc(device: ^platform.Device) {
 	event: sdl.Event
 	if sdl.WaitEventTimeout(&event, timeout) {
 		platform.input_event_process(&app.input, &event)
-		// Drain queue in frame: act in bulk  to never react in mid-render.
 		for sdl.PollEvent(&event) {
 			platform.input_event_process(&app.input, &event)
 		}
@@ -124,7 +123,6 @@ app_update :: proc(device: ^platform.Device) {
 		if !platform.device_refresh_scale(device) {
 			fmt.eprintln("Failed to refresh device scale")
 		}
-		// Reload assets, as fonts rely on scale
 		app.flags += {.Should_Reload_Assets}
 	}
 
@@ -134,35 +132,30 @@ app_update :: proc(device: ^platform.Device) {
 		if platform.key_pressed(&app.input, .F6) do app.flags += {.Should_Restart}
 	}
 
-	// A reload changes the code == stale screen; must reload
 
 	if app.flags & {.Should_Reload_Assets, .Should_Reload_Clay} != {} {
 		if !app_reload_subsystems(device) do app.flags += {.Should_Shutdown}
 		app.frames_owed = FRAMES_AFTER_INPUT
 	}
 
-	// No change or owes: don't touch GPU.
 	if app.frames_owed == 0 do return
 	app.frames_owed -= 1
 	app_render(device)
 }
 
-// Pure render path. No SDL polling, no flag mutation. Safe to call from the
-// resize watch as well as app_update.
 @(private = "file")
 app_render :: proc(device: ^platform.Device) {
 	now_ns := sdl.GetTicksNS()
 	app.dt = min(f32(now_ns - app.time_prev_ns) / 1_000_000_000.0, DT_MAX)
 	app.time_prev_ns = now_ns
 
-	// Lay out to the drawable, not the window; the two disagree mid live-resize.
 	w_px, h_px, size_ok := platform.render_output_size(device)
 	if !size_ok {
 		fmt.eprintln("Failed to query render output size")
 		return
 	}
 	scale := app.assets.scale
-	assert(scale > 0) // divide-by-zero would collapse the clay layout to +Inf.
+	assert(scale > 0)
 	w := f32(w_px) / scale
 	h := f32(h_px) / scale
 
@@ -210,7 +203,6 @@ app_hot_reloaded :: proc(m: rawptr, assets_changed: bool) {
 	app = (^App)(m)
 	app.flags += {.Should_Reload_Clay}
 	if assets_changed do app.flags += {.Should_Reload_Assets}
-	// Repoint SDL at this module's callback address (Appendix A rule 6).
 	platform.window_set_render_callback(app_render_c)
 }
 
