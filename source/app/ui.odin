@@ -1,6 +1,5 @@
-package ui
+package app
 
-import "../gfx"
 import "../platform"
 
 Ui :: struct {
@@ -12,7 +11,7 @@ Ui :: struct {
 
 Ctx :: struct {
 	ui:    ^Ui,
-	frame: ^gfx.Frame,
+	frame: ^Frame,
 }
 
 ui_init :: proc(_: ^Ui) -> bool {

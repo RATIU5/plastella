@@ -1,7 +1,6 @@
-package gfx
+package app
 
 import "../../vendor/clay"
-import "../assets"
 import "../platform"
 import "base:runtime"
 import "core:c"
@@ -53,7 +52,7 @@ clay_init :: proc(frame: ^Frame) -> (^clay.Context, [^]u8) {
 }
 
 @(require_results)
-clay_reload :: proc(gfx: ^Gfx, asts: ^assets.Assets, screen: [2]f32) -> bool {
+clay_reload :: proc(gfx: ^Gfx, asts: ^Assets, screen: [2]f32) -> bool {
 	measure_ctx = context
 
 	size := clay.MinMemorySize()
@@ -103,9 +102,9 @@ measure_text :: proc "c" (
 	user_data: rawptr,
 ) -> clay.Dimensions {
 	context = measure_ctx
-	a := cast(^assets.Assets)user_data
+	a := cast(^Assets)user_data
 	assert(int(cfg.fontId) < len(a.fonts))
-	font := a.fonts[assets.Text(cfg.fontId)]
+	font := a.fonts[Text(cfg.fontId)]
 
 	w, h: c.int
 	if !ttf.GetStringSize(font, (cstring)(str.chars), uint(str.length), &w, &h) {
@@ -137,7 +136,7 @@ clay_render_commands :: proc(commands: ^clay.ClayArray(clay.RenderCommand), fram
 		case .Text:
 			render_text(rect, cmd.renderData.text, frame)
 		case .Image:
-			slice := (^assets.Texture_Slice)(cmd.renderData.image.imageData)
+			slice := (^Texture_Slice)(cmd.renderData.image.imageData)
 			dst := rect
 			src: sdl.FRect
 			sdl.RectToFRect(slice.crop, &src)
@@ -332,7 +331,7 @@ render_text :: proc(rect: sdl.FRect, cfg: clay.TextRenderData, frame: ^Frame) {
 		frame.device,
 		frame.assets,
 		str,
-		assets.Text(cfg.fontId),
+		Text(cfg.fontId),
 	)
 	if text == nil do return
 
@@ -431,12 +430,12 @@ err_handler :: proc "c" (err: clay.ErrorData) {
 	had_error = true
 
 	msg := cast(string)(err.errorText.chars)[:err.errorText.length]
-	err := fmt.tprintf("[clay] %v: %s\n", err.errorType, msg)
+	msg_full := fmt.tprintf("[clay] %v: %s\n", err.errorType, msg)
 
 	when ODIN_DEBUG {
-		panic(err)
+		panic(msg_full)
 	} else {
-		fmt.eprintln(err)
+		fmt.eprintln(msg_full)
 	}
 }
 

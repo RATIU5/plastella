@@ -1,8 +1,6 @@
-package ui
+package app
 
 import "../../vendor/clay"
-import "../assets"
-import "../gfx"
 import "core:c"
 import "core:fmt"
 import "core:math"
@@ -11,15 +9,15 @@ import "vendor:sdl3/ttf"
 
 
 text :: proc(
-	asts: ^assets.Assets,
+	asts: ^Assets,
 	str: string,
-	style: assets.Text,
+	style: Text,
 	color: clay.Color,
 	align := clay.TextAlignment.Left,
 	wrap := clay.TextWrapMode.Words,
 	ellipsize: f32 = 0,
 ) {
-	s := assets.text_styles[style]
+	s := text_styles[style]
 	str := str
 	if ellipsize > 0 do str = ellipsize_text(str, style, ellipsize, asts)
 	clay.Text(
@@ -44,9 +42,9 @@ text :: proc(
 @(require_results)
 ellipsize_text :: proc(
 	str: string,
-	style: assets.Text,
+	style: Text,
 	max_w: f32,
-	asts: ^assets.Assets,
+	asts: ^Assets,
 ) -> string {
 	if text_width(str, style, asts) <= max_w do return str
 
@@ -86,8 +84,8 @@ ellipsize_text :: proc(
 	return string(buf)
 }
 
-text_width :: proc(str: string, style: assets.Text, asts: ^assets.Assets) -> f32 {
-	s := assets.text_styles[style]
+text_width :: proc(str: string, style: Text, asts: ^Assets) -> f32 {
+	s := text_styles[style]
 	cfg := clay.TextElementConfig {
 		fontId        = u16(style),
 		fontSize      = s.size,
@@ -98,5 +96,5 @@ text_width :: proc(str: string, style: assets.Text, asts: ^assets.Assets) -> f32
 		length = i32(len(str)),
 		chars  = ([^]c.char)(raw_data(str)),
 	}
-	return gfx.measure_text(slice, &cfg, asts).width
+	return measure_text(slice, &cfg, asts).width
 }

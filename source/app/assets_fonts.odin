@@ -1,4 +1,4 @@
-package assets
+package app
 
 import "../platform"
 import "core:fmt"

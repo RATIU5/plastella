@@ -1,11 +1,8 @@
-package area
+package app
 
-import "../../../vendor/clay"
-import "../../project"
-import "../../ui"
-import "../editor_types"
+import "../../vendor/clay"
 
-no_project :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
+no_project :: proc(ctx: ^Ctx, edtr: ^Editor) {
 	if edtr.project == nil || edtr.project.initialized do return
 
 	if clay.UI(clay.ID("area:no_project"))(
@@ -27,7 +24,7 @@ no_project :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 			},
 		},
 		) {
-			ui.image(ctx, "area:no_project:logo", .Logo, 200)
+			image(ctx, "area:no_project:logo", .Logo, 200)
 			if clay.UI(clay.ID("area:no_project:quick_actions"))(
 			{
 				layout = {
@@ -38,27 +35,27 @@ no_project :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 				},
 			},
 			) {
-				if btn, open := ui.button(ctx, "area:no_project:button_new")(.WIDE_ACTION); open {
+				if btn, open := button(ctx, "area:no_project:button_new", .Wide_Action); open {
 					if clay.UI(clay.ID("area:no_project:button_new:left"))(
 					{layout = {sizing = {width = clay.SizingGrow()}, childGap = 6}},
 					) {
-						ui.icon(ctx, "area:no_project:button_new:icon", .Add, 14, btn.fg)
-						ui.text(ctx.frame.assets, "New Project", btn.font, btn.fg, .Center, .None)
+						icon(ctx, "area:no_project:button_new:icon", .Add, 14, btn.fg)
+						text(ctx.frame.assets, "New Project", btn.font, btn.fg, .Center, .None)
 					}
-					ui.text(ctx.frame.assets, "Cmd + N", .UI_REG_12, btn.fg)
+					text(ctx.frame.assets, "Cmd + N", .UI_REG_12, btn.fg)
 
 					if btn.clicked {
-						project.project_init(edtr.project)
+						project_init(edtr.project)
 					}
 				}
-				if btn, open := ui.button(ctx, "area:no_project:button_open")(.WIDE_ACTION); open {
+				if btn, open := button(ctx, "area:no_project:button_open", .Wide_Action); open {
 					if clay.UI(clay.ID("area:no_project:button_open:left"))(
 					{layout = {sizing = {width = clay.SizingGrow()}, childGap = 6}},
 					) {
-						ui.icon(ctx, "area:no_project:button_open:icon", .Project, 14, btn.fg)
-						ui.text(ctx.frame.assets, "Open Project", btn.font, btn.fg, .Center, .None)
+						icon(ctx, "area:no_project:button_open:icon", .Project, 14, btn.fg)
+						text(ctx.frame.assets, "Open Project", btn.font, btn.fg, .Center, .None)
 					}
-					ui.text(ctx.frame.assets, "Cmd + O", .UI_REG_12, btn.fg)
+					text(ctx.frame.assets, "Cmd + O", .UI_REG_12, btn.fg)
 				}
 			}
 		}

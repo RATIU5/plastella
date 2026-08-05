@@ -1,4 +1,4 @@
-package assets
+package app
 
 import "core:c"
 import sdl "vendor:sdl3"

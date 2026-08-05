@@ -1,6 +1,5 @@
 package platform
 
-import conf "../config"
 import "core:fmt"
 import sdl "vendor:sdl3"
 import "vendor:sdl3/ttf"
@@ -14,8 +13,15 @@ Device :: struct {
 	cursor_current: Cursor,
 }
 
+// title/width/height/toolbar_height are app config, not platform's to own
+// (ODIN_STYLE.md 3.1: platform stays Plastella-agnostic) - the caller supplies them.
 @(require_results)
-device_create :: proc(device: ^Device) -> bool {
+device_create :: proc(
+	device: ^Device,
+	title: cstring,
+	width, height: i32,
+	toolbar_height: f32,
+) -> bool {
 	if init_ok := sdl_init(); !init_ok do return false
 
 	FLAGS :: sdl.WindowFlags {
@@ -24,12 +30,7 @@ device_create :: proc(device: ^Device) -> bool {
 		// Hide window and show it after it's been configured to avoid white flash
 		.HIDDEN,
 	}
-	device.window = sdl.CreateWindow(
-		conf.WINDOW_TITLE,
-		conf.WINDOW_WIDTH,
-		conf.WINDOW_HEIGHT,
-		FLAGS,
-	)
+	device.window = sdl.CreateWindow(title, width, height, FLAGS)
 	if device.window == nil {
 		device_destroy(device)
 		return false
@@ -63,7 +64,7 @@ device_create :: proc(device: ^Device) -> bool {
 	}
 
 	// Configure & show window AFTER setting up renderer and text engine
-	window_configure(device.window)
+	window_configure(device.window, toolbar_height)
 
 	return true
 }
@@ -123,12 +124,12 @@ sdl_init :: proc() -> bool {
 }
 
 @(private = "file")
-window_configure :: proc(window: ^sdl.Window) {
+window_configure :: proc(window: ^sdl.Window, toolbar_height: f32) {
 	if window != nil {
 		// Will "jump" to center, but hidden will fix that
 		sdl.SetWindowPosition(window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
 		sdl.SetWindowMinimumSize(window, 800, 600)
-		window_setup(window, conf.TOOLBAR_HEIGHT)
+		window_setup(window, toolbar_height)
 		sdl.ShowWindow(window)
 	}
 }

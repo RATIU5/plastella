@@ -1,14 +1,16 @@
-package ui
+package app
 
 import "../../vendor/clay"
-import "../assets"
-import "../gfx"
 import "base:intrinsics"
 
 Tab :: struct {
 	id:       string,
-	label:    string,
-	icon:     Maybe(assets.Ui_Icons),
+	// Label or icon, never both - a union makes the pairing unrepresentable
+	// instead of asserted at render time.
+	content:  union {
+		string,
+		Ui_Icons,
+	},
 	disabled: bool,
 }
 
@@ -19,31 +21,36 @@ Tab_Bar_Style :: struct {
 	border_width: clay.BorderWidth,
 	border_color: clay.Color,
 	radius:       clay.CornerRadius,
-	button:       BUTTON, // which button style the pills use
+	button:       Button_Theme, // which button style the pills use
 }
 
-TAB_BAR :: enum u8 {
-	DEFAULT,
+Tab_Bar_Theme :: enum u8 {
+	Default,
 }
 
-tab_bar_styles := [TAB_BAR]Tab_Bar_Style {
-	.DEFAULT = {
+@(rodata)
+tab_bar_styles := [Tab_Bar_Theme]Tab_Bar_Style {
+	.Default = {
 		padding = {3, 3, 3, 3},
 		gap = 3,
-		bg_color = gfx.COLOR_GREY_760,
+		bg_color = COLOR_GREY_760,
 		border_width = {1, 1, 1, 1, 0},
-		border_color = gfx.COLOR_GREY_710,
+		border_color = COLOR_GREY_710,
 		radius = {8, 8, 8, 8},
-		button = .SEG_CTRL_TEXT,
+		button = .Seg_Ctrl_Text,
 	},
 }
 
+// generic: one call site (toolbar tabs) as of writing. Left parametric rather
+// than monomorphized to Toolbar_Tab so this UI-layer file does not reach up
+// into editor-specific types (ODIN_STYLE.md 3.1 layering) for a plain-data
+// widget; revisit if a second enum ever needs a tab bar.
 segmented_control :: proc(
 	ctx: ^Ctx,
 	id: string,
 	active: $T,
 	tabs: [T]Tab,
-	theme: TAB_BAR = .DEFAULT,
+	theme: Tab_Bar_Theme = .Default,
 	direction: clay.LayoutDirection = .LeftToRight,
 ) -> T where intrinsics.type_is_enum(T) {
 	st := tab_bar_styles[theme]
@@ -65,19 +72,17 @@ segmented_control :: proc(
 		for tab in T {
 			item := tabs[tab]
 			sel := tab == active
-			icon_id, has_icon := item.icon.?
 			options: Button_Options
 			if sel do options += {.SELECTED}
 			if item.disabled do options += {.DISABLED}
 
-			if btn, open := button(ctx, item.id, options)(st.button); open {
-				if has_icon {
-					assert(item.label == "")
-					icon_h := f32(assets.text_styles[btn.font].size)
-					icon(ctx, item.id, icon_id, icon_h, btn.fg)
-				} else {
-					assert(item.label != "")
-					text(ctx.frame.assets, item.label, btn.font, btn.fg, .Center, .None)
+			if btn, open := button(ctx, item.id, st.button, options); open {
+				switch c in item.content {
+				case string:
+					text(ctx.frame.assets, c, btn.font, btn.fg, .Center, .None)
+				case Ui_Icons:
+					icon_h := f32(text_styles[btn.font].size)
+					icon(ctx, item.id, c, icon_h, btn.fg)
 				}
 
 				if btn.clicked && !item.disabled do result = tab

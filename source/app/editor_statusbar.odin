@@ -1,23 +1,19 @@
-package editor
+package app
 
 import "../../vendor/clay"
-import "../config"
-import "../gfx"
-import "../ui"
-import "./editor_types"
 
-statusbar_frame :: proc(ctx: ^ui.Ctx, editor: ^editor_types.Editor) {
+statusbar_frame :: proc(ctx: ^Ctx, editor: ^Editor) {
 	if clay.UI(clay.ID("statusbar"))(
 	{
 		layout = {
 			sizing = {
 				width = clay.SizingGrow(),
-				height = clay.SizingFixed(config.STATUSBAR_HEIGHT),
+				height = clay.SizingFixed(STATUSBAR_HEIGHT),
 			},
 			padding = {10, 10, 5, 5},
 		},
-		backgroundColor = gfx.COLOR_GREY_850,
-		border = {width = {top = 1}, color = gfx.COLOR_GREY_760},
+		backgroundColor = COLOR_GREY_850,
+		border = {width = {top = 1}, color = COLOR_GREY_760},
 	},
 	) {
 		// STATUSBAR:LEFT
@@ -30,7 +26,7 @@ statusbar_frame :: proc(ctx: ^ui.Ctx, editor: ^editor_types.Editor) {
 			},
 		},
 		) {
-			ui.text(ctx.frame.assets, editor.status_text, .UI_REG_12, gfx.COLOR_GREY_340)
+			text(ctx.frame.assets, editor.status_text, .UI_REG_12, COLOR_GREY_340)
 		}
 
 		// STATUSBAR:RIGHT
@@ -43,7 +39,7 @@ statusbar_frame :: proc(ctx: ^ui.Ctx, editor: ^editor_types.Editor) {
 			},
 		},
 		) {
-			ui.text(ctx.frame.assets, "v" + config.VERSION, .UI_REG_12, gfx.COLOR_GREY_500)
+			text(ctx.frame.assets, "v" + VERSION, .UI_REG_12, COLOR_GREY_500)
 		}
 	}
 }

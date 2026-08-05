@@ -1,4 +1,4 @@
-package assets
+package app
 
 import "../platform"
 import "core:fmt"
@@ -42,8 +42,10 @@ unload_textures :: proc(a: ^Assets) {
 	a.ui_icons = {} // icon slices cache the atlas texture pointer; zero together.
 }
 
+// Named texture_slice, not image: a same-named ui.image widget proc exists
+// once this package merges with ui (ODIN_STYLE.md 3.1 wants one flat package).
 @(require_results)
-image :: proc(a: ^Assets, id: Texture_Id) -> Texture_Slice {
+texture_slice :: proc(a: ^Assets, id: Texture_Id) -> Texture_Slice {
 	tex := a.textures[id]
 	return {tex = tex, crop = {x = 0, y = 0, w = tex.w, h = tex.h}, tint = {255, 255, 255, 255}}
 }

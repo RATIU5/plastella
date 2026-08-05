@@ -10,6 +10,7 @@ Cursor :: enum u8 {
 	Not_Allowed,
 }
 
+@(rodata)
 cursor_sdl_kind := [Cursor]sdl.SystemCursor {
 	.Default     = .DEFAULT,
 	.Pointer     = .POINTER,

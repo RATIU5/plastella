@@ -1,6 +1,5 @@
-package gfx
+package app
 
-import "../assets"
 import "../platform"
 import "core:c"
 import "core:fmt"
@@ -29,7 +28,7 @@ Text_Cache :: struct {
 // FNV-1a over bytes mixed with style id. Hash-only key: collision draws the wrong cached string
 // which at a few hundred live strings is around 1e-14. Store & compare string if caching doc text.
 @(require_results)
-text_key :: proc "contextless" (str: string, style: assets.Text) -> Text_Key {
+text_key :: proc "contextless" (str: string, style: Text) -> Text_Key {
 	FNV_OFFSET :: u64(14695981039346656037)
 	FNV_PRIME :: u64(1099511628211)
 
@@ -45,9 +44,9 @@ text_key :: proc "contextless" (str: string, style: assets.Text) -> Text_Key {
 text_cache_get :: proc(
 	cache: ^Text_Cache,
 	device: ^platform.Device,
-	asts: ^assets.Assets,
+	asts: ^Assets,
 	str: string,
-	style: assets.Text,
+	style: Text,
 ) -> ^ttf.Text {
 	key := text_key(str, style)
 

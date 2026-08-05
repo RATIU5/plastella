@@ -1,7 +1,6 @@
-package gfx
+package app
 
 import "../../vendor/clay"
-import "../assets"
 import "../platform"
 import "core:fmt"
 import sdl "vendor:sdl3"
@@ -14,7 +13,7 @@ Gfx :: struct {
 	interaction:   Interaction,
 }
 
-#assert(len(assets.Text) <= int(max(u16)))
+#assert(len(Text) <= int(max(u16)))
 
 @(require_results)
 gfx_init :: proc(gfx: ^Gfx, frame: ^Frame) -> bool {
@@ -35,7 +34,7 @@ gfx_shutdown :: proc(gfx: ^Gfx) {
 }
 
 @(require_results)
-gfx_reload :: proc(gfx: ^Gfx, asts: ^assets.Assets, size: [2]f32) -> bool {
+gfx_reload :: proc(gfx: ^Gfx, asts: ^Assets, size: [2]f32) -> bool {
 	assert(gfx != nil)
 	if !clay_reload(gfx, asts, size) {
 		fmt.eprintln("Failed to reload clay; press F6 to restart")

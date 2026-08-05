@@ -1,4 +1,4 @@
-package gfx
+package app
 
 import "../../vendor/clay"
 import "../platform"

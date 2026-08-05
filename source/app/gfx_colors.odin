@@ -1,4 +1,4 @@
-package gfx
+package app
 
 Color_State :: enum u8 {
 	Normal,

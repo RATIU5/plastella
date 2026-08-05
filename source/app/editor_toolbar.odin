@@ -1,30 +1,26 @@
-package editor
+package app
 
 import "../../vendor/clay"
-import "../config"
-import "../gfx"
-import "../ui"
-import "./editor_types"
 
 
-toolbar_frame :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
-	toolbar_tabs := [editor_types.Toolbar_Tab]ui.Tab {
-		.Project = {id = "toolbar:tab:project", label = "Project"},
-		.Map = {id = "toolbar:tab:map", label = "Map", disabled = !edtr.project.initialized},
+toolbar_frame :: proc(ctx: ^Ctx, edtr: ^Editor) {
+	toolbar_tabs := [Toolbar_Tab]Tab {
+		.Project = {id = "toolbar:tab:project", content = "Project"},
+		.Map = {id = "toolbar:tab:map", content = "Map", disabled = !edtr.project.initialized},
 		.Tileset = {
 			id = "toolbar:tab:tileset",
-			label = "Tileset",
+			content = "Tileset",
 			disabled = !edtr.project.initialized,
 		},
 		.Sprites = {
 			id = "toolbar:tab:sprites",
-			label = "Sprites",
+			content = "Sprites",
 			disabled = !edtr.project.initialized,
 		},
-		.Level = {id = "toolbar:tab:level", label = "Level", disabled = !edtr.project.initialized},
+		.Level = {id = "toolbar:tab:level", content = "Level", disabled = !edtr.project.initialized},
 		.Settings = {
 			id = "toolbar:tab:settings",
-			label = "Settings",
+			content = "Settings",
 			disabled = !edtr.project.initialized,
 		},
 	}
@@ -34,11 +30,11 @@ toolbar_frame :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 	if clay.UI(clay.ID("toolbar"))(
 	{
 		layout = {
-			sizing = {width = clay.SizingGrow(), height = clay.SizingFixed(config.TOOLBAR_HEIGHT)},
+			sizing = {width = clay.SizingGrow(), height = clay.SizingFixed(TOOLBAR_HEIGHT)},
 			// padding = {top = 10, left = 90},
 		},
-		backgroundColor = gfx.COLOR_GREY_850,
-		border = {width = {bottom = 1}, color = gfx.COLOR_GREY_760},
+		backgroundColor = COLOR_GREY_850,
+		border = {width = {bottom = 1}, color = COLOR_GREY_760},
 	},
 	) {
 		// TOOLBAR:LEFT
@@ -47,7 +43,7 @@ toolbar_frame :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 			layout = {
 				sizing = {
 					width = clay.SizingGrow(),
-					height = clay.SizingFixed(config.TOOLBAR_HEIGHT),
+					height = clay.SizingFixed(TOOLBAR_HEIGHT),
 				},
 				layoutDirection = .LeftToRight,
 				childAlignment = {x = .Left, y = .Center},
@@ -55,7 +51,7 @@ toolbar_frame :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 			},
 		},
 		) {
-			ui.text(ctx.frame.assets, window_title, .UI_BLD_13, {255, 255, 255, 255})
+			text(ctx.frame.assets, window_title, .UI_BLD_13, {255, 255, 255, 255})
 		}
 
 		// TOOLBAR:CENTER
@@ -64,7 +60,7 @@ toolbar_frame :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 			layout = {
 				sizing = {
 					width = clay.SizingGrow(),
-					height = clay.SizingFixed(config.TOOLBAR_HEIGHT),
+					height = clay.SizingFixed(TOOLBAR_HEIGHT),
 				},
 				layoutDirection = .LeftToRight,
 				childAlignment = {x = .Center, y = .Center},
@@ -72,7 +68,7 @@ toolbar_frame :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 			},
 		},
 		) {
-			edtr.tab = ui.segmented_control(ctx, "toolbar:tabs", edtr.tab, toolbar_tabs)
+			edtr.tab = segmented_control(ctx, "toolbar:tabs", edtr.tab, toolbar_tabs)
 		}
 
 		// TOOLBAR:RIGHT
@@ -81,7 +77,7 @@ toolbar_frame :: proc(ctx: ^ui.Ctx, edtr: ^editor_types.Editor) {
 			layout = {
 				sizing = {
 					width = clay.SizingGrow(),
-					height = clay.SizingFixed(config.TOOLBAR_HEIGHT),
+					height = clay.SizingFixed(TOOLBAR_HEIGHT),
 				},
 				layoutDirection = .LeftToRight,
 				childAlignment = {x = .Right, y = .Center},
