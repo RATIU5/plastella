@@ -38,7 +38,13 @@ editor_frame :: proc(editor: ^Editor, ctx: ^Ctx) {
 	},
 	) {
 		toolbar_frame(ctx, editor)
-		main_editor_frame(ctx, editor)
+
+		if clay.UI(clay.ID("main_area"))(
+		{layout = {sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()}}},
+		) {
+			no_project(ctx, editor)
+		}
+
 		statusbar_frame(ctx, editor)
 	}
 }

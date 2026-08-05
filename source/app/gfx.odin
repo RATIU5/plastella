@@ -13,6 +13,16 @@ Gfx :: struct {
 	interaction:   Interaction,
 }
 
+Frame :: struct {
+	gfx:    ^Gfx,
+	device: ^platform.Device,
+	assets: ^Assets,
+	input:  ^platform.Input,
+	screen: [2]f32,
+	dt:     f32,
+	cursor: platform.Cursor,
+}
+
 #assert(len(Text) <= int(max(u16)))
 
 @(require_results)
