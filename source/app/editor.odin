@@ -42,7 +42,7 @@ editor_frame :: proc(editor: ^Editor, ctx: ^Ctx) {
 		if clay.UI(clay.ID("main_area"))(
 		{layout = {sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()}}},
 		) {
-			no_project(ctx, editor)
+			project_view(ctx, editor)
 		}
 
 		statusbar_frame(ctx, editor)
