@@ -63,6 +63,10 @@ text_cache_get :: proc(
 		fmt.eprintfln("[text] CreatedText failed: %s", sdl.GetError())
 		return nil
 	}
+	// SDL_ttf strips trailing spaces off every line by default, stalling a caret.
+	if !ttf.SetTextWrapWhitespaceVisible(text, true) {
+		fmt.eprintfln("[text] SetTextWrapWhitespaceVisible failed: %s", sdl.GetError())
+	}
 
 	if cache.entry_count == TEXT_CACHE_MAX {
 		cache.dropped += 1

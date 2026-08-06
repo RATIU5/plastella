@@ -4,35 +4,21 @@ import "../../vendor/clay"
 import "../platform"
 import "core:c"
 import "core:fmt"
-import "core:math"
 import "core:strings"
 import "core:text/edit"
 import "core:unicode/utf8"
 import sdl "vendor:sdl3"
 import "vendor:sdl3/ttf"
 
-// Caller owned, one per text field (ODIN_STYLE.md 2.5: explicit state over a
-// hidden id-keyed global map). Bundles the edit.State machinery (caret,
-// selection, undo/redo) with the byte buffer it edits in place.
+// Caller owned, one per text field (ODIN_STYLE.md 2.5: no hidden id-keyed map).
 Text_Input_State :: struct {
-	edit:        edit.State,
-	builder:     strings.Builder,
-	scroll_x:    f32,
-	blink_t:     f32,
-	// What kind of click is holding the mouse button down right now, so a
-	// continued drag knows whether to follow the pointer (see input_handle_mouse).
-	click_mode:  Input_Click_Mode,
-	// [start, end] of the word a double-click landed on, set at press time.
-	// A drag in .Word mode extends outward from whichever side of this word
-	// is opposite the drag direction; see input_extend_word_selection.
-	word_anchor: [2]int,
-}
-
-@(private = "file")
-Input_Click_Mode :: enum u8 {
-	Char, // plain click: caret follows the pointer every frame of the drag
-	Word, // double-click: word selected at press, drag extends whole words
-	All, // triple-click: selects everything, drag doesn't touch it
+	edit:     edit.State,
+	builder:  strings.Builder,
+	scroll_x: f32,
+	// SDL_GetTicks at the last edit or caret move; blink derives from it.
+	caret_ms: u64,
+	// A plain click drags the caret; a word or select-all click does not.
+	dragging: bool,
 }
 
 Input_Style :: struct {
@@ -97,19 +83,19 @@ input_styles := [Input_Theme]Input_Style {
 	},
 }
 
-/*
-Initializes a text field's edit state around its own persistent byte buffer.
-
-Inputs:
-- allocator: backs both the text buffer and the undo/redo history (default: context.allocator)
-*/
+// allocator backs both the text buffer and the undo/redo history.
 text_input_init :: proc(s: ^Text_Input_State, allocator := context.allocator) {
 	strings.builder_init(&s.builder, allocator)
 	edit.init(&s.edit, allocator, allocator)
 	edit.setup_once(&s.edit, &s.builder)
 	s.edit.set_clipboard = input_clipboard_set
 	s.edit.get_clipboard = input_clipboard_get
+	s.edit.clipboard_user_data = s
+	// ponytail: no translate_by_grapheme - core subtracts Grapheme.width (a
+	// monospace cell count) from a byte offset and corrupts the UTF-8.
 }
+
+TEXT_INPUT_MAX_BYTES :: 256
 
 text_input_destroy :: proc(s: ^Text_Input_State) {
 	edit.destroy(&s.edit)
@@ -124,24 +110,19 @@ text_input_get :: proc(s: ^Text_Input_State) -> string {
 
 text_input_set :: proc(s: ^Text_Input_State, value: string) {
 	strings.builder_reset(&s.builder)
-	strings.write_string(&s.builder, value)
+	strings.write_string(&s.builder, input_sanitize(value, TEXT_INPUT_MAX_BYTES))
 	s.edit.selection = {len(s.builder.buf), len(s.builder.buf)}
+	s.scroll_x = 0
 	edit.undo_clear(&s.edit, &s.edit.undo)
 	edit.undo_clear(&s.edit, &s.edit.redo)
 }
 
 /*
-Single-line UTF-8 text field: caret, selection, undo/redo, clipboard, and
-word/line navigation, all via core:text/edit. `state` is caller owned and
-must outlive the widget (see Text_Input_State).
+Single-line UTF-8 text field, editing via core:text/edit. `state` is caller
+owned and must outlive the widget. Returns true the frame Enter submits.
 
-width must be .Grow or a fixed pixel size, never .Fit: the displayed text is
-a floating child (so it can scroll independently of the box), and floating
-elements do not contribute to a parent's .Fit sizing, so a .Fit box collapses
-to padding-only with no visible content.
-
-Returns true the frame Enter is pressed with submit_on_enter set; the field
-blurs itself on submit.
+width can't be .Fit: the text is a floating child, which contributes nothing to
+.Fit sizing, so the box would collapse to padding.
 */
 text_input :: proc(
 	ctx: ^Ctx,
@@ -165,8 +146,7 @@ text_input :: proc(
 	was_focused := ctx.ui.focused == id
 	hover := !disabled && pointer_over(id)
 
-	// Mouse focus: a press inside claims focus, a press elsewhere while
-	// focused releases it. Tab focus is handled by register_focusable below.
+	// Tab focus is register_focusable's job, below.
 	if !disabled && platform.mouse_pressed(ctx.frame.input, .Left) {
 		if hover {
 			ctx.ui.focused = id
@@ -179,7 +159,6 @@ text_input :: proc(
 		state.edit.selection = {len(state.builder.buf), 0} // tab-in selects all
 	}
 	focus := ctx.ui.focused == id
-	just_focused := focus && !was_focused
 
 	if hover do ctx.frame.cursor = .Text
 
@@ -190,36 +169,47 @@ text_input :: proc(
 	bg := style.bg_color[st]
 	br := style.border_color[st]
 
-	if just_focused {
-		if !sdl.StartTextInput(ctx.frame.device.window) {
-			fmt.eprintln("failed to start text input")
-		}
-	} else if was_focused && !focus {
-		input_stop_text_input(ctx)
-	}
+	selection_was := state.edit.selection
+	text_len_was := len(state.builder.buf)
 
 	if focus {
+		ctx.ui.wants_text_input = true // ui_frame_end owns the SDL session
 		edit.update_time(&state.edit)
-		state.blink_t += ctx.frame.dt
 		if input_handle_keys(ctx, state, submit_on_enter) {
 			submitted = true
 			ctx.ui.focused = ""
-			input_stop_text_input(ctx)
+			ctx.ui.wants_text_input = false
 		}
 	}
 
 	text_str := text_input_get(state)
+	// Cache owns it and may evict: fetch once a frame, pass it down. nil when
+	// empty - SDL_ttf reads a 0 length as NUL-terminated, the builder isn't.
+	shaped: ^ttf.Text
+	if len(text_str) > 0 {
+		shaped = text_cache_get(
+			&ctx.frame.gfx.text_cache,
+			ctx.frame.device,
+			ctx.frame.assets,
+			text_str,
+			style.font,
+		)
+	}
+
 	el := clay.GetElementData(clay.ID(id))
 	pad_x := f32(style.padding.left)
 	inner_w := el.boundingBox.width - f32(style.padding.left + style.padding.right)
 
 	if el.found {
-		if focus do input_handle_mouse(ctx, state, id, style.font, el.boundingBox, pad_x)
-		input_scroll_clamp(state, text_str, style.font, ctx.frame.assets, inner_w)
+		if focus do input_handle_mouse(ctx, state, id, shaped, el.boundingBox, pad_x)
+		input_scroll_clamp(state, shaped, ctx.frame.assets, inner_w)
 	}
 
-	caret_byte := clamp(state.edit.selection[0], 0, len(text_str))
-	caret_x := text_width(text_str[:caret_byte], style.font, ctx.frame.assets)
+	if state.edit.selection != selection_was || len(state.builder.buf) != text_len_was {
+		state.caret_ms = sdl.GetTicks()
+	}
+
+	caret_x := input_caret_x(state, shaped, ctx.frame.assets)
 
 	if el.found && focus {
 		input_set_ime_area(ctx, el.boundingBox, caret_x - state.scroll_x)
@@ -246,7 +236,7 @@ text_input :: proc(
 		},
 		) {
 			if focus && edit.has_selection(&state.edit) {
-				input_draw_selection(id, state, text_str, style.font, ctx.frame.assets)
+				input_draw_selection(id, state, shaped, style.font, ctx.frame.assets)
 			}
 
 			if clay.UI(clay.ID(id, 3))(
@@ -268,7 +258,7 @@ text_input :: proc(
 				}
 			}
 
-			if focus && blink_on(state.blink_t) {
+			if focus && blink_on(state.caret_ms) {
 				if clay.UI(clay.ID(id, 4))(
 				{
 					floating = {
@@ -292,17 +282,36 @@ text_input :: proc(
 	return submitted
 }
 
+// X of the cluster boundary at offset, logical px from the text origin.
+@(private = "file", require_results)
+input_offset_x :: proc(shaped: ^ttf.Text, offset: int, asts: ^Assets) -> f32 {
+	if shaped == nil || offset <= 0 do return 0
+
+	sub: ttf.SubString
+	if !ttf.GetTextSubString(shaped, c.int(offset), &sub) do return 0
+	// A caret past the last cluster sits at its trailing edge.
+	x := sub.rect.x if c.int(offset) <= sub.offset else sub.rect.x + sub.rect.w
+	return f32(x) / asts.scale
+}
+
+@(private = "file", require_results)
+input_caret_x :: proc(s: ^Text_Input_State, shaped: ^ttf.Text, asts: ^Assets) -> f32 {
+	caret := clamp(s.edit.selection[0], 0, len(s.builder.buf))
+	return input_offset_x(shaped, caret, asts)
+}
+
+// ponytail: one rect, so bidi selections highlight wrong; names are LTR-only.
 @(private = "file")
 input_draw_selection :: proc(
 	id: string,
 	s: ^Text_Input_State,
-	text_str: string,
+	shaped: ^ttf.Text,
 	font: Text,
 	asts: ^Assets,
 ) {
 	lo, hi := edit.sorted_selection(&s.edit)
-	lo_x := text_width(text_str[:lo], font, asts)
-	hi_x := text_width(text_str[:hi], font, asts)
+	lo_x := input_offset_x(shaped, lo, asts)
+	hi_x := input_offset_x(shaped, hi, asts)
 
 	if clay.UI(clay.ID(id, 2))(
 	{
@@ -325,57 +334,37 @@ input_draw_selection :: proc(
 	) {}
 }
 
-// Row height, and the shared height every floating child (text, caret,
-// selection) sizes itself to. All three sit at offset.y = 0 in this same
-// row, so identical height means identical top and bottom edges - they
-// can't drift out of alignment with each other by construction. Centering
-// within the input box comes from the outer box's own childAlignment.y =
-// .Center around this row, not from any per-element offset here.
-//
-// Full font ascent+descent, not text_styles[font].line_height (the nominal
-// single-line advance) - a descender (g, y, p, q, j) needs this much room
-// to not get scissored off by the row's clip.
+// Shared height for every floating child, so they can't drift apart. Full
+// ascent+descent, not line_height, or the row's clip scissors descenders.
 @(private = "file")
 input_row_height :: proc(font: Text, asts: ^Assets) -> f32 {
 	return f32(ttf.GetFontHeight(asts.fonts[font])) / asts.scale
 }
 
 @(private = "file")
-input_scroll_clamp :: proc(
-	s: ^Text_Input_State,
-	text_str: string,
-	font: Text,
-	asts: ^Assets,
-	inner_w: f32,
-) {
+input_scroll_clamp :: proc(s: ^Text_Input_State, shaped: ^ttf.Text, asts: ^Assets, inner_w: f32) {
 	PAD :: f32(2)
-	caret_x := text_width(text_str[:clamp(s.edit.selection[0], 0, len(text_str))], font, asts)
+	caret_x := input_caret_x(s, shaped, asts)
 	if caret_x - s.scroll_x < PAD {
 		s.scroll_x = max(0, caret_x - PAD)
 	} else if caret_x - s.scroll_x > inner_w - PAD {
 		s.scroll_x = caret_x - (inner_w - PAD)
 	}
-	text_w := text_width(text_str, font, asts)
-	s.scroll_x = clamp(s.scroll_x, 0, max(0, text_w - inner_w))
-}
 
-@(private = "file")
-input_stop_text_input :: proc(ctx: ^Ctx) {
-	if !sdl.StopTextInput(ctx.frame.device.window) {
-		fmt.eprintln("failed to stop text input")
+	text_w := f32(0)
+	if shaped != nil {
+		w, h: c.int
+		if ttf.GetTextSize(shaped, &w, &h) do text_w = f32(w) / asts.scale
 	}
+	// PAD is in the bound too, else this cancels the right inset at the end.
+	s.scroll_x = clamp(s.scroll_x, 0, max(0, text_w + PAD - inner_w))
 }
 
+// No scaling: SDL wants window coords and clay units already are window units.
 @(private = "file")
 input_set_ime_area :: proc(ctx: ^Ctx, box: clay.BoundingBox, caret_local_x: f32) {
-	scale := ctx.frame.assets.scale
-	rect := sdl.Rect {
-		i32(box.x * scale),
-		i32(box.y * scale),
-		i32(box.width * scale),
-		i32(box.height * scale),
-	}
-	if !sdl.SetTextInputArea(ctx.frame.device.window, &rect, i32(caret_local_x * scale)) {
+	rect := sdl.Rect{i32(box.x), i32(box.y), i32(box.width), i32(box.height)}
+	if !sdl.SetTextInputArea(ctx.frame.device.window, &rect, i32(caret_local_x)) {
 		fmt.eprintln("failed to set text input area")
 	}
 }
@@ -385,128 +374,78 @@ input_handle_mouse :: proc(
 	ctx: ^Ctx,
 	s: ^Text_Input_State,
 	id: string,
-	font: Text,
+	shaped: ^ttf.Text,
 	box: clay.BoundingBox,
 	pad_x: f32,
 ) {
 	input := ctx.frame.input
-	text_str := text_input_get(s)
 
 	press := platform.mouse_pressed(input, .Left)
 	drag := !press && platform.mouse_down(input, .Left)
 
 	if !press && !drag do return
-	// Only called while this id already has focus (input_text's mouse-focus
-	// block above blurs on any press outside), so a press here is always inside.
-	assert(!press || pointer_over(id))
+	// Focus can arrive by Tab in the same frame as a click elsewhere; not our press.
+	if press && !pointer_over(id) do return
 
 	local_x := input.mouse.pos.x - box.x - pad_x + s.scroll_x
-	hit := input_hit_test(text_str, font, ctx.frame.assets, local_x)
+	hit := input_hit_test(s, shaped, ctx.frame.assets, local_x)
 
 	if press {
 		switch {
 		case input.mouse.clicks >= 3:
-			s.click_mode = .All
+			s.dragging = false
 			edit.perform_command(&s.edit, .Select_All)
 		case input.mouse.clicks == 2:
-			s.click_mode = .Word
+			s.dragging = false
 			input_select_word_at(s, hit)
 		case:
-			s.click_mode = .Char
+			s.dragging = true
 			s.edit.selection = {hit, hit}
 		}
-		s.blink_t = 0
 		return
 	}
 
-	// The button is still held (drag), possibly with zero mouse movement.
-	// A plain click's caret follows the pointer every frame. A double-click
-	// extends whole words out from the originally clicked word (never
-	// narrower than it). A triple click already selects everything, so a
-	// drag has nothing further to extend into.
-	switch s.click_mode {
-	case .Char:
-		if hit != s.edit.selection[0] {
-			s.edit.selection[0] = hit
-			s.blink_t = 0
-		}
-	case .Word:
-		input_extend_word_selection(s, hit)
-	case .All:
-	}
+	// Button still held. Only a plain click drags; word and select-all stay put.
+	if s.dragging do s.edit.selection[0] = hit
 }
 
-// Selects the word touching byte offset at (double-click), and records it
-// as the drag anchor. Word_Start/End both read from selection[0], so
-// setting it to at first gives both calls the same base position
-// regardless of call order.
+// Selects the word at `at`. Both translates read selection[0], so seeding it
+// first makes them order-independent.
 @(private = "file")
 input_select_word_at :: proc(s: ^Text_Input_State, at: int) {
 	s.edit.selection = {at, at}
 	start := edit.translate_position(&s.edit, .Word_Start)
 	end := edit.translate_position(&s.edit, .Word_End)
-	s.word_anchor = {start, end}
 	s.edit.selection = {end, start}
 }
 
-// Grows/shrinks a double-click's selection so it always spans whole words,
-// from the anchor word (input_select_word_at) out to whichever word at is
-// in now. The anchor word's far edge (opposite the drag direction) stays
-// pinned; the near edge snaps to the word boundary under the pointer.
-@(private = "file")
-input_extend_word_selection :: proc(s: ^Text_Input_State, at: int) {
-	anchor_start, anchor_end := s.word_anchor[0], s.word_anchor[1]
-
-	s.edit.selection = {at, at}
-	drag_start := edit.translate_position(&s.edit, .Word_Start)
-	drag_end := edit.translate_position(&s.edit, .Word_End)
-
-	new_selection :=
-		[2]int{drag_end, anchor_start} if at >= anchor_start else [2]int{drag_start, anchor_end}
-	if new_selection != s.edit.selection {
-		s.edit.selection = new_selection
-		s.blink_t = 0
-	}
-}
-
-// Byte offset of the character boundary nearest target_x (logical px, box relative).
+// Byte offset of the cluster boundary nearest target_x (logical px).
 @(private = "file", require_results)
-input_hit_test :: proc(text_str: string, font: Text, asts: ^Assets, target_x: f32) -> int {
-	if len(text_str) == 0 || target_x <= 0 do return 0
+input_hit_test :: proc(
+	s: ^Text_Input_State,
+	shaped: ^ttf.Text,
+	asts: ^Assets,
+	target_x: f32,
+) -> int {
+	if shaped == nil || target_x <= 0 do return 0
 
-	budget_px := c.int(math.floor(target_x * asts.scale))
-	measured_w: c.int
-	fit_bytes: c.size_t
-	ok := ttf.MeasureString(
-		asts.fonts[font],
-		cstring(raw_data(text_str)),
-		c.size_t(len(text_str)),
-		budget_px,
-		&measured_w,
-		&fit_bytes,
-	)
-	if !ok do return len(text_str)
+	sub: ttf.SubString
+	if !ttf.GetTextSubStringForPoint(shaped, c.int(target_x * asts.scale), 0, &sub) {
+		return len(s.builder.buf)
+	}
+	if sub.rect.w <= 0 do return int(sub.offset)
 
-	lo := int(fit_bytes)
-	assert(lo >= 0)
-	assert(lo <= len(text_str))
-	if lo == len(text_str) do return lo
-
-	_, w := utf8.decode_rune(text_str[lo:])
-	hi := lo + w
-	lo_x := f32(measured_w) / asts.scale
-	hi_x := text_width(text_str[:hi], font, asts)
-	return lo if target_x - lo_x < hi_x - target_x else hi
+	mid := f32(sub.rect.x) + f32(sub.rect.w) * 0.5
+	return int(sub.offset) if target_x * asts.scale < mid else int(sub.offset + sub.length)
 }
 
-@(private = "file")
-blink_on :: proc(blink_t: f32) -> bool {
-	PERIOD :: f32(1.0)
-	return math.mod(blink_t, PERIOD) < PERIOD * 0.5
+@(private = "file", require_results)
+blink_on :: proc(caret_ms: u64) -> bool {
+	PERIOD :: u64(1000)
+	return (sdl.GetTicks() - caret_ms) % PERIOD < PERIOD / 2
 }
 
-// Keycode-indexed nav table: LEFT/RIGHT/HOME/END/BACKSPACE/DELETE each carry
-// their plain, shift-select, ctrl-word, and ctrl+shift-select-word variants.
+// Each nav key with its plain, shift, primary, and primary+shift command.
 @(private = "file")
 Nav_Key :: struct {
 	key:        sdl.Keycode,
@@ -526,9 +465,8 @@ nav_keys := [?]Nav_Key {
 	{sdl.K_DELETE, .Delete, .Delete, .Delete_Word_Right, .Delete_Word_Right},
 }
 
-// Processes this frame's typed text and key-down queue (platform.Text_Input
-// carries OS auto-repeat, unlike the debounced key_pressed flags buttons use).
-// Returns true when Enter was pressed and submit_on_enter is set.
+// Replays this frame's input events in order (these carry OS auto-repeat,
+// unlike the debounced key_pressed flags). True when Enter submits.
 @(private = "file")
 input_handle_keys :: proc(
 	ctx: ^Ctx,
@@ -539,13 +477,13 @@ input_handle_keys :: proc(
 ) {
 	input := ctx.frame.input
 
-	typed := string(input.text.utf8[:input.text.utf8_len])
-	if len(typed) > 0 {
-		edit.input_text(&s.edit, typed)
-		s.blink_t = 0
-	}
+	for press in input.text.events[:input.text.events_len] {
+		if press.text != "" {
+			typed := input_sanitize(press.text, input_room(s))
+			if len(typed) > 0 do edit.input_text(&s.edit, typed)
+			continue
+		}
 
-	for press in input.text.presses[:input.text.presses_len] {
 		if press.key == sdl.K_RETURN || press.key == sdl.K_KP_ENTER {
 			if submit_on_enter do submitted = true
 			continue
@@ -553,7 +491,6 @@ input_handle_keys :: proc(
 
 		shift := press.mods & sdl.KMOD_SHIFT != {}
 		primary := input_mod_primary(press.mods)
-		s.blink_t = 0
 
 		nav_handled := false
 		for nk in nav_keys {
@@ -577,10 +514,11 @@ input_handle_keys :: proc(
 		switch press.key {
 		case sdl.K_A:
 			edit.perform_command(&s.edit, .Select_All)
+		// Guarded: edit.copy on an empty selection clears the system clipboard.
 		case sdl.K_C:
-			edit.perform_command(&s.edit, .Copy)
+			if edit.has_selection(&s.edit) do edit.perform_command(&s.edit, .Copy)
 		case sdl.K_X:
-			edit.perform_command(&s.edit, .Cut)
+			if edit.has_selection(&s.edit) do edit.perform_command(&s.edit, .Cut)
 		case sdl.K_V:
 			edit.perform_command(&s.edit, .Paste)
 		case sdl.K_Z:
@@ -592,7 +530,7 @@ input_handle_keys :: proc(
 	return
 }
 
-// Cmd on macOS, Ctrl elsewhere - the platform-conventional "primary" modifier.
+// Cmd on macOS, Ctrl elsewhere.
 @(private = "file")
 input_mod_primary :: proc(mods: sdl.Keymod) -> bool {
 	when ODIN_OS == .Darwin {
@@ -600,6 +538,27 @@ input_mod_primary :: proc(mods: sdl.Keymod) -> bool {
 	} else {
 		return mods & sdl.KMOD_CTRL != {}
 	}
+}
+
+// Every incoming value crosses here: text_input_set, typed text, and paste.
+@(private, require_results)
+input_sanitize :: proc(src: string, room: int) -> string {
+	if room <= 0 do return ""
+
+	b := strings.builder_make(0, min(len(src), room), context.temp_allocator)
+	for r in src { 	// ranging yields RUNE_ERROR for invalid bytes, so U+FFFD is written
+		if r == '\r' || r == '\n' || r == 0 do continue
+		if strings.builder_len(b) + utf8.rune_size(r) > room do break
+		strings.write_rune(&b, r)
+	}
+	return strings.to_string(b)
+}
+
+// Bytes an insert may add: the cap, less what survives the selection it replaces.
+@(private, require_results)
+input_room :: proc(s: ^Text_Input_State) -> int {
+	lo, hi := edit.sorted_selection(&s.edit)
+	return TEXT_INPUT_MAX_BYTES - len(s.builder.buf) + (hi - lo)
 }
 
 @(private = "file")
@@ -614,7 +573,8 @@ input_clipboard_get :: proc(user_data: rawptr) -> (text: string, ok: bool) {
 	if ptr == nil do return "", false
 	defer sdl.free(rawptr(ptr))
 
-	src := string(cstring(ptr))
-	if len(src) == 0 do return "", false
-	return strings.clone(src, context.temp_allocator), true
+	// ok=false makes an empty or fully-rejected paste a no-op in edit.paste.
+	s := (^Text_Input_State)(user_data)
+	text = input_sanitize(string(cstring(ptr)), input_room(s))
+	return text, len(text) > 0
 }

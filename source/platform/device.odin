@@ -44,7 +44,10 @@ device_create :: proc(
 		return false
 	}
 
-	sdl.SetRenderVSync(device.renderer, 1)
+	// Paces the live-resize render loop; without it a drag renders unbounded.
+	if !sdl.SetRenderVSync(device.renderer, 1) {
+		fmt.eprintfln("failed to enable vsync: %s", sdl.GetError())
+	}
 
 	// No SetRenderScale: clay lays out in logical px, and clay_render_commands
 	// converts to physical. Setting scale here would apply it twice.

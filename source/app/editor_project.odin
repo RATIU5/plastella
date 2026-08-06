@@ -9,17 +9,27 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 		if edtr.tab == .Project {
 			if clay.UI(clay.ID("area:project:settings"))(
 			{
-				layout = {sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()}},
+				layout = {
+					sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()},
+					padding = {10, 10, 10, 10},
+					layoutDirection = .TopToBottom,
+					childGap = 5,
+				},
 				cornerRadius = {10, 10, 10, 10},
 				backgroundColor = COLOR_GREY_850,
 			},
 			) {
-				text_input(
+				text(ctx.frame.assets, "Project Name", .UI_REG_13, COLOR_GREY_340)
+				if submitted := text_input(
 					ctx,
 					"area:project:settings:name_input",
 					&edtr.proj_name_input,
 					"Untitled Project",
-				)
+					width = 200,
+					submit_on_enter = true,
+				); submitted {
+					project_rename(edtr.project, text_input_get(&edtr.proj_name_input))
+				}
 			}
 		}
 	}

@@ -40,6 +40,17 @@ sources = ["source/**/*.odin", "!source/host/*.odin"]
 outputs = ["{{ env.HR_OUT }}/{{ env.APP_NAME }}{{ env.DLL_EXT }}"]
 run = "bash scripts/build-app.sh"
 
+[tasks.test]
+description = "Run the source/app package tests (state-level; no window)"
+depends = ["setup"]
+run = '''
+mkdir -p build/test
+# shellcheck disable=SC2086 # SDL_GLOB must glob-expand
+cp -a "$SDL_DIR"/$SDL_GLOB build/test/
+odin test source/app -extra-linker-flags:"$SDL_LDFLAGS" \
+  -out:build/test/${APP_NAME}_test -strict-style -vet -debug
+'''
+
 [tasks.build-host]
 description = "Compile the hot-reload host executable"
 sources = ["source/host/*.odin"]

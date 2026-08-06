@@ -15,23 +15,21 @@ Mouse_Input :: struct {
 	pos:    [2]f32,
 	delta:  [2]f32,
 	wheel:  [2]f32,
-	// SDL's click-count for this frame's press (1=single, 2=double, 3=triple,
-	// using the OS's own double-click time/distance thresholds); 0 outside
-	// the frame a press happened, same one-shot lifetime as btns_pressed.
 	clicks: u8,
 }
 
-Key_Press :: struct {
+Input_Event :: struct {
 	key:  sdl.Keycode,
 	mods: sdl.Keymod,
+	text: string,
 }
 
 Text_Input :: struct {
-	utf8:        [64]u8,
-	utf8_len:    int,
-	presses:     [32]Key_Press,
-	presses_len: int,
-	dropped:     int,
+	events:     [64]Input_Event,
+	events_len: int,
+	utf8:       [256]u8,
+	utf8_len:   int,
+	dropped:    int,
 }
 
 Input :: struct {
@@ -62,8 +60,8 @@ input_frame_begin :: proc(inp: ^Input) {
 	inp.keys_pressed = {}
 	inp.keys_released = {}
 
+	inp.text.events_len = 0
 	inp.text.utf8_len = 0
-	inp.text.presses_len = 0
 	inp.text.dropped = 0
 	inp.quit = false
 	inp.scale_changed = false
@@ -102,12 +100,7 @@ input_event_process :: proc(inp: ^Input, ev: ^sdl.Event) {
 			inp.keys_pressed[i] = true
 		}
 
-		if inp.text.presses_len < len(inp.text.presses) {
-			inp.text.presses[inp.text.presses_len] = {ev.key.key, ev.key.mod}
-			inp.text.presses_len += 1
-		} else {
-			inp.text.dropped += 1
-		}
+		text_event_push(inp, {key = ev.key.key, mods = ev.key.mod})
 	case .KEY_UP:
 		i := int(ev.key.scancode)
 		if inp.keys_curr[i] {
@@ -121,9 +114,21 @@ input_event_process :: proc(inp: ^Input, ev: ^sdl.Event) {
 			inp.text.dropped += 1
 			break
 		}
-		copy(inp.text.utf8[inp.text.utf8_len:], text)
+		start := inp.text.utf8_len
+		copy(inp.text.utf8[start:], text)
 		inp.text.utf8_len += len(text)
+		text_event_push(inp, {text = string(inp.text.utf8[start:inp.text.utf8_len])})
 	}
+}
+
+@(private = "file")
+text_event_push :: proc(inp: ^Input, ev: Input_Event) {
+	if inp.text.events_len >= len(inp.text.events) {
+		inp.text.dropped += 1
+		return
+	}
+	inp.text.events[inp.text.events_len] = ev
+	inp.text.events_len += 1
 }
 
 @(require_results)

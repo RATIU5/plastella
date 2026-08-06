@@ -38,25 +38,17 @@ Window_Button :: enum NS.UInteger {
 @(private = "file")
 CONTAINER_AUTORESIZE :: NS.UInteger(2 | 8)
 
-// Cap the resize render at ~60 fps. Vsync does the fine pacing; this stops a
-// 120 Hz panel from burning GPU during a drag. Traffic-light reposition is not
-// throttled, it must track the mouse frame-accurate.
-RESIZE_RENDER_INTERVAL_NS :: u64(16_000_000)
-
 Render_Callback :: #type proc "c" ()
 
 // File-scoped singleton justified: one window per process, and SDL's event
 // watch userdata is an untyped rawptr that cannot carry inline state cheaply.
 @(private = "file")
 Watch :: struct {
-	window:         ^sdl.Window,
-	bar_height:     f32,
-	installed:      bool,
-	render:         Render_Callback,
-	render_last_ns: u64,
-	// Guards RenderPresent re-firing this watch mid-frame; a nested
-	// clay.BeginLayout would corrupt the command buffer.
-	render_active:  bool,
+	window:     ^sdl.Window,
+	bar_height: f32,
+	installed:  bool,
+	// Reentrancy is guarded by the callback itself, not here.
+	render:     Render_Callback,
 }
 @(private = "file")
 watch: Watch
@@ -132,7 +124,6 @@ Inputs:
 */
 window_set_render_callback :: proc(cb: Render_Callback) {
 	watch.render = cb
-	watch.render_last_ns = 0
 }
 
 /*
@@ -210,14 +201,7 @@ resize_watch :: proc "c" (_userdata: rawptr, event: ^sdl.Event) -> bool {
 		reposition_traffic_lights(watch.window, watch.bar_height)
 
 		if watch.render == nil do return true
-		if watch.render_active do return true // reentrant fire from RenderPresent.
-		now := sdl.GetTicksNS()
-		if now - watch.render_last_ns < RESIZE_RENDER_INTERVAL_NS do return true
-
-		watch.render_last_ns = now
-		watch.render_active = true
 		watch.render()
-		watch.render_active = false
 	}
 	return true
 }

@@ -32,6 +32,7 @@ App :: struct {
 	time_prev_ns: u64,
 	dt:           f32,
 	frames_owed:  int,
+	rendering:    bool,
 	flags:        App_Flags,
 	input:        platform.Input,
 	assets:       Assets,
@@ -138,6 +139,12 @@ app_update :: proc(device: ^platform.Device) {
 
 @(private = "file")
 app_render :: proc(device: ^platform.Device) {
+	// RenderPresent pumps events, which can re-enter here via the resize watch.
+	// A nested clay.BeginLayout corrupts the command buffer.
+	if app.rendering do return
+	app.rendering = true
+	defer app.rendering = false
+
 	now_ns := sdl.GetTicksNS()
 	app.dt = min(f32(now_ns - app.time_prev_ns) / 1_000_000_000.0, DT_MAX)
 	app.time_prev_ns = now_ns
@@ -159,9 +166,16 @@ app_render :: proc(device: ^platform.Device) {
 
 	gfx_frame_begin(&frame)
 	ui_frame_start(&ctx)
+	ui_update(&ctx)
 	editor_frame(&app.editor, &ctx)
-	ui_frame_end(&app.ui)
+	ui_frame_end(&ctx)
 	gfx_frame_end(&frame)
+
+	when ODIN_DEBUG {
+		if app.input.text.dropped > 0 {
+			fmt.eprintfln("[input] dropped %d events this frame", app.input.text.dropped)
+		}
+	}
 }
 
 // C-ABI trampoline for the resize watch. Runs with default_context, so
@@ -181,7 +195,7 @@ app_shutdown :: proc() {
 	// TODO: Check for unsaved project, pause close until saved or force close
 	project_shutdown(&app.project)
 	editor_shutdown(&app.editor)
-	ui_shutdown(&app.ui)
+	ui_shutdown(&app.ui, app.device)
 	gfx_shutdown(&app.gfx)
 	assets_unload(&app.assets)
 	free(app)
