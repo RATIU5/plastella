@@ -105,6 +105,11 @@ app_update :: proc(device: ^platform.Device) {
 			platform.input_event_process(&app.input, &event)
 		}
 		app.frames_owed = FRAMES_AFTER_INPUT
+	} else if app.ui.focused != "" {
+		// No input this wake, but a text field has focus and its caret needs
+		// to keep blinking - render this idle tick too instead of freezing
+		// mid-blink. Stops the moment focus clears, back to full idle.
+		app.frames_owed = 1
 	}
 
 	if app.input.scale_changed {
@@ -173,6 +178,8 @@ app_render_c :: proc "c" () {
 @(export)
 app_shutdown :: proc() {
 	if app == nil do return
+	// TODO: Check for unsaved project, pause close until saved or force close
+	project_shutdown(&app.project)
 	editor_shutdown(&app.editor)
 	ui_shutdown(&app.ui)
 	gfx_shutdown(&app.gfx)

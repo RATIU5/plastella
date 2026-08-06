@@ -6,8 +6,21 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 	if edtr.project == nil do return
 
 	if edtr.project.initialized {
-		if clay.UI(clay.ID("test"))({}) {
-			text(ctx.frame.assets, "text", .UI_REG_13, COLOR_GREY_290)
+		if edtr.tab == .Project {
+			if clay.UI(clay.ID("area:project:settings"))(
+			{
+				layout = {sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()}},
+				cornerRadius = {10, 10, 10, 10},
+				backgroundColor = COLOR_GREY_850,
+			},
+			) {
+				text_input(
+					ctx,
+					"area:project:settings:name_input",
+					&edtr.proj_name_input,
+					"Untitled Project",
+				)
+			}
 		}
 	}
 

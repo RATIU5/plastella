@@ -1,6 +1,8 @@
 package platform
 
 import "core:fmt"
+import "core:strconv"
+import "core:strings"
 import sdl "vendor:sdl3"
 import "vendor:sdl3/ttf"
 
@@ -108,8 +110,23 @@ render_output_size :: proc(device: ^Device) -> (i32, i32, bool) {
 	return w, h, ok
 }
 
+// SDL defaults to 500ms / 32px (its own comment: "seems about right for
+// touch interfaces") - too loose for a precise editor click; a slow,
+// deliberate double-click or a click that drifts a few px should not
+// register as one. Not a device_create param on purpose - this is a fixed
+// platform behavior, not something callers get to override per instance.
+@(private = "file")
+DOUBLE_CLICK_TIME_MS :: 300
+@(private = "file")
+DOUBLE_CLICK_RADIUS_PX :: 4
+
 @(private = "file", require_results)
 sdl_init :: proc() -> bool {
+	// Hints can be set anytime per SDL3 docs, but set before Init so the
+	// mouse subsystem's hint callbacks pick them up on first registration
+	// rather than the 500ms/32px factory default for even one frame.
+	set_click_hints()
+
 	FLAGS :: sdl.InitFlags{.VIDEO}
 	if !sdl.Init(FLAGS) {
 		fmt.eprintfln("SDL Error: %s\n", sdl.GetError())
@@ -121,6 +138,27 @@ sdl_init :: proc() -> bool {
 		return false
 	}
 	return true
+}
+
+@(private = "file")
+set_click_hints :: proc() {
+	ms_buf: [8]u8
+	px_buf: [8]u8
+	ms := strconv.write_int(ms_buf[:], i64(DOUBLE_CLICK_TIME_MS), 10)
+	px := strconv.write_int(px_buf[:], i64(DOUBLE_CLICK_RADIUS_PX), 10)
+
+	if !sdl.SetHint(
+		sdl.HINT_MOUSE_DOUBLE_CLICK_TIME,
+		strings.clone_to_cstring(ms, context.temp_allocator),
+	) {
+		fmt.eprintln("Failed to set double-click time hint")
+	}
+	if !sdl.SetHint(
+		sdl.HINT_MOUSE_DOUBLE_CLICK_RADIUS,
+		strings.clone_to_cstring(px, context.temp_allocator),
+	) {
+		fmt.eprintln("Failed to set double-click radius hint")
+	}
 }
 
 @(private = "file")

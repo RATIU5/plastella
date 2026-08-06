@@ -14,47 +14,26 @@ SEGMENTS_BASE :: 16
 SEGMENTS_MAX :: 32
 ARC_SEGMENTS_MAX :: 32
 
-// --- Curve antialiasing tuning ---------------------------------------------
-// The three knobs below are the only numbers that shape how a rounded corner
-// or border arc blends against its neighbors. All are in device pixels.
-// Tweak by eye against a real corner (Settings tab in the toolbar is a good
-// one: it has both a fill and a thin border) and rebuild; nothing else in
-// fill_rounded_rect/render_arc should need to change to retune the look.
+// --- Curve antialiasing tuning: device pixels, tweak by eye and rebuild. ---
 
-// Antialiasing feather width. Curved boundaries fade to transparent over this
-// distance instead of hard-cutting, so they blend instead of staircasing.
-// Larger = softer/blurrier curve edges. Flat edges are left sharp on purpose
-// (see gfx_clay.odin's render_rectangle/render_border) — only curves alias
-// visibly at this segment count.
+// Feather width: curved edges fade to transparent over this distance instead
+// of hard-cutting. Larger = softer/blurrier. Flat edges stay sharp.
 FEATHER_PX :: 1.0
 
-// Feather never eats more than this fraction of whatever thickness/radius
-// it's carving into (see feather_clamp), so a thin border stroke or small
-// corner radius always keeps a solid opaque core instead of the feather
-// consuming the whole thing and reading fainter than a straight edge of the
-// same nominal color. Smaller = more of a thin stroke stays fully opaque;
-// larger = more of it tapers.
+// Feather never eats more than this fraction of the thickness/radius it's
+// carving into, so a thin stroke keeps a solid opaque core (see feather_clamp).
 FEATHER_CORE_FRACTION :: 0.25
 
-// SDL_RenderGeometry's triangle rasterization lands coverage a sliver inside
-// a given coordinate compared to SDL_RenderFillRect's straight edges at that
-// same coordinate, so a curve drawn to the exact same radius as the straight
-// sides it's tangent to reads a hair smaller than them. Nudge the curve's own
-// target radius out by this much to match; the straight edges and the arc's
-// center point are untouched, so this only grows the curve, it doesn't move
-// where it's centered or where the straight runs start. If corners still read
-// a hair small, raise this; if they now poke out past the straight sides,
-// lower it.
+// Nudges the curve's radius outward so it lines up with the straight edges
+// it's tangent to (RenderGeometry rasterizes coverage a hair inside RenderFillRect's).
 BOUNDARY_BIAS_PX :: 0.45
 
-// -----------------------------------------------------------------------------
+// Fraction of each curve's segments, at each end, that eases back to opaque so
+// a feather band meets a straight unfeathered edge smoothly, not with a snap.
+SEAM_TAPER_FRACTION :: 0.2
 
-// fill_rounded_rect: 4 center-square verts + 8 straight-edge verts (fixed),
-// plus per corner (x4) the opaque arc fan (2*segments) and its feather band
-// (2*(segments+1)).
+// fill_rounded_rect buffer sizes: fixed geometry + per-corner fan + feather band.
 VERTS_MAX :: 12 + 8 * SEGMENTS_MAX + 4 * 2 * (SEGMENTS_MAX + 1)
-// Matching index counts: 6 (square) + 24 (edges) fixed, plus per corner (x4)
-// the fan (3*segments) and its feather band (6*segments).
 INDICES_MAX :: 30 + 12 * SEGMENTS_MAX + 4 * 6 * SEGMENTS_MAX
 
 // Exception to hidden global state: Used for dev tracing not a client-facing feature
@@ -147,6 +126,15 @@ measure_text :: proc "c" (
 	assert(int(cfg.fontId) < len(a.fonts))
 	font := a.fonts[Text(cfg.fontId)]
 
+	// SDL_ttf treats length == 0 as "use the NUL-terminated length of text"
+	// instead of "the string is empty". str.chars here can point into a
+	// strings.Builder's backing buffer, which is never NUL-terminated and
+	// isn't zeroed on reset/remove - GetStringSize would read past the
+	// logical end into unrelated memory. Skip the call; the answer is 0 width.
+	if str.length == 0 {
+		return {0, f32(ttf.GetFontHeight(font)) / a.scale}
+	}
+
 	w, h: c.int
 	if !ttf.GetStringSize(font, (cstring)(str.chars), uint(str.length), &w, &h) {
 		sdl.LogError(i32(sdl.LogCategory.ERROR), "Failed to measure text: %s", sdl.GetError())
@@ -225,10 +213,8 @@ fill_rounded_rect :: proc(
 	fc_clear.a = 0
 	rr := min(radius, min(rect.w, rect.h) / 2)
 	rr_curve := rr + BOUNDARY_BIAS_PX
-	// Feather is carved out of the fan, not added past it: the opaque fan itself
-	// stops at rr_core, and the vacated sliver out to rr_curve ramps to alpha 0
-	// there. That keeps the corner's outer radius matching the straight sides
-	// it's tangent to, so it doesn't poke out past them or read smaller.
+	// Feather is carved out of the fan (stops at rr_core), not added past rr_curve,
+	// so the corner's outer radius matches the straight sides it's tangent to.
 	rr_core := max(rr_curve - feather_clamp(rr_curve), 0)
 	segments := clamp(int(rr * 0.5), SEGMENTS_BASE, SEGMENTS_MAX)
 	assert(segments <= SEGMENTS_MAX)
@@ -276,10 +262,8 @@ fill_rounded_rect :: proc(
 		}
 	}
 
-	// Feather band per corner: a ring from rr_core (opaque, matches the shrunk fan
-	// above) to the true rr (transparent), filling exactly the sliver the fan gave
-	// up. Degrees match `corners`' order (TL, TR, BR, BL) and clay's screen-space
-	// convention (y grows downward), same as render_border's per-corner arc ranges.
+	// Feather ring per corner, rr_core (opaque) to rr_curve (transparent).
+	// Degrees match `corners`' order (TL, TR, BR, BL), y grows downward.
 	feather_ranges := [4][2]f32{{180, 270}, {270, 360}, {0, 90}, {90, 180}}
 	for corner, j in corners {
 		lo := feather_ranges[j][0] * (math.PI / 180)
@@ -330,19 +314,15 @@ fill_rounded_rect :: proc(
 	)
 }
 
-// Emits one ring of quads between two concentric arcs sharing `center`, from
-// rad_start to rad_end (radians), appending into verts/indices starting at
-// *vc/*ic. Used both for an opaque band (equal-alpha colors) and a feather band
-// (one side alpha 0), so a curve's fill and its antialiased edge share one
-// code path.
-// Caps the antialiasing feather to a quarter of the extent it's carving into,
-// so shrinking a thin stroke or a small corner radius by the feather on each
-// side always leaves at least half of `extent` as a solid opaque core.
+// Caps the feather to a fraction of `extent` so a thin stroke or small radius
+// keeps a solid opaque core instead of the feather consuming all of it.
 @(private = "file")
 feather_clamp :: proc "contextless" (extent: f32) -> f32 {
 	return min(FEATHER_PX, extent * FEATHER_CORE_FRACTION)
 }
 
+// Emits one ring of quads between two concentric arcs, from rad_start to
+// rad_end, into verts/indices at *vc/*ic. Shared by opaque and feather bands.
 @(private = "file")
 emit_ring_band :: proc(
 	verts: []sdl.Vertex,
@@ -354,16 +334,28 @@ emit_ring_band :: proc(
 	rad_start, rad_end: f32,
 	segments: int,
 ) {
+	// Eases the faded side back toward opaque near each end (SEAM_TAPER_FRACTION).
+	// No-op on the opaque core band, where both colors already share one alpha.
+	taper_segments := max(1, min(segments / 2, int(f32(segments) * SEAM_TAPER_FRACTION)))
+	opaque_alpha := max(color_outer.a, color_inner.a)
+
 	angle_step := (rad_end - rad_start) / f32(segments)
 	for i in 0 ..= segments {
 		angle := rad_start + f32(i) * angle_step
 		cos, sin := math.cos(angle), math.sin(angle)
-		verts[vc^] = {{center.x + cos * r_outer, center.y + sin * r_outer}, color_outer, {0, 0}}
-		verts[vc^ + 1] = {
-			{center.x + cos * r_inner, center.y + sin * r_inner},
-			color_inner,
-			{0, 0},
+
+		t := f32(1)
+		if i < taper_segments {
+			t = f32(i) / f32(taper_segments)
+		} else if i > segments - taper_segments {
+			t = f32(segments - i) / f32(taper_segments)
 		}
+		co, ci := color_outer, color_inner
+		co.a = opaque_alpha + (color_outer.a - opaque_alpha) * t
+		ci.a = opaque_alpha + (color_inner.a - opaque_alpha) * t
+
+		verts[vc^] = {{center.x + cos * r_outer, center.y + sin * r_outer}, co, {0, 0}}
+		verts[vc^ + 1] = {{center.x + cos * r_inner, center.y + sin * r_inner}, ci, {0, 0}}
 		if i < segments {
 			o0, i0 := c.int(vc^), c.int(vc^ + 1)
 			o1, i1 := c.int(vc^ + 2), c.int(vc^ + 3)
@@ -419,11 +411,8 @@ render_border :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.Border
 		sdl.RenderFillRect(renderer, &side)
 	}
 
-	// Angles are SDL screen space, y grows downward, so 180-270 sweeps top-left.
-	// Each arc's center is inset by its own radius, so the arc's outer edge lands
-	// exactly on the rect edge and meets the straight runs with no seam.
-	// Thickness takes the wider of the two adjacent sides, so a corner never reads
-	// thinner than an edge it joins.
+	// Angles are SDL screen space (y down), so 180-270 sweeps top-left.
+	// Thickness takes the wider adjacent side so a corner never reads thinner.
 	corners := [4]Border_Corner {
 		{tl, {rect.x + tl, rect.y + tl}, 180, 270, f32(max(w.top, w.left))},
 		{tr, {rect.x + rect.w - tr, rect.y + tr}, 270, 360, f32(max(w.top, w.right))},
@@ -465,11 +454,8 @@ render_arc :: proc(
 	radius, start_deg, end_deg, thickness: f32,
 	color: clay.Color,
 ) {
-	// Fill a quarter-annulus as geometry, matching fill_rounded_rect, so the
-	// corner joins the straight RenderFillRect runs with no seam and reads at a
-	// uniform thickness. The old stacked-polyline approach rounded every vertex
-	// to the pixel grid, which staircased the arc and made the stroke wander
-	// between one and two pixels.
+	// Fills a quarter-annulus as geometry so it joins the straight border runs
+	// with no seam. (Old approach: stacked polylines staircased on the pixel grid.)
 	fc := color_float(color)
 	fc_clear := fc
 	fc_clear.a = 0
@@ -482,17 +468,8 @@ render_arc :: proc(
 	segments := clamp(int(radius * 1.5), SEGMENTS_BASE, ARC_SEGMENTS_MAX)
 	assert(segments <= ARC_SEGMENTS_MAX) // buffers below are sized for exactly this, checked before the first write.
 
-	// Feather is carved out of the existing [r_in, r_out] stroke, not added past
-	// it: the opaque core shrinks by `feather` off each curved edge, and the
-	// vacated sliver ramps to alpha 0 exactly at the true r_out/r_in radius. That
-	// keeps the stroke's outer/inner radius identical to the pre-AA hard edge, so
-	// a rounded corner neither pokes out past its straight sides nor reads
-	// thicker than them. feather_clamp keeps a solid opaque core for a thin
-	// stroke instead of the two feathers meeting and erasing it — the corner
-	// would otherwise read fainter than the straight run's full-opacity color.
-	// r_in_core only shrinks the core when there's a real inner edge (r_in > 0)
-	// to feather — a solid sector (r_in == 0) has no inner boundary and fills
-	// straight to the center.
+	// Feather is carved out of [r_in, r_out], not added past it, so the stroke's
+	// radius matches the straight runs. r_in_core only applies when r_in > 0.
 	feather := feather_clamp(thickness)
 	r_out_core := max(r_out_curve - feather, r_in)
 	r_in_core := r_in
@@ -501,10 +478,8 @@ render_arc :: proc(
 	}
 	if r_in_core > r_out_core do r_in_core = r_out_core
 
-	// Three bands: the opaque core (outer to inner radius), plus a transparent
-	// feather on each curved edge so it blends instead of staircasing. The two
-	// flat end caps (start_deg/end_deg) stay sharp on purpose — they butt against
-	// the straight border runs, and feathering them would open a seam.
+	// Opaque core plus a feather on each curved edge. End caps stay sharp on
+	// purpose — they butt against the straight border runs.
 	verts: [(ARC_SEGMENTS_MAX + 1) * 2 * 3]sdl.Vertex = ---
 	indices: [ARC_SEGMENTS_MAX * 6 * 3]c.int = ---
 	vc, ic := 0, 0

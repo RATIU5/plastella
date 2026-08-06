@@ -2,3 +2,4 @@
 build/*
 .claude
 vendor/sdl3/
+experiments/*

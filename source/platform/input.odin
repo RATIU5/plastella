@@ -12,9 +12,13 @@ Mouse_Button :: enum u8 {
 }
 
 Mouse_Input :: struct {
-	pos:   [2]f32,
-	delta: [2]f32,
-	wheel: [2]f32,
+	pos:    [2]f32,
+	delta:  [2]f32,
+	wheel:  [2]f32,
+	// SDL's click-count for this frame's press (1=single, 2=double, 3=triple,
+	// using the OS's own double-click time/distance thresholds); 0 outside
+	// the frame a press happened, same one-shot lifetime as btns_pressed.
+	clicks: u8,
 }
 
 Key_Press :: struct {
@@ -51,6 +55,7 @@ Input :: struct {
 input_frame_begin :: proc(inp: ^Input) {
 	inp.mouse.delta = {}
 	inp.mouse.wheel = {}
+	inp.mouse.clicks = 0
 
 	inp.btns_pressed = {}
 	inp.btns_released = {}
@@ -81,6 +86,7 @@ input_event_process :: proc(inp: ^Input, ev: ^sdl.Event) {
 				inp.btns_curr += {b}
 				inp.btns_pressed += {b}
 			}
+			inp.mouse.clicks = ev.button.clicks
 		}
 	case .MOUSE_BUTTON_UP:
 		if b, ok := mouse_button_from_sdl(ev.button.button); ok {
