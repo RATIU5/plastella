@@ -21,7 +21,7 @@ Editor :: struct {
 editor_init :: proc(editor: ^Editor, prj: ^Project) -> bool {
 	editor.project = prj
 	text_input_init(&editor.proj_name_input)
-	text_input_set(&editor.proj_name_input, prj.name)
+	text_input_set(&editor.proj_name_input, project_name(prj))
 	return true
 }
 

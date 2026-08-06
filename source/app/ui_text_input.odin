@@ -19,6 +19,8 @@ Text_Input_State :: struct {
 	caret_ms: u64,
 	// A plain click drags the caret; a word or select-all click does not.
 	dragging: bool,
+	// Gates the validator: a field the user has never edited or left shows no error.
+	touched:  bool,
 }
 
 Input_Style :: struct {
@@ -30,11 +32,22 @@ Input_Style :: struct {
 	fg_color:     [Color_State]clay.Color,
 	ph_color:     clay.Color,
 	radius:       clay.CornerRadius,
+	validity_color: [Input_Validity]clay.Color,
 }
 
 Input_Theme :: enum u8 {
 	Default,
 }
+
+Input_Validity :: enum u8 {
+	None,
+	Warning,
+	Error,
+}
+
+// Runs per frame, so it must not allocate. `text` aliases the internal buffer; the
+// returned message must outlive the frame.
+Input_Validator :: #type proc(user_data: rawptr, text: string) -> (Input_Validity, string)
 
 @(rodata)
 input_styles := [Input_Theme]Input_Style {
@@ -80,6 +93,11 @@ input_styles := [Input_Theme]Input_Style {
 		ph_color = COLOR_GREY_445,
 		border_width = {1, 1, 1, 1, 0},
 		radius = {5, 5, 5, 5},
+		validity_color = {
+			.None = COLOR_TRANSPARENT,
+			.Warning = COLOR_WARNING,
+			.Error = COLOR_ERROR,
+		},
 	},
 }
 
@@ -113,13 +131,29 @@ text_input_set :: proc(s: ^Text_Input_State, value: string) {
 	strings.write_string(&s.builder, input_sanitize(value, TEXT_INPUT_MAX_BYTES))
 	s.edit.selection = {len(s.builder.buf), len(s.builder.buf)}
 	s.scroll_x = 0
+	s.touched = false
 	edit.undo_clear(&s.edit, &s.edit.undo)
 	edit.undo_clear(&s.edit, &s.edit.redo)
 }
 
+// at_limit is independent of validity: input_sanitize drops the overflow before the
+// validator ever sees it.
+Text_Input_Result :: struct {
+	submitted: bool,
+	focused:   bool,
+	at_limit:  bool,
+	validity:  Input_Validity,
+	message:   string,
+	color:     clay.Color,
+}
+
 /*
 Single-line UTF-8 text field, editing via core:text/edit. `state` is caller
-owned and must outlive the widget. Returns true the frame Enter submits.
+owned and must outlive the widget.
+
+`validate` is purely visual, and stays silent until the field is first edited or
+blurred so a pristine empty field isn't born in error. An .Error field still accepts
+input and still reports `submitted`; enforcing the rule is the caller's job.
 
 width can't be .Fit: the text is a floating child, which contributes nothing to
 .Fit sizing, so the box would collapse to padding.
@@ -130,11 +164,13 @@ text_input :: proc(
 	state: ^Text_Input_State,
 	placeholder: string,
 	theme: Input_Theme = .Default,
+	validate: Input_Validator = nil,
+	validate_user_data: rawptr = nil,
 	width: Sizing = .Grow,
 	disabled: bool = false,
 	submit_on_enter: bool = false,
 ) -> (
-	submitted: bool,
+	result: Text_Input_Result,
 ) {
 	if auto, ok := width.(Sizing_Auto); ok {
 		assert(
@@ -167,7 +203,6 @@ text_input :: proc(
 	st := color_state(active, hover, false, focus, disabled)
 	fg := style.fg_color[st]
 	bg := style.bg_color[st]
-	br := style.border_color[st]
 
 	selection_was := state.edit.selection
 	text_len_was := len(state.builder.buf)
@@ -176,13 +211,27 @@ text_input :: proc(
 		ctx.ui.wants_text_input = true // ui_frame_end owns the SDL session
 		edit.update_time(&state.edit)
 		if input_handle_keys(ctx, state, submit_on_enter) {
-			submitted = true
+			result.submitted = true
 			ctx.ui.focused = ""
 			ctx.ui.wants_text_input = false
 		}
 	}
 
 	text_str := text_input_get(state)
+
+	if len(state.builder.buf) != text_len_was do state.touched = true
+	if was_focused && !focus do state.touched = true
+	if result.submitted do state.touched = true
+
+	if validate != nil && state.touched {
+		result.validity, result.message = validate(validate_user_data, text_str)
+	}
+
+	// Validity outranks hover and focus, so an invalid field can't look healthy just
+	// because the pointer is over it. Disabled keeps its grey.
+	br := style.border_color[st]
+	if result.validity != .None && !disabled do br = style.validity_color[result.validity]
+
 	// Cache owns it and may evict: fetch once a frame, pass it down. nil when
 	// empty - SDL_ttf reads a 0 length as NUL-terminated, the builder isn't.
 	shaped: ^ttf.Text
@@ -279,7 +328,11 @@ text_input :: proc(
 		}
 	}
 
-	return submitted
+	// Fresh, not the `focus` local: a submit clears focus mid-proc.
+	result.focused = ctx.ui.focused == id
+	result.at_limit = len(state.builder.buf) >= TEXT_INPUT_MAX_BYTES
+	result.color = style.validity_color[result.validity]
+	return result
 }
 
 // X of the cluster boundary at offset, logical px from the text origin.

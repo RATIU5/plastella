@@ -24,7 +24,7 @@ toolbar_frame :: proc(ctx: ^Ctx, edtr: ^Editor) {
 		},
 	}
 
-	window_title := "Plastella" if !edtr.project.initialized else edtr.project.name
+	window_title := "Plastella" if !edtr.project.initialized else project_name(edtr.project)
 
 	if clay.UI(clay.ID("toolbar"))(
 	{

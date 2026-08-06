@@ -39,6 +39,8 @@ COLOR_GREY_935 :: [4]f32{13, 13, 12, 255}
 COLOR_GREY_970 :: [4]f32{5, 5, 5, 255}
 
 COLOR_ACCENT :: [4]f32{49, 105, 227, 255}
+COLOR_WARNING :: [4]f32{224, 158, 62, 255}
+COLOR_ERROR :: [4]f32{214, 74, 68, 255}
 
 opacity :: #force_inline proc "contextless" (color: [4]f32, opacity: u8 = 255) -> [4]f32 {
 	return {color.r, color.g, color.b, f32(opacity)}

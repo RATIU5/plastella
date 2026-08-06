@@ -193,7 +193,6 @@ app_render_c :: proc "c" () {
 app_shutdown :: proc() {
 	if app == nil do return
 	// TODO: Check for unsaved project, pause close until saved or force close
-	project_shutdown(&app.project)
 	editor_shutdown(&app.editor)
 	ui_shutdown(&app.ui, app.device)
 	gfx_shutdown(&app.gfx)

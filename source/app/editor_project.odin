@@ -1,6 +1,13 @@
 package app
 
 import "../../vendor/clay"
+import "core:strings"
+
+@(private = "file")
+project_name_validate :: proc(user_data: rawptr, text: string) -> (Input_Validity, string) {
+	if len(strings.trim_space(text)) == 0 do return .Error, "Name can't be empty"
+	return .None, ""
+}
 
 project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 	if edtr.project == nil do return
@@ -20,15 +27,23 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 			},
 			) {
 				text(ctx.frame.assets, "Project Name", .UI_REG_13, COLOR_GREY_340)
-				if submitted := text_input(
+				res := text_input(
 					ctx,
 					"area:project:settings:name_input",
 					&edtr.proj_name_input,
 					"Untitled Project",
+					validate = project_name_validate,
 					width = 200,
 					submit_on_enter = true,
-				); submitted {
+				)
+				if res.submitted && res.validity != .Error {
 					project_rename(edtr.project, text_input_get(&edtr.proj_name_input))
+				}
+				switch {
+				case res.validity != .None:
+					text(ctx.frame.assets, res.message, .UI_REG_13, res.color)
+				case res.at_limit:
+					text(ctx.frame.assets, "Name is full", .UI_REG_13, COLOR_WARNING)
 				}
 			}
 		}
@@ -77,6 +92,7 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 
 						if btn.clicked {
 							project_init(edtr.project)
+							text_input_set(&edtr.proj_name_input, project_name(edtr.project))
 						}
 					}
 					if btn, open := button(ctx, "area:no_project:button_open", .Wide_Action);
