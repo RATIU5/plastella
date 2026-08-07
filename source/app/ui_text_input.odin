@@ -17,8 +17,11 @@ Text_Input_State :: struct {
 	scroll_x: f32,
 	// SDL_GetTicks at the last edit or caret move; blink derives from it.
 	caret_ms: u64,
-	// A plain click drags the caret; a word or select-all click does not.
-	dragging: bool,
+	// What the held button extends, decided by the click count that started it.
+	click_mode: Click_Mode,
+	// The word a double-click landed on, as {start, end}. Its far edge stays pinned
+	// while the drag extends the near one.
+	word_anchor: [2]int,
 	// Gates the validator: a field the user has never edited or left shows no error.
 	touched:  bool,
 }
@@ -37,6 +40,12 @@ Input_Style :: struct {
 
 Input_Theme :: enum u8 {
 	Default,
+}
+
+Click_Mode :: enum u8 {
+	Char,
+	Word,
+	All,
 }
 
 Input_Validity :: enum u8 {
@@ -446,30 +455,53 @@ input_handle_mouse :: proc(
 	if press {
 		switch {
 		case input.mouse.clicks >= 3:
-			s.dragging = false
+			s.click_mode = .All
 			edit.perform_command(&s.edit, .Select_All)
 		case input.mouse.clicks == 2:
-			s.dragging = false
+			s.click_mode = .Word
 			input_select_word_at(s, hit)
 		case:
-			s.dragging = true
+			s.click_mode = .Char
 			s.edit.selection = {hit, hit}
 		}
 		return
 	}
 
-	// Button still held. Only a plain click drags; word and select-all stay put.
-	if s.dragging do s.edit.selection[0] = hit
+	// Button still held, possibly without having moved. A triple click already holds
+	// everything, so there is nothing left for it to extend into.
+	switch s.click_mode {
+	case .Char:
+		s.edit.selection[0] = hit
+	case .Word:
+		input_extend_word_selection(s, hit)
+	case .All:
+	}
 }
 
-// Selects the word at `at`. Both translates read selection[0], so seeding it
-// first makes them order-independent.
+// Selects the word at `at` and records it as the drag anchor. Both translates read
+// selection[0], so seeding it first makes them order-independent.
 @(private = "file")
 input_select_word_at :: proc(s: ^Text_Input_State, at: int) {
 	s.edit.selection = {at, at}
 	start := edit.translate_position(&s.edit, .Word_Start)
 	end := edit.translate_position(&s.edit, .Word_End)
+	s.word_anchor = {start, end}
 	s.edit.selection = {end, start}
+}
+
+// Grows a double-click's selection to span whole words, from the anchor word out to
+// whichever word `at` is in now, so it can never narrow past the anchor.
+@(private = "file")
+input_extend_word_selection :: proc(s: ^Text_Input_State, at: int) {
+	anchor_start, anchor_end := s.word_anchor[0], s.word_anchor[1]
+
+	s.edit.selection = {at, at}
+	drag_start := edit.translate_position(&s.edit, .Word_Start)
+	drag_end := edit.translate_position(&s.edit, .Word_End)
+
+	// selection[0] is the caret, so the moving edge goes first.
+	s.edit.selection =
+		[2]int{drag_end, anchor_start} if at >= anchor_start else [2]int{drag_start, anchor_end}
 }
 
 // Byte offset of the cluster boundary nearest target_x (logical px).

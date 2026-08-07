@@ -25,7 +25,9 @@ ui_init :: proc(_: ^Ui) -> bool {
 }
 
 ui_update :: proc(ctx: ^Ctx) {
-	if platform.key_pressed(ctx.frame.input, .ESCAPE) && ctx.ui.focused != "" {
+	if ctx.ui.focused == "" do return
+
+	if platform.key_pressed(ctx.frame.input, .ESCAPE) || ctx.frame.input.focus_lost {
 		ctx.ui.focused = ""
 	}
 }

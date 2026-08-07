@@ -48,6 +48,7 @@ Input :: struct {
 	// Other
 	quit:          bool,
 	scale_changed: bool,
+	focus_lost:    bool,
 }
 
 input_frame_begin :: proc(inp: ^Input) {
@@ -65,6 +66,7 @@ input_frame_begin :: proc(inp: ^Input) {
 	inp.text.dropped = 0
 	inp.quit = false
 	inp.scale_changed = false
+	inp.focus_lost = false
 }
 
 input_event_process :: proc(inp: ^Input, ev: ^sdl.Event) {
@@ -73,6 +75,12 @@ input_event_process :: proc(inp: ^Input, ev: ^sdl.Event) {
 		inp.quit = true
 	case .WINDOW_DISPLAY_SCALE_CHANGED:
 		inp.scale_changed = true
+	case .WINDOW_FOCUS_LOST:
+		inp.focus_lost = true
+		// The OS delivers no KEY_UP for a key still held at the blur, so anything
+		// down now would latch until it is pressed and released again.
+		inp.keys_curr = {}
+		inp.btns_curr = {}
 	case .MOUSE_MOTION:
 		inp.mouse.pos = {ev.motion.x, ev.motion.y}
 		inp.mouse.delta += {ev.motion.xrel, ev.motion.yrel}
