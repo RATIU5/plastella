@@ -77,8 +77,7 @@ input_event_process :: proc(inp: ^Input, ev: ^sdl.Event) {
 		inp.scale_changed = true
 	case .WINDOW_FOCUS_LOST:
 		inp.focus_lost = true
-		// The OS delivers no KEY_UP for a key still held at the blur, so anything
-		// down now would latch until it is pressed and released again.
+		// No KEY_UP arrives for a key held at the blur, so it would latch down.
 		inp.keys_curr = {}
 		inp.btns_curr = {}
 	case .MOUSE_MOTION:

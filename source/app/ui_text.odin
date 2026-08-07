@@ -26,7 +26,9 @@ text :: proc(
 			{
 				fontId = u16(style),
 				fontSize = s.size,
-				lineHeight = s.line_height,
+				// 0: clay would size the box to line_height directly and crop a taller
+				// font, so measure_text owns it instead.
+				lineHeight = 0,
 				letterSpacing = s.letter_spacing,
 				textAlignment = align,
 				textColor = color,
@@ -90,7 +92,7 @@ text_width :: proc(str: string, style: Text, asts: ^Assets) -> f32 {
 		fontId        = u16(style),
 		fontSize      = s.size,
 		letterSpacing = s.letter_spacing,
-		lineHeight    = s.line_height,
+		lineHeight    = 0,
 	}
 	slice := clay.StringSlice {
 		length = i32(len(str)),

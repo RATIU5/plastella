@@ -126,13 +126,10 @@ measure_text :: proc "c" (
 	assert(int(cfg.fontId) < len(a.fonts))
 	font := a.fonts[Text(cfg.fontId)]
 
-	// SDL_ttf treats length == 0 as "use the NUL-terminated length of text"
-	// instead of "the string is empty". str.chars here can point into a
-	// strings.Builder's backing buffer, which is never NUL-terminated and
-	// isn't zeroed on reset/remove - GetStringSize would read past the
-	// logical end into unrelated memory. Skip the call; the answer is 0 width.
+	box_h, _ := text_metrics(Text(cfg.fontId), a)
+
 	if str.length == 0 {
-		return {0, f32(ttf.GetFontHeight(font)) / a.scale}
+		return {0, box_h}
 	}
 
 	w, h: c.int
@@ -140,7 +137,7 @@ measure_text :: proc "c" (
 		sdl.LogError(i32(sdl.LogCategory.ERROR), "Failed to measure text: %s", sdl.GetError())
 	}
 
-	return {f32(w) / a.scale, f32(h) / a.scale}
+	return {f32(w) / a.scale, box_h}
 }
 
 clay_render_commands :: proc(commands: ^clay.ClayArray(clay.RenderCommand), frame: ^Frame) {
@@ -444,7 +441,13 @@ render_text :: proc(rect: sdl.FRect, cfg: clay.TextRenderData, frame: ^Frame) {
 
 	col := color_u8(cfg.textColor)
 	ttf.SetTextColor(text, col.r, col.g, col.b, col.a)
-	ttf.DrawRendererText(text, rect.x, rect.y)
+
+	glyph_h: c.int
+	w: c.int
+	y := rect.y
+	if ttf.GetTextSize(text, &w, &glyph_h) do y = rect.y + rect.h - f32(glyph_h)
+
+	ttf.DrawRendererText(text, rect.x, y)
 }
 
 @(private = "file")

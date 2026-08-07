@@ -45,6 +45,13 @@ font_paths := [Font_Face]cstring {
 }
 
 @(require_results)
+text_metrics :: proc "contextless" (style: Text, a: ^Assets) -> (box_h, glyph_h: f32) {
+	glyph_h = f32(ttf.GetFontHeight(a.fonts[style])) / a.scale
+	box_h = max(glyph_h, f32(text_styles[style].line_height))
+	return
+}
+
+@(require_results)
 load_fonts :: proc(a: ^Assets, device: ^platform.Device) -> bool {
 	for style, id in text_styles {
 		a.fonts[id] = ttf.OpenFont(font_paths[style.face], f32(style.size) * device.scale)

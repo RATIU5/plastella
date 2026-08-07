@@ -34,7 +34,6 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 					"Untitled Project",
 					validate = project_name_validate,
 					width = 200,
-					submit_on_enter = true,
 				)
 				if res.submitted && res.validity != .Error {
 					project_rename(edtr.project, text_input_get(&edtr.proj_name_input))

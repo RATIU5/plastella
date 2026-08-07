@@ -10,31 +10,25 @@ import "core:unicode/utf8"
 import sdl "vendor:sdl3"
 import "vendor:sdl3/ttf"
 
-// Caller owned, one per text field (ODIN_STYLE.md 2.5: no hidden id-keyed map).
 Text_Input_State :: struct {
-	edit:     edit.State,
-	builder:  strings.Builder,
-	scroll_x: f32,
-	// SDL_GetTicks at the last edit or caret move; blink derives from it.
-	caret_ms: u64,
-	// What the held button extends, decided by the click count that started it.
-	click_mode: Click_Mode,
-	// The word a double-click landed on, as {start, end}. Its far edge stays pinned
-	// while the drag extends the near one.
+	edit:        edit.State,
+	builder:     strings.Builder,
+	scroll_x:    f32,
+	caret_ms:    u64,
+	click_mode:  Click_Mode,
 	word_anchor: [2]int,
-	// Gates the validator: a field the user has never edited or left shows no error.
-	touched:  bool,
+	touched:     bool,
 }
 
 Input_Style :: struct {
-	font:         Text,
-	padding:      clay.Padding,
-	border_width: clay.BorderWidth,
-	border_color: [Color_State]clay.Color,
-	bg_color:     [Color_State]clay.Color,
-	fg_color:     [Color_State]clay.Color,
-	ph_color:     clay.Color,
-	radius:       clay.CornerRadius,
+	font:           Text,
+	padding:        clay.Padding,
+	border_width:   clay.BorderWidth,
+	border_color:   [Color_State]clay.Color,
+	bg_color:       [Color_State]clay.Color,
+	fg_color:       [Color_State]clay.Color,
+	ph_color:       clay.Color,
+	radius:         clay.CornerRadius,
 	validity_color: [Input_Validity]clay.Color,
 }
 
@@ -118,8 +112,6 @@ text_input_init :: proc(s: ^Text_Input_State, allocator := context.allocator) {
 	s.edit.set_clipboard = input_clipboard_set
 	s.edit.get_clipboard = input_clipboard_get
 	s.edit.clipboard_user_data = s
-	// ponytail: no translate_by_grapheme - core subtracts Grapheme.width (a
-	// monospace cell count) from a byte offset and corrupts the UTF-8.
 }
 
 TEXT_INPUT_MAX_BYTES :: 256
@@ -145,8 +137,7 @@ text_input_set :: proc(s: ^Text_Input_State, value: string) {
 	edit.undo_clear(&s.edit, &s.edit.redo)
 }
 
-// at_limit is independent of validity: input_sanitize drops the overflow before the
-// validator ever sees it.
+// at_limit is independent of validity: the validator never sees the dropped overflow.
 Text_Input_Result :: struct {
 	submitted: bool,
 	focused:   bool,
@@ -159,13 +150,6 @@ Text_Input_Result :: struct {
 /*
 Single-line UTF-8 text field, editing via core:text/edit. `state` is caller
 owned and must outlive the widget.
-
-`validate` is purely visual, and stays silent until the field is first edited or
-blurred so a pristine empty field isn't born in error. An .Error field still accepts
-input and still reports `submitted`; enforcing the rule is the caller's job.
-
-width can't be .Fit: the text is a floating child, which contributes nothing to
-.Fit sizing, so the box would collapse to padding.
 */
 text_input :: proc(
 	ctx: ^Ctx,
@@ -236,8 +220,7 @@ text_input :: proc(
 		result.validity, result.message = validate(validate_user_data, text_str)
 	}
 
-	// Validity outranks hover and focus, so an invalid field can't look healthy just
-	// because the pointer is over it. Disabled keeps its grey.
+	// Validity outranks hover and focus, so an invalid field can't look healthy.
 	br := style.border_color[st]
 	if result.validity != .None && !disabled do br = style.validity_color[result.validity]
 
@@ -304,7 +287,7 @@ text_input :: proc(
 					clipTo = .AttachedParent,
 					zIndex = 2,
 					attachment = {element = .LeftTop, parent = .LeftTop},
-					offset = {-state.scroll_x, 0},
+					offset = {-state.scroll_x, -input_leading(style.font, ctx.frame.assets)},
 					pointerCaptureMode = .Passthrough,
 				},
 			},
@@ -337,7 +320,6 @@ text_input :: proc(
 		}
 	}
 
-	// Fresh, not the `focus` local: a submit clears focus mid-proc.
 	result.focused = ctx.ui.focused == id
 	result.at_limit = len(state.builder.buf) >= TEXT_INPUT_MAX_BYTES
 	result.color = style.validity_color[result.validity]
@@ -351,7 +333,6 @@ input_offset_x :: proc(shaped: ^ttf.Text, offset: int, asts: ^Assets) -> f32 {
 
 	sub: ttf.SubString
 	if !ttf.GetTextSubString(shaped, c.int(offset), &sub) do return 0
-	// A caret past the last cluster sits at its trailing edge.
 	x := sub.rect.x if c.int(offset) <= sub.offset else sub.rect.x + sub.rect.w
 	return f32(x) / asts.scale
 }
@@ -362,7 +343,6 @@ input_caret_x :: proc(s: ^Text_Input_State, shaped: ^ttf.Text, asts: ^Assets) ->
 	return input_offset_x(shaped, caret, asts)
 }
 
-// ponytail: one rect, so bidi selections highlight wrong; names are LTR-only.
 @(private = "file")
 input_draw_selection :: proc(
 	id: string,
@@ -374,7 +354,6 @@ input_draw_selection :: proc(
 	lo, hi := edit.sorted_selection(&s.edit)
 	lo_x := input_offset_x(shaped, lo, asts)
 	hi_x := input_offset_x(shaped, hi, asts)
-
 	if clay.UI(clay.ID(id, 2))(
 	{
 		floating = {
@@ -396,11 +375,20 @@ input_draw_selection :: proc(
 	) {}
 }
 
-// Shared height for every floating child, so they can't drift apart. Full
-// ascent+descent, not line_height, or the row's clip scissors descenders.
+// Shared height for every floating child, so they can't drift apart. Glyphs only, or
+// the style's leading pushes a single-line field off center.
 @(private = "file")
 input_row_height :: proc(font: Text, asts: ^Assets) -> f32 {
-	return f32(ttf.GetFontHeight(asts.fonts[font])) / asts.scale
+	_, glyph_h := text_metrics(font, asts)
+	return glyph_h
+}
+
+// The text child renders its glyphs on the bottom edge of a taller box; offsetting by
+// this lifts them into the row.
+@(private = "file")
+input_leading :: proc(font: Text, asts: ^Assets) -> f32 {
+	box_h, glyph_h := text_metrics(font, asts)
+	return box_h - glyph_h
 }
 
 @(private = "file")
@@ -446,7 +434,6 @@ input_handle_mouse :: proc(
 	drag := !press && platform.mouse_down(input, .Left)
 
 	if !press && !drag do return
-	// Focus can arrive by Tab in the same frame as a click elsewhere; not our press.
 	if press && !pointer_over(id) do return
 
 	local_x := input.mouse.pos.x - box.x - pad_x + s.scroll_x
@@ -467,8 +454,6 @@ input_handle_mouse :: proc(
 		return
 	}
 
-	// Button still held, possibly without having moved. A triple click already holds
-	// everything, so there is nothing left for it to extend into.
 	switch s.click_mode {
 	case .Char:
 		s.edit.selection[0] = hit
@@ -489,8 +474,7 @@ input_select_word_at :: proc(s: ^Text_Input_State, at: int) {
 	s.edit.selection = {end, start}
 }
 
-// Grows a double-click's selection to span whole words, from the anchor word out to
-// whichever word `at` is in now, so it can never narrow past the anchor.
+// Extends a double-click's selection by whole words, never narrower than the anchor.
 @(private = "file")
 input_extend_word_selection :: proc(s: ^Text_Input_State, at: int) {
 	anchor_start, anchor_end := s.word_anchor[0], s.word_anchor[1]
@@ -499,7 +483,6 @@ input_extend_word_selection :: proc(s: ^Text_Input_State, at: int) {
 	drag_start := edit.translate_position(&s.edit, .Word_Start)
 	drag_end := edit.translate_position(&s.edit, .Word_End)
 
-	// selection[0] is the caret, so the moving edge goes first.
 	s.edit.selection =
 		[2]int{drag_end, anchor_start} if at >= anchor_start else [2]int{drag_start, anchor_end}
 }
@@ -599,7 +582,6 @@ input_handle_keys :: proc(
 		switch press.key {
 		case sdl.K_A:
 			edit.perform_command(&s.edit, .Select_All)
-		// Guarded: edit.copy on an empty selection clears the system clipboard.
 		case sdl.K_C:
 			if edit.has_selection(&s.edit) do edit.perform_command(&s.edit, .Copy)
 		case sdl.K_X:
