@@ -1,6 +1,7 @@
 package app
 
 PROJECT_NAME_MAX :: TEXT_INPUT_MAX_BYTES
+PROJECT_NAME_MAX_RUNES :: 25
 
 Project :: struct {
 	initialized: bool,
