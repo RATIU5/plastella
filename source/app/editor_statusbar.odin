@@ -2,14 +2,24 @@ package app
 
 import "../../vendor/clay"
 
+Status_Theme :: enum u8 {
+	Info,
+	Warning,
+	Error,
+}
+
+@(rodata)
+status_colors := [Status_Theme]clay.Color {
+	.Info    = COLOR_GREY_340,
+	.Warning = COLOR_WARNING,
+	.Error   = COLOR_ERROR,
+}
+
 statusbar_frame :: proc(ctx: ^Ctx, editor: ^Editor) {
 	if clay.UI(clay.ID("statusbar"))(
 	{
 		layout = {
-			sizing = {
-				width = clay.SizingGrow(),
-				height = clay.SizingFixed(STATUSBAR_HEIGHT),
-			},
+			sizing = {width = clay.SizingGrow(), height = clay.SizingFixed(STATUSBAR_HEIGHT)},
 			padding = {10, 10, 5, 5},
 		},
 		backgroundColor = COLOR_GREY_850,
@@ -26,7 +36,12 @@ statusbar_frame :: proc(ctx: ^Ctx, editor: ^Editor) {
 			},
 		},
 		) {
-			text(ctx.frame.assets, editor.status_text, .UI_REG_12, COLOR_GREY_340)
+			text(
+				ctx.frame.assets,
+				status_text(editor),
+				.UI_REG_12,
+				status_colors[editor.status_theme],
+			)
 		}
 
 		// STATUSBAR:RIGHT

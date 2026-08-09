@@ -10,39 +10,42 @@ import "core:unicode/utf8"
 import sdl "vendor:sdl3"
 import "vendor:sdl3/ttf"
 
-// Behavior set once at init lives here; per-frame presentation lives in Input_Opts.
-Text_Input_State :: struct {
-	edit:               edit.State,
-	builder:            strings.Builder,
-	scroll_x:           f32,
-	caret_ms:           u64,
-	click_mode:         Click_Mode,
-	word_anchor:        [2]int,
-	touched:            bool,
-	transform:          Input_Transform,
-	validate:           Input_Validator,
-	validate_user_data: rawptr,
-	rejected_ms:        Maybe(u64),
+// One session for the whole app; commit_* outlives it, since the field that owned it
+// may well draw after the one that stole the focus.
+Text_Edit :: struct {
+	id:          string,
+	commit_id:   string,
+	commit_buf:  [TEXT_INPUT_MAX_BYTES]u8,
+	commit_len:  int,
+	edit:        edit.State,
+	builder:     strings.Builder,
+	scroll_x:    f32,
+	caret_ms:    u64,
+	click_mode:  Click_Mode,
+	word_anchor: [2]int,
+	transform:   Input_Transform,
+	rejected:    bool,
 }
 
 Input_Opts :: struct {
-	placeholder:     string,
-	theme:           Input_Theme,
-	width:           Sizing,
-	disabled:        bool,
-	submit_on_enter: bool,
+	placeholder: string,
+	theme:       Input_Theme,
+	width:       Sizing,
+	disabled:    bool,
+	// Enter, and losing focus to anything else, both commit; Escape backs out.
+	submits:     bool,
+	transform:   Input_Transform,
 }
 
 Input_Style :: struct {
-	font:           Text,
-	padding:        clay.Padding,
-	border_width:   clay.BorderWidth,
-	border_color:   [Color_State]clay.Color,
-	bg_color:       [Color_State]clay.Color,
-	fg_color:       [Color_State]clay.Color,
-	ph_color:       clay.Color,
-	radius:         clay.CornerRadius,
-	validity_color: [Input_Validity]clay.Color,
+	font:         Text,
+	padding:      clay.Padding,
+	border_width: clay.BorderWidth,
+	border_color: [Color_State]clay.Color,
+	bg_color:     [Color_State]clay.Color,
+	fg_color:     [Color_State]clay.Color,
+	ph_color:     clay.Color,
+	radius:       clay.CornerRadius,
 }
 
 Input_Theme :: enum u8 {
@@ -55,28 +58,17 @@ Click_Mode :: enum u8 {
 	All,
 }
 
-Input_Validity :: enum u8 {
-	None,
-	Warning,
-	Error,
-}
-
-// Runs per frame, so it must not allocate; the returned message must outlive the
-// frame. Takes the state, not the text, so a rule can also read text_input_rejected.
-Input_Validator :: #type proc(user_data: rawptr, s: ^Text_Input_State) -> (Input_Validity, string)
-
 /*
 Rewrites text on its way into the buffer: drop unwanted runes, clamp a length,
-reject the whole insert with "". Runs on typing, paste, and text_input_set.
+reject the whole insert with "". Runs on typing, paste, and the seed at focus.
 
-`insert` is only the incoming text; read the current contents with text_input_get(s)
-and s.edit.selection to decide against what is already there. The result may alias
+`insert` is only the incoming text; read the current contents with s.builder and
+s.edit.selection to decide against what is already there. The result may alias
 `insert` or temp storage, and is sanitized and clamped to the byte cap afterwards.
 */
-Input_Transform :: #type proc(s: ^Text_Input_State, insert: string) -> string
+Input_Transform :: #type proc(s: ^Text_Edit, insert: string) -> string
 
 TEXT_INPUT_MAX_BYTES :: 256
-INPUT_REJECT_MS :: u64(1500)
 
 @(rodata)
 input_styles := [Input_Theme]Input_Style {
@@ -122,67 +114,66 @@ input_styles := [Input_Theme]Input_Style {
 		ph_color = COLOR_GREY_445,
 		border_width = {1, 1, 1, 1, 0},
 		radius = {5, 5, 5, 5},
-		validity_color = {
-			.None = COLOR_TRANSPARENT,
-			.Warning = COLOR_WARNING,
-			.Error = COLOR_ERROR,
-		},
 	},
 }
 
-// allocator backs both the text buffer and the undo/redo history.
-text_input_init :: proc(s: ^Text_Input_State, allocator := context.allocator) {
-	strings.builder_init(&s.builder, allocator)
-	edit.init(&s.edit, allocator, allocator)
-	edit.setup_once(&s.edit, &s.builder)
-	s.edit.set_clipboard = input_clipboard_set
-	s.edit.get_clipboard = input_clipboard_get
-	s.edit.clipboard_user_data = s
-}
-
-
-text_input_destroy :: proc(s: ^Text_Input_State) {
-	edit.destroy(&s.edit)
-	strings.builder_destroy(&s.builder)
-}
-
-// Returned string aliases the internal buffer; clone it to keep past this frame.
-@(require_results)
-text_input_get :: proc(s: ^Text_Input_State) -> string {
-	return strings.to_string(s.builder)
-}
-
-// Runs through `transform` like any other insert, so set it first.
-text_input_set :: proc(s: ^Text_Input_State, value: string) {
+@(private)
+text_edit_begin :: proc(s: ^Text_Edit, id: string, value: string, transform: Input_Transform) {
+	if s.builder.buf.allocator.procedure == nil {
+		strings.builder_init(&s.builder)
+		edit.init(&s.edit, context.allocator, context.allocator)
+		edit.setup_once(&s.edit, &s.builder)
+		s.edit.set_clipboard = input_clipboard_set
+		s.edit.get_clipboard = input_clipboard_get
+		s.edit.clipboard_user_data = s
+	}
+	s.id = id
+	s.transform = transform
+	s.scroll_x = 0
 	strings.builder_reset(&s.builder)
 	s.edit.selection = {0, 0} // stale offsets would misreport the room to input_accept
 	strings.write_string(&s.builder, input_accept(s, value))
 	s.edit.selection = {len(s.builder.buf), len(s.builder.buf)}
-	s.scroll_x = 0
-	s.touched = false
-	s.rejected_ms = nil // seeding a too-long value isn't the user losing a keystroke
+	s.rejected = false // seeding a too-long value isn't the user losing a keystroke
 	edit.undo_clear(&s.edit, &s.edit.undo)
 	edit.undo_clear(&s.edit, &s.edit.redo)
 }
 
-// at_limit is independent of validity: the validator never sees the dropped overflow.
+@(private = "file")
+text_edit_end :: proc(s: ^Text_Edit, commit: bool) {
+	if commit {
+		s.commit_id = s.id
+		s.commit_len = copy(s.commit_buf[:], strings.to_string(s.builder))
+	}
+	s.id = ""
+}
+
+@(private)
+text_edit_destroy :: proc(s: ^Text_Edit) {
+	edit.destroy(&s.edit)
+	strings.builder_destroy(&s.builder)
+}
+
+// Not writing `text` back to wherever the value lives is the revert.
 Text_Input_Result :: struct {
 	submitted: bool,
+	text:      string,
 	focused:   bool,
 	at_limit:  bool,
-	validity:  Input_Validity,
-	message:   string,
-	color:     clay.Color,
+	// Edge, not level: true only on the frame a keystroke or paste was dropped, so the
+	// caller decides how long to say so.
+	rejected:  bool,
 }
 
 /*
-Single-line UTF-8 text field, editing via core:text/edit. `state` is caller
-owned and must outlive the widget.
+Single-line UTF-8 text field, editing via core:text/edit. `value` is what the field
+shows when it is not being edited, so the caller keeps owning it; the edited text
+comes back through `result.text` on a commit.
 */
 text_input :: proc(
 	ctx: ^Ctx,
 	id: string,
-	state: ^Text_Input_State,
+	value: string,
 	opts := Input_Opts{},
 ) -> (
 	result: Text_Input_Result,
@@ -196,6 +187,7 @@ text_input :: proc(
 	width := opts.width
 	if width == nil do width = Sizing_Auto.Grow
 
+	te := &ctx.ui.text_edit
 	was_focused := ctx.ui.focused == id
 	hover := !opts.disabled && pointer_over(id)
 
@@ -207,11 +199,22 @@ text_input :: proc(
 			ctx.ui.focused = ""
 		}
 	}
-	if !opts.disabled && register_focusable(ctx, id) {
-		ctx.ui.focused = id
-		state.edit.selection = {len(state.builder.buf), 0} // tab-in selects all
-	}
+	tabbed := !opts.disabled && register_focusable(ctx, id)
+	if tabbed do ctx.ui.focused = id
 	focus := ctx.ui.focused == id
+
+	// Blur commits, so clicking away or tabbing out is as good as Enter. Escape and the
+	// window going away also clear the focus (ui_update), but those mean "forget it".
+	if te.id == id && !focus {
+		backed_out :=
+			platform.key_pressed(ctx.frame.input, .ESCAPE) || ctx.frame.input.focus_lost
+		text_edit_end(te, !backed_out)
+	}
+	if focus && te.id != id {
+		if te.id != "" do text_edit_end(te, true)
+		text_edit_begin(te, id, value, opts.transform)
+		if tabbed do te.edit.selection = {len(te.builder.buf), 0}
+	}
 
 	if hover do ctx.frame.cursor = .Text
 
@@ -219,32 +222,29 @@ text_input :: proc(
 	active := !opts.disabled && active_over(ctx.frame, id)
 	st := color_state(active, hover, false, focus, opts.disabled)
 
-	selection_was := state.edit.selection
-	text_len_was := len(state.builder.buf)
+	selection_was := te.edit.selection
+	text_len_was := len(te.builder.buf)
 
 	if focus {
 		ctx.ui.wants_text_input = true // ui_frame_end owns the SDL session
-		edit.update_time(&state.edit)
-		if input_handle_keys(ctx, state, opts.submit_on_enter) {
-			result.submitted = true
+		edit.update_time(&te.edit)
+		if input_handle_keys(ctx, te, opts.submits) {
+			text_edit_end(te, true)
 			ctx.ui.focused = ""
 			ctx.ui.wants_text_input = false
 		}
 	}
 
-	text_str := text_input_get(state)
-
-	if len(state.builder.buf) != text_len_was || (was_focused && !focus) || result.submitted {
-		state.touched = true
+	if te.commit_id == id {
+		result.submitted = opts.submits
+		result.text = string(te.commit_buf[:te.commit_len])
+		te.commit_id = ""
 	}
 
-	if state.validate != nil && state.touched {
-		result.validity, result.message = state.validate(state.validate_user_data, state)
-	}
-
-	// Validity outranks hover and focus, so an invalid field can't look healthy.
-	br := style.border_color[st]
-	if result.validity != .None && !opts.disabled do br = style.validity_color[result.validity]
+	editing := te.id == id
+	text_str := value
+	if editing do text_str = strings.to_string(te.builder)
+	else if result.submitted do text_str = result.text
 
 	// Cache owns it and may evict: fetch once a frame, pass it down. nil when
 	// empty - SDL_ttf reads a 0 length as NUL-terminated, the builder isn't.
@@ -263,24 +263,26 @@ text_input :: proc(
 	pad_x := f32(style.padding.left)
 	inner_w := el.boundingBox.width - f32(style.padding.left + style.padding.right)
 
-	if el.found {
-		if focus do input_handle_mouse(ctx, state, id, shaped, el.boundingBox, pad_x)
-		input_scroll_clamp(state, shaped, ctx.frame.assets, inner_w)
-	}
+	caret_x := f32(0)
+	if editing {
+		if el.found {
+			input_handle_mouse(ctx, te, id, shaped, el.boundingBox, pad_x)
+			input_scroll_clamp(te, shaped, ctx.frame.assets, inner_w)
+		}
+		if te.edit.selection != selection_was || len(te.builder.buf) != text_len_was {
+			te.caret_ms = sdl.GetTicks()
+		}
+		caret_x = input_caret_x(te, shaped, ctx.frame.assets)
+		if el.found do input_set_ime_area(ctx, el.boundingBox, caret_x - te.scroll_x)
 
-	if state.edit.selection != selection_was || len(state.builder.buf) != text_len_was {
-		state.caret_ms = sdl.GetTicks()
-	}
-
-	caret_x := input_caret_x(state, shaped, ctx.frame.assets)
-
-	if el.found && focus {
-		input_set_ime_area(ctx, el.boundingBox, caret_x - state.scroll_x)
+		result.at_limit = len(te.builder.buf) >= TEXT_INPUT_MAX_BYTES
+		result.rejected = te.rejected
+		te.rejected = false
 	}
 
 	input_draw(
 		ctx,
-		state,
+		te,
 		{
 			id = id,
 			style = style,
@@ -290,15 +292,14 @@ text_input :: proc(
 			shaped = shaped,
 			fg = style.fg_color[st],
 			bg = style.bg_color[st],
-			border = br,
+			border = style.border_color[st],
 			caret_x = caret_x,
-			focus = focus,
+			scroll_x = te.scroll_x if editing else 0,
+			focus = editing,
 		},
 	)
 
 	result.focused = ctx.ui.focused == id
-	result.at_limit = len(state.builder.buf) >= TEXT_INPUT_MAX_BYTES
-	result.color = style.validity_color[result.validity]
 	return result
 }
 
@@ -315,11 +316,12 @@ Input_Draw :: struct {
 	bg:          clay.Color,
 	border:      clay.Color,
 	caret_x:     f32,
+	scroll_x:    f32,
 	focus:       bool,
 }
 
 @(private = "file")
-input_draw :: proc(ctx: ^Ctx, s: ^Text_Input_State, d: Input_Draw) {
+input_draw :: proc(ctx: ^Ctx, s: ^Text_Edit, d: Input_Draw) {
 	if clay.UI(clay.ID(d.id))(
 	{
 		layout = {
@@ -341,7 +343,7 @@ input_draw :: proc(ctx: ^Ctx, s: ^Text_Input_State, d: Input_Draw) {
 		},
 		) {
 			if d.focus && edit.has_selection(&s.edit) {
-				input_draw_selection(d.id, s, d.shaped, d.style.font, ctx.frame.assets)
+				input_draw_selection(d.id, s, d.shaped, d.style.font, ctx.frame.assets, d.scroll_x)
 			}
 
 			if clay.UI(clay.ID(d.id, 3))(
@@ -351,7 +353,7 @@ input_draw :: proc(ctx: ^Ctx, s: ^Text_Input_State, d: Input_Draw) {
 					clipTo = .AttachedParent,
 					zIndex = 2,
 					attachment = {element = .LeftTop, parent = .LeftTop},
-					offset = {-s.scroll_x, -input_leading(d.style.font, ctx.frame.assets)},
+					offset = {-d.scroll_x, -input_leading(d.style.font, ctx.frame.assets)},
 					pointerCaptureMode = .Passthrough,
 				},
 			},
@@ -378,7 +380,7 @@ input_draw :: proc(ctx: ^Ctx, s: ^Text_Input_State, d: Input_Draw) {
 						clipTo = .AttachedParent,
 						zIndex = 3,
 						attachment = {element = .LeftTop, parent = .LeftTop},
-						offset = {d.caret_x - s.scroll_x, 0},
+						offset = {d.caret_x - d.scroll_x, 0},
 						pointerCaptureMode = .Passthrough,
 					},
 					layout = {
@@ -404,7 +406,7 @@ input_offset_x :: proc(shaped: ^ttf.Text, offset: int, asts: ^Assets) -> f32 {
 }
 
 @(private = "file", require_results)
-input_caret_x :: proc(s: ^Text_Input_State, shaped: ^ttf.Text, asts: ^Assets) -> f32 {
+input_caret_x :: proc(s: ^Text_Edit, shaped: ^ttf.Text, asts: ^Assets) -> f32 {
 	caret := clamp(s.edit.selection[0], 0, len(s.builder.buf))
 	return input_offset_x(shaped, caret, asts)
 }
@@ -412,10 +414,11 @@ input_caret_x :: proc(s: ^Text_Input_State, shaped: ^ttf.Text, asts: ^Assets) ->
 @(private = "file")
 input_draw_selection :: proc(
 	id: string,
-	s: ^Text_Input_State,
+	s: ^Text_Edit,
 	shaped: ^ttf.Text,
 	font: Text,
 	asts: ^Assets,
+	scroll_x: f32,
 ) {
 	lo, hi := edit.sorted_selection(&s.edit)
 	lo_x := input_offset_x(shaped, lo, asts)
@@ -427,7 +430,7 @@ input_draw_selection :: proc(
 			clipTo = .AttachedParent,
 			zIndex = 1,
 			attachment = {element = .LeftTop, parent = .LeftTop},
-			offset = {lo_x - s.scroll_x, 0},
+			offset = {lo_x - scroll_x, 0},
 			pointerCaptureMode = .Passthrough,
 		},
 		layout = {
@@ -458,7 +461,7 @@ input_leading :: proc(font: Text, asts: ^Assets) -> f32 {
 }
 
 @(private = "file")
-input_scroll_clamp :: proc(s: ^Text_Input_State, shaped: ^ttf.Text, asts: ^Assets, inner_w: f32) {
+input_scroll_clamp :: proc(s: ^Text_Edit, shaped: ^ttf.Text, asts: ^Assets, inner_w: f32) {
 	PAD :: f32(2)
 	caret_x := input_caret_x(s, shaped, asts)
 	if caret_x - s.scroll_x < PAD {
@@ -488,7 +491,7 @@ input_set_ime_area :: proc(ctx: ^Ctx, box: clay.BoundingBox, caret_local_x: f32)
 @(private = "file")
 input_handle_mouse :: proc(
 	ctx: ^Ctx,
-	s: ^Text_Input_State,
+	s: ^Text_Edit,
 	id: string,
 	shaped: ^ttf.Text,
 	box: clay.BoundingBox,
@@ -532,7 +535,7 @@ input_handle_mouse :: proc(
 // Selects the word at `at` and records it as the drag anchor. Both translates read
 // selection[0], so seeding it first makes them order-independent.
 @(private = "file")
-input_select_word_at :: proc(s: ^Text_Input_State, at: int) {
+input_select_word_at :: proc(s: ^Text_Edit, at: int) {
 	s.edit.selection = {at, at}
 	start := edit.translate_position(&s.edit, .Word_Start)
 	end := edit.translate_position(&s.edit, .Word_End)
@@ -542,7 +545,7 @@ input_select_word_at :: proc(s: ^Text_Input_State, at: int) {
 
 // Extends a double-click's selection by whole words, never narrower than the anchor.
 @(private = "file")
-input_extend_word_selection :: proc(s: ^Text_Input_State, at: int) {
+input_extend_word_selection :: proc(s: ^Text_Edit, at: int) {
 	anchor_start, anchor_end := s.word_anchor[0], s.word_anchor[1]
 
 	s.edit.selection = {at, at}
@@ -556,7 +559,7 @@ input_extend_word_selection :: proc(s: ^Text_Input_State, at: int) {
 // Byte offset of the cluster boundary nearest target_x (logical px).
 @(private = "file", require_results)
 input_hit_test :: proc(
-	s: ^Text_Input_State,
+	s: ^Text_Edit,
 	shaped: ^ttf.Text,
 	asts: ^Assets,
 	target_x: f32,
@@ -604,7 +607,7 @@ nav_keys := [?]Nav_Key {
 @(private = "file")
 input_handle_keys :: proc(
 	ctx: ^Ctx,
-	s: ^Text_Input_State,
+	s: ^Text_Edit,
 	submit_on_enter: bool,
 ) -> (
 	submitted: bool,
@@ -689,24 +692,17 @@ input_sanitize :: proc(src: string, room: int) -> string {
 
 // The one gate every insert passes: caller's transform first, then sanitize and clamp.
 @(private, require_results)
-input_accept :: proc(s: ^Text_Input_State, src: string) -> string {
+input_accept :: proc(s: ^Text_Edit, src: string) -> string {
 	kept := src
 	if s.transform != nil do kept = s.transform(s, kept)
 	out := input_sanitize(kept, input_room(s))
-	if len(out) < len(src) do s.rejected_ms = sdl.GetTicks()
+	if len(out) < len(src) do s.rejected = true
 	return out
-}
-
-@(require_results)
-text_input_rejected :: proc(s: ^Text_Input_State) -> bool {
-	ms, ok := s.rejected_ms.?
-	if !ok do return false
-	return sdl.GetTicks() - ms < INPUT_REJECT_MS
 }
 
 // Bytes an insert may add: the cap, less what survives the selection it replaces.
 @(private, require_results)
-input_room :: proc(s: ^Text_Input_State) -> int {
+input_room :: proc(s: ^Text_Edit) -> int {
 	lo, hi := edit.sorted_selection(&s.edit)
 	return TEXT_INPUT_MAX_BYTES - len(s.builder.buf) + (hi - lo)
 }
@@ -724,7 +720,7 @@ input_clipboard_get :: proc(user_data: rawptr) -> (text: string, ok: bool) {
 	defer sdl.free(rawptr(ptr))
 
 	// ok=false makes an empty or fully-rejected paste a no-op in edit.paste.
-	s := (^Text_Input_State)(user_data)
+	s := (^Text_Edit)(user_data)
 	text = input_accept(s, string(cstring(ptr)))
 	return text, len(text) > 0
 }

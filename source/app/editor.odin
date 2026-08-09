@@ -4,6 +4,7 @@ import "../../vendor/clay"
 import "core:strings"
 import "core:text/edit"
 import "core:unicode/utf8"
+import sdl "vendor:sdl3"
 
 Toolbar_Tab :: enum u8 {
 	Project,
@@ -12,26 +13,23 @@ Toolbar_Tab :: enum u8 {
 	Level,
 }
 
+STATUS_TEXT_MAX :: 128
+STATUS_SHOW_MS :: u64(4000)
+
 Editor :: struct {
 	tab:             Toolbar_Tab,
-	status_text:     string,
+	status_buf:      [STATUS_TEXT_MAX]u8,
+	status_len:      int,
+	status_ms:       u64,
+	status_theme:    Status_Theme,
 	// Borrowed from App, set once by editor_init; never nil after.
 	project:         ^Project,
-	proj_name_input: Text_Input_State,
 }
 
 @(require_results)
 editor_init :: proc(editor: ^Editor, prj: ^Project) -> bool {
 	editor.project = prj
-	text_input_init(&editor.proj_name_input)
-	editor.proj_name_input.transform = project_name_transform
-	editor.proj_name_input.validate = project_name_validate
-	text_input_set(&editor.proj_name_input, project_name(prj))
 	return true
-}
-
-editor_shutdown :: proc(editor: ^Editor) {
-	text_input_destroy(&editor.proj_name_input)
 }
 
 editor_frame :: proc(editor: ^Editor, ctx: ^Ctx) {
@@ -63,13 +61,21 @@ editor_frame :: proc(editor: ^Editor, ctx: ^Ctx) {
 	}
 }
 
-status_text_set :: proc(editor: ^Editor, text: string) {
-	editor.status_text = strings.clone(text, context.temp_allocator)
+status_text_set :: proc(editor: ^Editor, text: string, theme := Status_Theme.Info) {
+	editor.status_len = copy(editor.status_buf[:], text)
+	editor.status_ms = sdl.GetTicks()
+	editor.status_theme = theme
 }
 
-project_name_transform :: proc(s: ^Text_Input_State, insert: string) -> string {
+@(require_results)
+status_text :: proc(editor: ^Editor) -> string {
+	if sdl.GetTicks() - editor.status_ms > STATUS_SHOW_MS do return ""
+	return string(editor.status_buf[:editor.status_len])
+}
+
+project_name_transform :: proc(s: ^Text_Edit, insert: string) -> string {
 	lo, hi := edit.sorted_selection(&s.edit)
-	text := text_input_get(s)
+	text := strings.to_string(s.builder)
 	kept := utf8.rune_count_in_string(text) - utf8.rune_count_in_string(text[lo:hi])
 	room := PROJECT_NAME_MAX_RUNES - kept
 	if room <= 0 do return ""
@@ -82,16 +88,4 @@ project_name_transform :: proc(s: ^Text_Input_State, insert: string) -> string {
 		written += 1
 	}
 	return strings.to_string(b)
-}
-
-project_name_validate :: proc(
-	user_data: rawptr,
-	s: ^Text_Input_State,
-) -> (
-	Input_Validity,
-	string,
-) {
-	if len(strings.trim_space(text_input_get(s))) == 0 do return .Error, "Cannot be empty"
-	if text_input_rejected(s) do return .Warning, "Max 25 characters reached"
-	return .None, ""
 }

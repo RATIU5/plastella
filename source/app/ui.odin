@@ -13,6 +13,7 @@ Ui :: struct {
 	focus_seen:       bool,
 	wants_text_input: bool,
 	text_input_on:    bool,
+	text_edit:        Text_Edit,
 }
 
 Ctx :: struct {
@@ -59,6 +60,7 @@ ui_frame_end :: proc(ctx: ^Ctx) {
 
 ui_shutdown :: proc(ui: ^Ui, device: ^platform.Device) {
 	if device != nil do ui_sync_text_input(ui, device.window, false)
+	text_edit_destroy(&ui.text_edit)
 	ui^ = {}
 }
 

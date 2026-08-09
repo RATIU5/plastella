@@ -1,8 +1,14 @@
 package app
 
 import "../../vendor/clay"
+import "core:fmt"
 
-TOOLBAR_LEFT_PAD :: clay.Padding{left = 90, right = 10, top = 10, bottom = 10}
+TOOLBAR_LEFT_PAD :: clay.Padding {
+	left   = 90,
+	right  = 10,
+	top    = 10,
+	bottom = 10,
+}
 
 toolbar_frame :: proc(ctx: ^Ctx, edtr: ^Editor) {
 	toolbar_tabs := [Toolbar_Tab]Tab {
@@ -24,13 +30,12 @@ toolbar_frame :: proc(ctx: ^Ctx, edtr: ^Editor) {
 		},
 	}
 
-	window_title := "Plastella" if !edtr.project.initialized else project_name(edtr.project)
+	window_title :=
+		"Plastella" if !edtr.project.initialized else fmt.tprintf("Plastella - %s", project_name_get(edtr.project))
 
 	if clay.UI(clay.ID("toolbar"))(
 	{
-		layout = {
-			sizing = {width = clay.SizingGrow(), height = clay.SizingFixed(TOOLBAR_HEIGHT)},
-		},
+		layout = {sizing = {width = clay.SizingGrow(), height = clay.SizingFixed(TOOLBAR_HEIGHT)}},
 		backgroundColor = COLOR_GREY_850,
 		border = {width = {bottom = 1}, color = COLOR_GREY_760},
 	},
@@ -55,13 +60,7 @@ toolbar_frame :: proc(ctx: ^Ctx, edtr: ^Editor) {
 				ctx.frame.screen.x / 3 - f32(TOOLBAR_LEFT_PAD.left + TOOLBAR_LEFT_PAD.right),
 			)
 
-			text(
-				ctx.frame.assets,
-				window_title,
-				.UI_BLD_13,
-				{255, 255, 255, 255},
-				ellipsize = width,
-			)
+			text(ctx.frame.assets, window_title, .UI_BLD_13, COLOR_GREY_65, ellipsize = width)
 		}
 
 		// TOOLBAR:CENTER

@@ -7,18 +7,29 @@ Project :: struct {
 	initialized: bool,
 	name_buf:    [PROJECT_NAME_MAX]u8,
 	name_len:    int,
+	loc_buf:     []u8,
+	loc_len:     int,
 }
 
 project_init :: proc(prj: ^Project, name: string = "Untitled Project") {
-	project_rename(prj, name)
+	project_name_set(prj, name)
 	prj.initialized = true
 }
 
 @(require_results)
-project_name :: proc(prj: ^Project) -> string {
+project_name_get :: proc(prj: ^Project) -> string {
 	return string(prj.name_buf[:prj.name_len])
 }
 
-project_rename :: proc(prj: ^Project, name: string) {
+project_name_set :: proc(prj: ^Project, name: string) {
 	prj.name_len = copy(prj.name_buf[:], name)
+}
+
+@(require_results)
+project_loc_get :: proc(prj: ^Project) -> string {
+	return string(prj.loc_buf[:prj.loc_len])
+}
+
+project_loc_set :: proc(prj: ^Project, path: string) {
+	prj.loc_len = copy(prj.loc_buf[:], path)
 }
