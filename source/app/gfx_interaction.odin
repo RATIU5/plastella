@@ -29,8 +29,8 @@ clicked :: proc(frame: ^Frame, id: string, button := platform.Mouse_Button.Left)
 	return false
 }
 
-// Clears a press left dangling when release lands off the original id (e.g. drag off
-// before release). Call once per frame after all widget code has run.
+// Clears a press whose release landed off the original id. Call once per
+// frame, after all widget code.
 interaction_end :: proc(frame: ^Frame) {
 	state := &frame.gfx.interaction
 	for btn in platform.Mouse_Button {

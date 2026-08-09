@@ -22,7 +22,6 @@ Editor :: struct {
 	status_len:      int,
 	status_ms:       u64,
 	status_theme:    Status_Theme,
-	// Borrowed from App, set once by editor_init; never nil after.
 	project:         ^Project,
 }
 

@@ -5,15 +5,12 @@ import "base:runtime"
 import "core:fmt"
 import sdl "vendor:sdl3"
 
-// Frames owed after last input. Clay uses several frames for hover/scroll, one event
-// needs a short burst of frames over exactly one.
+// Clay needs a few frames per event for hover/scroll to settle.
 FRAMES_AFTER_INPUT :: 3
 
-// Idle wake cap. Used to ensure wake never leaves window frozen & room for slow work (cursor blink)
 IDLE_TIMEOUT_MS :: 100
 
-// Longest dt any consumer sees. Event driven means the gap since last draw frame is unbounded;
-// scroll animation must not integrate across an idle period.
+// Clamps dt so animation never integrates across an idle gap.
 DT_MAX: f32 : 1.0 / 15.0
 
 App_Flag :: enum u8 {
@@ -26,8 +23,7 @@ App_Flag :: enum u8 {
 App_Flags :: distinct bit_set[App_Flag;u8]
 
 App :: struct {
-	// Borrowed from the host, survives reloads. Stashed so the resize-watch
-	// render callback can find it without a userdata plumbing round-trip.
+	// Borrowed from host; stashed so the resize-watch callback can reach it.
 	device:       ^platform.Device,
 	time_prev_ns: u64,
 	dt:           f32,
@@ -81,7 +77,6 @@ app_init :: proc(device: ^platform.Device) -> bool {
 
 	app.time_prev_ns = sdl.GetTicksNS()
 
-	// Paired with re-register in app_hot_reloaded (Appendix A rule 6).
 	platform.window_set_render_callback(app_render_c)
 
 	return true
@@ -95,8 +90,7 @@ app_update :: proc(device: ^platform.Device) {
 
 	platform.input_frame_begin(&app.input)
 
-	// Block until event, on mid-burst we poll (timeout 0) so burst runs at display rate;
-	// idle we sleep and wake at most 10 times a second.
+	// Mid-burst polls so the burst runs at display rate; idle sleeps.
 	timeout := i32(0) if app.frames_owed > 0 else i32(IDLE_TIMEOUT_MS)
 
 	event: sdl.Event
@@ -107,9 +101,7 @@ app_update :: proc(device: ^platform.Device) {
 		}
 		app.frames_owed = FRAMES_AFTER_INPUT
 	} else if app.ui.focused != "" {
-		// No input this wake, but a text field has focus and its caret needs
-		// to keep blinking - render this idle tick too instead of freezing
-		// mid-blink. Stops the moment focus clears, back to full idle.
+		// Keep the caret blinking while a field holds focus.
 		app.frames_owed = 1
 	}
 
@@ -139,8 +131,8 @@ app_update :: proc(device: ^platform.Device) {
 
 @(private = "file")
 app_render :: proc(device: ^platform.Device) {
-	// RenderPresent pumps events, which can re-enter here via the resize watch.
-	// A nested clay.BeginLayout corrupts the command buffer.
+	// RenderPresent pumps events and can re-enter via the resize watch;
+	// a nested clay.BeginLayout corrupts the command buffer.
 	if app.rendering do return
 	app.rendering = true
 	defer app.rendering = false
@@ -178,9 +170,8 @@ app_render :: proc(device: ^platform.Device) {
 	}
 }
 
-// C-ABI trampoline for the resize watch. Runs with default_context, so
-// context.allocator is not the host's tracking allocator: keep the render
-// path allocation-free.
+// Resize-watch trampoline. Runs with default_context, not the host's
+// tracking allocator, so the render path must stay allocation-free.
 @(private = "file")
 app_render_c :: proc "c" () {
 	context = runtime.default_context()
@@ -253,7 +244,6 @@ app_device_destroy :: proc(device: ^platform.Device) {
 	free(device)
 }
 
-// Returns false when app cannot draw
 @(require_results)
 app_reload_subsystems :: proc(device: ^platform.Device) -> bool {
 	if .Should_Reload_Clay in app.flags {
@@ -265,7 +255,7 @@ app_reload_subsystems :: proc(device: ^platform.Device) -> bool {
 			return false
 		}
 
-		// Reload gfx since to set new measure text and error handler callbacks for clay
+		// gfx reload re-registers clay's measure_text and error callbacks.
 		if !gfx_reload(&app.gfx, &app.assets, {f32(w), f32(h)}) do return false
 	}
 

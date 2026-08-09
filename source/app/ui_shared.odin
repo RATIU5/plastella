@@ -12,8 +12,6 @@ Sizing :: union {
 	f32,
 }
 
-// height is not a parameter: every caller wants .Fit, and it had zero callers
-// exercising anything else (ODIN_STYLE.md 2.3 - no speculative generality).
 sizing_to_clay :: proc(width: Sizing) -> clay.Sizing {
 	new_width: clay.SizingAxis
 

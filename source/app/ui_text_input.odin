@@ -10,8 +10,8 @@ import "core:unicode/utf8"
 import sdl "vendor:sdl3"
 import "vendor:sdl3/ttf"
 
-// One session for the whole app; commit_* outlives it, since the field that owned it
-// may well draw after the one that stole the focus.
+// One session for the whole app. commit_* outlives it: the field that owned the
+// session may draw after the one that stole focus.
 Text_Edit :: struct {
 	id:          string,
 	commit_id:   string,
@@ -32,7 +32,7 @@ Input_Opts :: struct {
 	theme:       Input_Theme,
 	width:       Sizing,
 	disabled:    bool,
-	// Enter, and losing focus to anything else, both commit; Escape backs out.
+	// Enter and blur commit; Escape backs out.
 	submits:     bool,
 	transform:   Input_Transform,
 }
@@ -58,14 +58,10 @@ Click_Mode :: enum u8 {
 	All,
 }
 
-/*
-Rewrites text on its way into the buffer: drop unwanted runes, clamp a length,
-reject the whole insert with "". Runs on typing, paste, and the seed at focus.
-
-`insert` is only the incoming text; read the current contents with s.builder and
-s.edit.selection to decide against what is already there. The result may alias
-`insert` or temp storage, and is sanitized and clamped to the byte cap afterwards.
-*/
+// Rewrites text on its way into the buffer; return "" to reject the whole insert.
+// Runs on typing, paste, and the seed at focus. `insert` is only the incoming text:
+// read s.builder and s.edit.selection for what is already there. The result is
+// sanitized and clamped to the byte cap afterwards.
 Input_Transform :: #type proc(s: ^Text_Edit, insert: string) -> string
 
 TEXT_INPUT_MAX_BYTES :: 256
@@ -131,10 +127,10 @@ text_edit_begin :: proc(s: ^Text_Edit, id: string, value: string, transform: Inp
 	s.transform = transform
 	s.scroll_x = 0
 	strings.builder_reset(&s.builder)
-	s.edit.selection = {0, 0} // stale offsets would misreport the room to input_accept
+	s.edit.selection = {0, 0} // stale offsets misreport the room to input_accept
 	strings.write_string(&s.builder, input_accept(s, value))
 	s.edit.selection = {len(s.builder.buf), len(s.builder.buf)}
-	s.rejected = false // seeding a too-long value isn't the user losing a keystroke
+	s.rejected = false // a truncated seed is not a lost keystroke
 	edit.undo_clear(&s.edit, &s.edit.undo)
 	edit.undo_clear(&s.edit, &s.edit.redo)
 }
@@ -154,22 +150,17 @@ text_edit_destroy :: proc(s: ^Text_Edit) {
 	strings.builder_destroy(&s.builder)
 }
 
-// Not writing `text` back to wherever the value lives is the revert.
 Text_Input_Result :: struct {
 	submitted: bool,
 	text:      string,
 	focused:   bool,
 	at_limit:  bool,
-	// Edge, not level: true only on the frame a keystroke or paste was dropped, so the
-	// caller decides how long to say so.
+	// Edge: true only on the frame an insert was dropped.
 	rejected:  bool,
 }
 
-/*
-Single-line UTF-8 text field, editing via core:text/edit. `value` is what the field
-shows when it is not being edited, so the caller keeps owning it; the edited text
-comes back through `result.text` on a commit.
-*/
+// Single-line UTF-8 field. The caller keeps owning `value`, shown while not
+// editing; edited text comes back through `result.text` on commit.
 text_input :: proc(
 	ctx: ^Ctx,
 	id: string,
@@ -191,7 +182,6 @@ text_input :: proc(
 	was_focused := ctx.ui.focused == id
 	hover := !opts.disabled && pointer_over(id)
 
-	// Tab focus is register_focusable's job, below.
 	if !opts.disabled && platform.mouse_pressed(ctx.frame.input, .Left) {
 		if hover {
 			ctx.ui.focused = id
@@ -203,8 +193,7 @@ text_input :: proc(
 	if tabbed do ctx.ui.focused = id
 	focus := ctx.ui.focused == id
 
-	// Blur commits, so clicking away or tabbing out is as good as Enter. Escape and the
-	// window going away also clear the focus (ui_update), but those mean "forget it".
+	// Blur commits; Escape and window focus loss (see ui_update) revert instead.
 	if te.id == id && !focus {
 		backed_out :=
 			platform.key_pressed(ctx.frame.input, .ESCAPE) || ctx.frame.input.focus_lost
@@ -226,7 +215,7 @@ text_input :: proc(
 	text_len_was := len(te.builder.buf)
 
 	if focus {
-		ctx.ui.wants_text_input = true // ui_frame_end owns the SDL session
+		ctx.ui.wants_text_input = true
 		edit.update_time(&te.edit)
 		if input_handle_keys(ctx, te, opts.submits) {
 			text_edit_end(te, true)
@@ -246,8 +235,8 @@ text_input :: proc(
 	if editing do text_str = strings.to_string(te.builder)
 	else if result.submitted do text_str = result.text
 
-	// Cache owns it and may evict: fetch once a frame, pass it down. nil when
-	// empty - SDL_ttf reads a 0 length as NUL-terminated, the builder isn't.
+	// Cache may evict, so fetch once a frame and pass it down. Left nil when empty:
+	// SDL_ttf reads a 0 length as NUL-terminated, the builder is not.
 	shaped: ^ttf.Text
 	if len(text_str) > 0 {
 		shaped = text_cache_get(
@@ -303,7 +292,6 @@ text_input :: proc(
 	return result
 }
 
-// Everything the clay tree needs, resolved once by text_input.
 @(private = "file")
 Input_Draw :: struct {
 	id:          string,
@@ -394,7 +382,7 @@ input_draw :: proc(ctx: ^Ctx, s: ^Text_Edit, d: Input_Draw) {
 	}
 }
 
-// X of the cluster boundary at offset, logical px from the text origin.
+// X of the cluster boundary at `offset`, logical px from the text origin.
 @(private = "file", require_results)
 input_offset_x :: proc(shaped: ^ttf.Text, offset: int, asts: ^Assets) -> f32 {
 	if shaped == nil || offset <= 0 do return 0
@@ -444,16 +432,15 @@ input_draw_selection :: proc(
 	) {}
 }
 
-// Shared height for every floating child, so they can't drift apart. Glyphs only, or
-// the style's leading pushes a single-line field off center.
+// Shared by every floating child so they can't drift. Glyphs only: the style's
+// leading would push a single-line field off center.
 @(private = "file")
 input_row_height :: proc(font: Text, asts: ^Assets) -> f32 {
 	_, glyph_h := text_metrics(font, asts)
 	return glyph_h
 }
 
-// The text child renders its glyphs on the bottom edge of a taller box; offsetting by
-// this lifts them into the row.
+// The text child draws glyphs on the bottom edge of a taller box; this lifts them.
 @(private = "file")
 input_leading :: proc(font: Text, asts: ^Assets) -> f32 {
 	box_h, glyph_h := text_metrics(font, asts)
@@ -475,11 +462,11 @@ input_scroll_clamp :: proc(s: ^Text_Edit, shaped: ^ttf.Text, asts: ^Assets, inne
 		w, h: c.int
 		if ttf.GetTextSize(shaped, &w, &h) do text_w = f32(w) / asts.scale
 	}
-	// PAD is in the bound too, else this cancels the right inset at the end.
+	// PAD is in the bound too, else the right inset is cancelled at the end.
 	s.scroll_x = clamp(s.scroll_x, 0, max(0, text_w + PAD - inner_w))
 }
 
-// No scaling: SDL wants window coords and clay units already are window units.
+// No scaling: clay units are already window units.
 @(private = "file")
 input_set_ime_area :: proc(ctx: ^Ctx, box: clay.BoundingBox, caret_local_x: f32) {
 	rect := sdl.Rect{i32(box.x), i32(box.y), i32(box.width), i32(box.height)}
@@ -532,8 +519,8 @@ input_handle_mouse :: proc(
 	}
 }
 
-// Selects the word at `at` and records it as the drag anchor. Both translates read
-// selection[0], so seeding it first makes them order-independent.
+// Selects the word at `at` as the drag anchor. Both translates read selection[0],
+// so it is seeded first.
 @(private = "file")
 input_select_word_at :: proc(s: ^Text_Edit, at: int) {
 	s.edit.selection = {at, at}
@@ -543,7 +530,7 @@ input_select_word_at :: proc(s: ^Text_Edit, at: int) {
 	s.edit.selection = {end, start}
 }
 
-// Extends a double-click's selection by whole words, never narrower than the anchor.
+// Extends a double-click selection by whole words, never inside the anchor.
 @(private = "file")
 input_extend_word_selection :: proc(s: ^Text_Edit, at: int) {
 	anchor_start, anchor_end := s.word_anchor[0], s.word_anchor[1]
@@ -556,7 +543,7 @@ input_extend_word_selection :: proc(s: ^Text_Edit, at: int) {
 		[2]int{drag_end, anchor_start} if at >= anchor_start else [2]int{drag_start, anchor_end}
 }
 
-// Byte offset of the cluster boundary nearest target_x (logical px).
+// Byte offset of the cluster boundary nearest target_x, in logical px.
 @(private = "file", require_results)
 input_hit_test :: proc(
 	s: ^Text_Edit,
@@ -582,7 +569,6 @@ blink_on :: proc(caret_ms: u64) -> bool {
 	return (sdl.GetTicks() - caret_ms) % PERIOD < PERIOD / 2
 }
 
-// Each nav key with its plain, shift, primary, and primary+shift command.
 @(private = "file")
 Nav_Key :: struct {
 	key:        sdl.Keycode,
@@ -602,8 +588,7 @@ nav_keys := [?]Nav_Key {
 	{sdl.K_DELETE, .Delete, .Delete, .Delete_Word_Right, .Delete_Word_Right},
 }
 
-// Replays this frame's input events in order (these carry OS auto-repeat,
-// unlike the debounced key_pressed flags). True when Enter submits.
+// Replays this frame's events in order; unlike key_pressed they carry OS auto-repeat.
 @(private = "file")
 input_handle_keys :: proc(
 	ctx: ^Ctx,
@@ -666,7 +651,6 @@ input_handle_keys :: proc(
 	return
 }
 
-// Cmd on macOS, Ctrl elsewhere.
 @(private = "file")
 input_mod_primary :: proc(mods: sdl.Keymod) -> bool {
 	when ODIN_OS == .Darwin {
@@ -676,13 +660,12 @@ input_mod_primary :: proc(mods: sdl.Keymod) -> bool {
 	}
 }
 
-// Every incoming value crosses here: text_input_set, typed text, and paste.
 @(private, require_results)
 input_sanitize :: proc(src: string, room: int) -> string {
 	if room <= 0 do return ""
 
 	b := strings.builder_make(0, min(len(src), room), context.temp_allocator)
-	for r in src { 	// ranging yields RUNE_ERROR for invalid bytes, so U+FFFD is written
+	for r in src { 	// ranging yields RUNE_ERROR for invalid bytes, written back as U+FFFD
 		if r == '\r' || r == '\n' || r == 0 do continue
 		if strings.builder_len(b) + utf8.rune_size(r) > room do break
 		strings.write_rune(&b, r)
@@ -690,7 +673,7 @@ input_sanitize :: proc(src: string, room: int) -> string {
 	return strings.to_string(b)
 }
 
-// The one gate every insert passes: caller's transform first, then sanitize and clamp.
+// Every insert passes here: caller's transform, then sanitize and clamp.
 @(private, require_results)
 input_accept :: proc(s: ^Text_Edit, src: string) -> string {
 	kept := src
@@ -700,7 +683,7 @@ input_accept :: proc(s: ^Text_Edit, src: string) -> string {
 	return out
 }
 
-// Bytes an insert may add: the cap, less what survives the selection it replaces.
+// Bytes an insert may add, counting the selection it replaces as free.
 @(private, require_results)
 input_room :: proc(s: ^Text_Edit) -> int {
 	lo, hi := edit.sorted_selection(&s.edit)

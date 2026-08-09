@@ -39,11 +39,9 @@ load_textures :: proc(a: ^Assets, device: ^platform.Device) -> bool {
 unload_textures :: proc(a: ^Assets) {
 	for tex in a.textures do if tex != nil do sdl.DestroyTexture(tex)
 	a.textures = {}
-	a.ui_icons = {} // icon slices cache the atlas texture pointer; zero together.
+	a.ui_icons = {} // slices cache the atlas texture pointer
 }
 
-// Named texture_slice, not image: a same-named ui.image widget proc exists
-// once this package merges with ui (ODIN_STYLE.md 3.1 wants one flat package).
 @(require_results)
 texture_slice :: proc(a: ^Assets, id: Texture_Id) -> Texture_Slice {
 	tex := a.textures[id]

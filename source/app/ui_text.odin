@@ -26,8 +26,7 @@ text :: proc(
 			{
 				fontId = u16(style),
 				fontSize = s.size,
-				// 0: clay would size the box to line_height directly and crop a taller
-				// font, so measure_text owns it instead.
+				// 0 hands line height to measure_text; clay would crop a taller font.
 				lineHeight = 0,
 				letterSpacing = s.letter_spacing,
 				textAlignment = align,
@@ -38,9 +37,7 @@ text :: proc(
 	)
 }
 
-// Returns str unchanged if it already fits max_w, or truncated copy (...)
-// Truncated result asliases ccontext.temp_allocator storage; clone it before
-// current temp scope is freed if it must outlive the frame.
+// Unchanged if it fits max_w, else a truncated copy in temp_allocator storage.
 @(require_results)
 ellipsize_text :: proc(
 	str: string,
@@ -54,8 +51,7 @@ ellipsize_text :: proc(
 	dots_w := text_width(dots, style, asts)
 	if dots_w >= max_w do return dots
 
-	// Fonts are logical size * device scale; budget must be converted to physical pixels
-	// before it reaches `ttf`; floor as rounding up can overflow the budget by a pixel.
+	// ttf works in physical pixels; floor, since rounding up can overflow the budget.
 	budget_px := c.int(math.floor((max_w - dots_w) * asts.scale))
 
 	measured_w: c.int
@@ -77,7 +73,7 @@ ellipsize_text :: proc(
 	assert(cut >= 0)
 	assert(cut <= len(str))
 
-	for cut > 0 && str[cut - 1] == ' ' do cut -= 1 // no phantom gap before "..."
+	for cut > 0 && str[cut - 1] == ' ' do cut -= 1 // no gap before "..."
 	if cut == 0 do return dots
 
 	buf := make([]u8, cut + len(dots), context.temp_allocator)

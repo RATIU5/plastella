@@ -1,7 +1,5 @@
 package app
 
-// Compile-time config constants
-
 WINDOW_TITLE :: "Plastella"
 WINDOW_WIDTH :: 960
 WINDOW_HEIGHT :: 540

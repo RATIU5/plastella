@@ -1,6 +1,6 @@
 package app
 
-// State-level only; geometry, focus and IME placement are manual checks.
+// State only; geometry, focus and IME placement are manual checks.
 
 import "core:strings"
 import "core:testing"
@@ -43,7 +43,7 @@ test_set_sanitizes_and_caps :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(strings.to_string(s.builder)), TEXT_INPUT_MAX_BYTES)
 }
 
-// transform gates every insert path; an inverted loop here silently blocks all typing.
+// transform gates every insert path; getting it wrong blocks all typing.
 @(test)
 test_transform_caps_without_blocking :: proc(t: ^testing.T) {
 	s: Text_Edit
@@ -55,29 +55,26 @@ test_transform_caps_without_blocking :: proc(t: ^testing.T) {
 	text_edit_begin(&s, "t", "0123456789012345678901234567890", project_name_transform)
 	testing.expect_value(t, strings.to_string(s.builder), "0123456789012345678901234")
 
-	// Full: an insert is refused, but a delete still frees room for one more.
+	// Full: the insert is refused, but a delete frees room for one more.
 	testing.expect_value(t, input_accept(&s, "z"), "")
 	edit.perform_command(&s.edit, .Backspace)
 	testing.expect_value(t, input_accept(&s, "zz"), "z")
 }
 
-// The refused keystroke is the only place a "that didn't register" hint can come from.
 @(test)
 test_rejected_flags_only_dropped_inserts :: proc(t: ^testing.T) {
 	s: Text_Edit
 	defer text_edit_destroy(&s)
 
-	// An insert that lands whole leaves it clear.
 	text_edit_begin(&s, "t", "abc", project_name_transform)
 	testing.expect_value(t, input_accept(&s, "z"), "z")
 	testing.expect(t, !s.rejected)
 
-	// Seeding past the cap truncates, but that is not the user losing a keystroke.
+	// A truncated seed is not a lost keystroke.
 	text_edit_begin(&s, "t", "0123456789012345678901234567890", project_name_transform)
 	testing.expect_value(t, strings.to_string(s.builder), "0123456789012345678901234")
 	testing.expect(t, !s.rejected)
 
-	// Full, so the next keystroke is dropped and raises the hint.
 	testing.expect_value(t, input_accept(&s, "z"), "")
 	testing.expect(t, s.rejected)
 }
@@ -90,12 +87,12 @@ test_room_accounts_for_selection :: proc(t: ^testing.T) {
 	text_edit_begin(&s, "t", "abcd", nil)
 	testing.expect_value(t, input_room(&s), TEXT_INPUT_MAX_BYTES - 4)
 
-	// The selection is about to be replaced, so its bytes are available again.
+	// The selection is about to be replaced, so its bytes count as free.
 	s.edit.selection = {1, 3}
 	testing.expect_value(t, input_room(&s), TEXT_INPUT_MAX_BYTES - 2)
 }
 
-// Pins the limitation in text_edit_begin: codepoint steps, always rune-aligned.
+// Backspace steps by codepoint, never mid-rune.
 @(test)
 test_backspace_steps_by_codepoint :: proc(t: ^testing.T) {
 	s: Text_Edit
@@ -118,7 +115,7 @@ test_undo_redo_round_trip :: proc(t: ^testing.T) {
 
 	text_edit_begin(&s, "t", "abc", nil)
 
-	// No clock running here, so snapshot every edit instead of coalescing.
+	// No clock here, so snapshot every edit instead of coalescing.
 	s.edit.undo_timeout = -1
 
 	edit.input_text(&s.edit, "def")

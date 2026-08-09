@@ -37,7 +37,6 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 			) {
 				text(ctx.frame.assets, "Project Details", .UI_BLD_13, COLOR_GREY_150)
 
-				// Project name input row
 				if clay.UI(clay.ID("project:settings:project_name"))(
 				{
 					layout = {
@@ -90,7 +89,6 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 					}
 				}
 
-				// Project location input row
 				if clay.UI(clay.ID("project:settings:project_loc"))(
 				{
 					layout = {
@@ -148,7 +146,6 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 		}
 	}
 
-	// NO_PROJECT
 	if !edtr.project.initialized {
 		if clay.UI(clay.ID("no_project"))(
 		{

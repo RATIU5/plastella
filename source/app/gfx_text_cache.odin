@@ -9,7 +9,7 @@ import "vendor:sdl3/ttf"
 Text_Key :: distinct u64
 
 TEXT_CACHE_MAX :: 256
-// Num frames an untouched entry survives before termination
+// Frames an untouched entry survives.
 TEXT_CACHE_TTL_FRAMES :: 120
 
 Text_Cache_Entry :: struct {
@@ -25,8 +25,8 @@ Text_Cache :: struct {
 	dropped:     int,
 }
 
-// FNV-1a over bytes mixed with style id. Hash-only key: collision draws the wrong cached string
-// which at a few hundred live strings is around 1e-14. Store & compare string if caching doc text.
+// FNV-1a over the bytes mixed with the style id. Hash-only key, so a collision
+// draws the wrong string; ~1e-14 at a few hundred live strings.
 @(require_results)
 text_key :: proc "contextless" (str: string, style: Text) -> Text_Key {
 	FNV_OFFSET :: u64(14695981039346656037)
@@ -39,7 +39,6 @@ text_key :: proc "contextless" (str: string, style: Text) -> Text_Key {
 	return Text_Key((h ~ u64(style)) * FNV_PRIME)
 }
 
-// Returns retained ttf.Text
 @(require_results)
 text_cache_get :: proc(
 	cache: ^Text_Cache,
@@ -50,7 +49,6 @@ text_cache_get :: proc(
 ) -> ^ttf.Text {
 	key := text_key(str, style)
 
-	// Linear scan works; revisit if TEXT_CACHE_MAX grows past ~1k
 	for &e in cache.entries[:cache.entry_count] {
 		if e.key != key do continue
 		e.last_frame = cache.frame
@@ -63,7 +61,7 @@ text_cache_get :: proc(
 		fmt.eprintfln("[text] CreatedText failed: %s", sdl.GetError())
 		return nil
 	}
-	// SDL_ttf strips trailing spaces off every line by default, stalling a caret.
+	// SDL_ttf strips trailing spaces by default, which stalls the caret.
 	if !ttf.SetTextWrapWhitespaceVisible(text, true) {
 		fmt.eprintfln("[text] SetTextWrapWhitespaceVisible failed: %s", sdl.GetError())
 	}
@@ -93,7 +91,6 @@ text_cache_get :: proc(
 	return text
 }
 
-// Advance cache clock, evict entries untouched for TEXT_CACHE_TTL_FRAMES
 text_cache_frame_end :: proc(cache: ^Text_Cache) {
 	cache.frame += 1
 

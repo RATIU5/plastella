@@ -17,11 +17,10 @@ Ui_Icons :: enum u16 {
 	Add          = 7,
 }
 
-// A new icon must have an atlas slot; grow ICON_COLS or add a second row first.
+// Every icon needs an atlas slot.
 #assert(len(Ui_Icons) <= ICON_COLS * ICON_COLS)
 
-// Populates a.ui_icons from a bound atlas texture. Kept on Assets (not a
-// package global) so a module reload cannot zero the table (Appendix A rule 2).
+// Lives on Assets, not a package global, so a reload cannot zero it.
 load_ui_icons :: proc(a: ^Assets, texture: ^sdl.Texture) {
 	assert(a != nil)
 	assert(texture != nil)
@@ -35,8 +34,7 @@ load_ui_icons :: proc(a: ^Assets, texture: ^sdl.Texture) {
 	}
 }
 
-// Returns a copy of the atlas entry. Caller may mutate freely (e.g. tint)
-// without touching shared state. Copy is small (tex ptr + rect + 4 floats).
+// Copy, so callers can tint without touching shared state.
 @(require_results)
 ui_icon :: proc(a: ^Assets, id: Ui_Icons) -> Texture_Slice {
 	return a.ui_icons[id]

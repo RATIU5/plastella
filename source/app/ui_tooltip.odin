@@ -2,8 +2,6 @@ package app
 
 import "../../vendor/clay"
 
-// Floating message anchored to another element, kept fully inside the window.
-// Takes no layout space, so it can be called from anywhere in the tree.
 Tooltip_Style :: struct {
 	font:         Text,
 	padding:      clay.Padding,
@@ -35,14 +33,10 @@ tooltip_styles := [Tooltip_Theme]Tooltip_Style {
 	},
 }
 
-/*
-Draws `message` under the element with `anchor_id`, flipping above when it would
-run off the bottom. `color` is the border color, so the caller can express state
-(e.g. Text_Input_Result.color for validity).
-
-Nothing is drawn on the first frame the anchor exists: its box comes from clay's
-previous layout, like every other position query in this codebase.
-*/
+// Floating message under `anchor_id`, flipping above when it would run off the
+// bottom. `color` is the border color. Takes no layout space, so it can be called
+// anywhere in the tree. Draws nothing on the anchor's first frame: its box comes
+// from clay's previous layout.
 tooltip :: proc(
 	ctx: ^Ctx,
 	id: string,
@@ -101,13 +95,9 @@ tooltip :: proc(
 	}
 }
 
-/*
-Whether to flip above the anchor, and how far to push the tooltip back inside the
-window. `nudge` is a correction to clay's own centered placement, not an absolute
-position: both sides of the subtraction use the same (previous-frame) anchor box, so
-it comes out exactly 0 whenever the tooltip already fits - which is the common case.
-Only a tooltip actually hugging a window edge trails the anchor by a frame.
-*/
+// Whether to flip above the anchor, and how far to push back inside the window.
+// `nudge` corrects clay's centered placement, not an absolute position: both sides
+// of the subtraction use the same anchor box, so it is 0 whenever the tooltip fits.
 @(private = "file", require_results)
 tooltip_fit :: proc(
 	anchor: clay.BoundingBox,
@@ -125,8 +115,8 @@ tooltip_fit :: proc(
 	flip = y + size.y > screen.y - m
 	if flip do y = anchor.y - size.y - style.gap
 
-	// max() keeps the low bound winning, so a window shorter than the tooltip still
-	// shows its top-left rather than clamping it out of view.
+	// max() keeps the low bound winning, so a window shorter than the tooltip
+	// still shows its top-left.
 	nudge.x = clamp(x, m, max(m, screen.x - m - size.x)) - x
 	nudge.y = clamp(y, m, max(m, screen.y - m - size.y)) - y
 	return

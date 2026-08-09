@@ -40,7 +40,6 @@ toolbar_frame :: proc(ctx: ^Ctx, edtr: ^Editor) {
 		border = {width = {bottom = 1}, color = COLOR_GREY_760},
 	},
 	) {
-		// TOOLBAR:LEFT
 		if clay.UI(clay.ID("toolbar:left"))(
 		{
 			layout = {
@@ -54,7 +53,7 @@ toolbar_frame :: proc(ctx: ^Ctx, edtr: ^Editor) {
 			},
 		},
 		) {
-			// Known before layout, so the title can never widen the box that sizes it.
+			// Computed up front so the title can never widen the box that sizes it.
 			width := max(
 				1,
 				ctx.frame.screen.x / 3 - f32(TOOLBAR_LEFT_PAD.left + TOOLBAR_LEFT_PAD.right),
@@ -63,7 +62,6 @@ toolbar_frame :: proc(ctx: ^Ctx, edtr: ^Editor) {
 			text(ctx.frame.assets, window_title, .UI_BLD_13, COLOR_GREY_65, ellipsize = width)
 		}
 
-		// TOOLBAR:CENTER
 		if clay.UI(clay.ID("toolbar:center"))(
 		{
 			layout = {
@@ -80,7 +78,6 @@ toolbar_frame :: proc(ctx: ^Ctx, edtr: ^Editor) {
 			edtr.tab = segmented_control(ctx, "toolbar:tabs", edtr.tab, toolbar_tabs)
 		}
 
-		// TOOLBAR:RIGHT
 		if clay.UI(clay.ID("toolbar:right"))(
 		{
 			layout = {

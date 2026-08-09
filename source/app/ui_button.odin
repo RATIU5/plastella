@@ -135,11 +135,8 @@ Button_State :: struct {
 	fg:      clay.Color,
 }
 
-// theme is a direct parameter, not a curried second call: there is exactly
-// one call-site shape in the codebase, so the closure/global-state protocol
-// (ODIN_STYLE.md 3.2) bought nothing. Children are drawn in the caller's
-// `if btn, open := button(...); open { ... }` block; button_end closes the
-// element when that block's scope exits.
+// Children go in the caller's `if btn, open := button(...); open { ... }` block;
+// button_end closes the element when that scope exits.
 @(deferred_none = button_end)
 button :: proc(
 	ctx: ^Ctx,

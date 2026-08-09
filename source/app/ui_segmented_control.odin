@@ -5,8 +5,7 @@ import "base:intrinsics"
 
 Tab :: struct {
 	id:       string,
-	// Label or icon, never both - a union makes the pairing unrepresentable
-	// instead of asserted at render time.
+	// Label or icon, never both.
 	content:  union {
 		string,
 		Ui_Icons,
@@ -21,7 +20,7 @@ Tab_Bar_Style :: struct {
 	border_width: clay.BorderWidth,
 	border_color: clay.Color,
 	radius:       clay.CornerRadius,
-	button:       Button_Theme, // which button style the pills use
+	button:       Button_Theme, // style for the pills
 }
 
 Tab_Bar_Theme :: enum u8 {
@@ -41,10 +40,7 @@ tab_bar_styles := [Tab_Bar_Theme]Tab_Bar_Style {
 	},
 }
 
-// generic: one call site (toolbar tabs) as of writing. Left parametric rather
-// than monomorphized to Toolbar_Tab so this UI-layer file does not reach up
-// into editor-specific types (ODIN_STYLE.md 3.1 layering) for a plain-data
-// widget; revisit if a second enum ever needs a tab bar.
+// Parametric over the enum so this UI file does not reach up into editor types.
 segmented_control :: proc(
 	ctx: ^Ctx,
 	id: string,

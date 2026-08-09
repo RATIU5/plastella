@@ -26,7 +26,6 @@ statusbar_frame :: proc(ctx: ^Ctx, editor: ^Editor) {
 		border = {width = {top = 1}, color = COLOR_GREY_760},
 	},
 	) {
-		// STATUSBAR:LEFT
 		if clay.UI(clay.ID("statusbar:left"))(
 		{
 			layout = {
@@ -44,7 +43,6 @@ statusbar_frame :: proc(ctx: ^Ctx, editor: ^Editor) {
 			)
 		}
 
-		// STATUSBAR:RIGHT
 		if clay.UI(clay.ID("statusbar:right"))(
 		{
 			layout = {

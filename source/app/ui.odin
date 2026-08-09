@@ -9,7 +9,7 @@ Ui :: struct {
 	tab_next:         bool,
 	tab_first:        string,
 	tab_prev:         string,
-	// Set while the focused widget renders; ui_frame_end reconciles from them.
+	// Set while the focused widget renders; reconciled in ui_frame_end.
 	focus_seen:       bool,
 	wants_text_input: bool,
 	text_input_on:    bool,
@@ -46,7 +46,7 @@ ui_frame_start :: proc(ctx: ^Ctx) {
 ui_frame_end :: proc(ctx: ^Ctx) {
 	ui := ctx.ui
 
-	// A tab wrap targets a widget that hasn't registered yet, so it counts as seen.
+	// A tab wrap targets a widget that hasn't registered yet, so count it as seen.
 	took_tab := ui.tab_next
 	if took_tab {
 		ui.focused = ui.tab_first

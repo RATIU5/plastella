@@ -4,7 +4,7 @@ import "../../vendor/clay"
 import "core:strings"
 
 image :: proc(ctx: ^Ctx, id: string, img: Texture_Id, width: f32) {
-	// Per-widget, per-frame allocs: temp-scoped, freed at frame end, bounded by widget count.
+	// Temp-scoped, freed at frame end.
 	img_inst := new_clone(texture_slice(ctx.frame.assets, img), context.temp_allocator)
 	img_id := strings.concatenate([]string{id, "_image"}, context.temp_allocator)
 
@@ -21,7 +21,6 @@ image :: proc(ctx: ^Ctx, id: string, img: Texture_Id, width: f32) {
 }
 
 icon :: proc(ctx: ^Ctx, id: string, img: Ui_Icons, height: f32, tint: clay.Color) {
-	// Per-widget, per-frame allocs: temp-scoped, freed at frame end, bounded by widget count.
 	img_inst := new_clone(ui_icon(ctx.frame.assets, img), context.temp_allocator)
 	img_inst.tint = tint
 	img_id := strings.concatenate([]string{id, "_icon"}, context.temp_allocator)

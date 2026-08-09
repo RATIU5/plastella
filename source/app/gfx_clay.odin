@@ -14,34 +14,32 @@ SEGMENTS_BASE :: 16
 SEGMENTS_MAX :: 32
 ARC_SEGMENTS_MAX :: 32
 
-// --- Curve antialiasing tuning: device pixels, tweak by eye and rebuild. ---
+// Curve antialiasing tuning, in device pixels. Tweak by eye and rebuild.
 
-// Feather width: curved edges fade to transparent over this distance instead
-// of hard-cutting. Larger = softer/blurrier. Flat edges stay sharp.
+// Distance over which a curved edge fades out. Flat edges stay sharp.
 FEATHER_PX :: 1.0
 
-// Feather never eats more than this fraction of the thickness/radius it's
-// carving into, so a thin stroke keeps a solid opaque core (see feather_clamp).
+// Cap on how much of the thickness/radius the feather may eat (see feather_clamp).
 FEATHER_CORE_FRACTION :: 0.25
 
-// Nudges the curve's radius outward so it lines up with the straight edges
-// it's tangent to (RenderGeometry rasterizes coverage a hair inside RenderFillRect's).
+// Nudges the curve outward onto the straight edges it's tangent to: RenderGeometry
+// rasterizes coverage a hair inside RenderFillRect's.
 BOUNDARY_BIAS_PX :: 0.45
 
-// Fraction of each curve's segments, at each end, that eases back to opaque so
-// a feather band meets a straight unfeathered edge smoothly, not with a snap.
+// Fraction of a curve's segments, at each end, easing back to opaque so a feather
+// band meets a straight unfeathered edge without a snap.
 SEAM_TAPER_FRACTION :: 0.2
 
-// fill_rounded_rect buffer sizes: fixed geometry + per-corner fan + feather band.
+// fill_rounded_rect buffers: fixed geometry + per-corner fan + feather band.
 VERTS_MAX :: 12 + 8 * SEGMENTS_MAX + 4 * 2 * (SEGMENTS_MAX + 1)
 INDICES_MAX :: 30 + 12 * SEGMENTS_MAX + 4 * 6 * SEGMENTS_MAX
 
-// Exception to hidden global state: Used for dev tracing not a client-facing feature
+// Dev tracing only.
 @(private = "file")
 had_error: bool
 
-// Built once at init so measure_text does not construct a Context on every call.
-// clay invokes it many times per layout. File-scope because it must be re-set after a hot reload.
+// Built once so measure_text, which clay calls many times per layout, does not
+// construct a Context per call. File-scope because a hot reload must re-set it.
 @(private = "file")
 measure_ctx: runtime.Context
 
@@ -90,7 +88,7 @@ clay_reload :: proc(gfx: ^Gfx, asts: ^Assets, screen: [2]f32) -> bool {
 	ctx := clay.Initialize(
 		arena,
 		{screen.x, screen.y},
-		{handler = err_handler, userData = nil}, // handler reads the file global directly
+		{handler = err_handler, userData = nil},
 	)
 	if ctx == nil || had_error do return false
 
@@ -181,7 +179,6 @@ clay_render_commands :: proc(commands: ^clay.ClayArray(clay.RenderCommand), fram
 		case .ScissorEnd:
 			sdl.SetRenderClipRect(frame.device.renderer, nil)
 		case .None, .Custom, .OverlayColorStart, .OverlayColorEnd:
-		// Not implemented
 		}
 	}
 }
@@ -210,8 +207,8 @@ fill_rounded_rect :: proc(
 	fc_clear.a = 0
 	rr := min(radius, min(rect.w, rect.h) / 2)
 	rr_curve := rr + BOUNDARY_BIAS_PX
-	// Feather is carved out of the fan (stops at rr_core), not added past rr_curve,
-	// so the corner's outer radius matches the straight sides it's tangent to.
+	// Feather is carved out of the fan, not added past rr_curve, so the corner's
+	// outer radius matches the straight sides.
 	rr_core := max(rr_curve - feather_clamp(rr_curve), 0)
 	segments := clamp(int(rr * 0.5), SEGMENTS_BASE, SEGMENTS_MAX)
 	assert(segments <= SEGMENTS_MAX)
@@ -232,10 +229,10 @@ fill_rounded_rect :: proc(
 	corners := [4]struct {
 		cx, cy, sx, sy: f32,
 	} {
-		{rect.x + rr, rect.y + rr, -1, -1}, // top-left, center vertex 0
-		{rect.x + rect.w - rr, rect.y + rr, 1, -1}, // top-right, center vertex 1
-		{rect.x + rect.w - rr, rect.y + rect.h - rr, 1, 1}, // bot-right, center vertex 2
-		{rect.x + rr, rect.y + rect.h - rr, -1, 1}, // bot-left, center vertex 3
+		{rect.x + rr, rect.y + rr, -1, -1}, // top-left
+		{rect.x + rect.w - rr, rect.y + rr, 1, -1}, // top-right
+		{rect.x + rect.w - rr, rect.y + rect.h - rr, 1, 1}, // bot-right
+		{rect.x + rr, rect.y + rect.h - rr, -1, 1}, // bot-left
 	}
 
 	step := (math.PI * 0.5) / f32(segments)
@@ -259,8 +256,8 @@ fill_rounded_rect :: proc(
 		}
 	}
 
-	// Feather ring per corner, rr_core (opaque) to rr_curve (transparent).
-	// Degrees match `corners`' order (TL, TR, BR, BL), y grows downward.
+	// Feather ring per corner, opaque rr_core to transparent rr_curve. Degrees
+	// follow `corners` order (TL, TR, BR, BL) with y growing downward.
 	feather_ranges := [4][2]f32{{180, 270}, {270, 360}, {0, 90}, {90, 180}}
 	for corner, j in corners {
 		lo := feather_ranges[j][0] * (math.PI / 180)
@@ -311,15 +308,13 @@ fill_rounded_rect :: proc(
 	)
 }
 
-// Caps the feather to a fraction of `extent` so a thin stroke or small radius
-// keeps a solid opaque core instead of the feather consuming all of it.
+// Caps the feather so a thin stroke or small radius keeps an opaque core.
 @(private = "file")
 feather_clamp :: proc "contextless" (extent: f32) -> f32 {
 	return min(FEATHER_PX, extent * FEATHER_CORE_FRACTION)
 }
 
-// Emits one ring of quads between two concentric arcs, from rad_start to
-// rad_end, into verts/indices at *vc/*ic. Shared by opaque and feather bands.
+// One ring of quads between two concentric arcs, appended at vc/ic.
 @(private = "file")
 emit_ring_band :: proc(
 	verts: []sdl.Vertex,
@@ -331,8 +326,8 @@ emit_ring_band :: proc(
 	rad_start, rad_end: f32,
 	segments: int,
 ) {
-	// Eases the faded side back toward opaque near each end (SEAM_TAPER_FRACTION).
-	// No-op on the opaque core band, where both colors already share one alpha.
+	// Eases the faded side back to opaque near each end. No-op on the core band,
+	// where both colors already share one alpha.
 	taper_segments := max(1, min(segments / 2, int(f32(segments) * SEAM_TAPER_FRACTION)))
 	opaque_alpha := max(color_outer.a, color_inner.a)
 
@@ -378,7 +373,7 @@ render_border :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.Border
 	col := color_u8(cfg.color)
 	sdl.SetRenderDrawColor(renderer, col.r, col.g, col.b, col.a)
 
-	// Clamp so two radii on the same axis cannot overlap and produce a negative run.
+	// Clamped so two radii on one axis cannot overlap into a negative run.
 	r_max := min(rect.w, rect.h) / 2
 	tl := min(cfg.cornerRadius.topLeft, r_max)
 	tr := min(cfg.cornerRadius.topRight, r_max)
@@ -387,8 +382,7 @@ render_border :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.Border
 
 	w := cfg.width
 
-	// Straight runs sit flush inside the rect and are shortened by the two radii on
-	// their own axis.
+	// Straight runs sit flush inside the rect, shortened by the radii on their axis.
 	if w.top > 0 {
 		side := sdl.FRect{rect.x + tl, rect.y, rect.w - tl - tr, f32(w.top)}
 		sdl.RenderFillRect(renderer, &side)
@@ -408,8 +402,8 @@ render_border :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.Border
 		sdl.RenderFillRect(renderer, &side)
 	}
 
-	// Angles are SDL screen space (y down), so 180-270 sweeps top-left.
-	// Thickness takes the wider adjacent side so a corner never reads thinner.
+	// Angles are SDL screen space (y down), so 180-270 sweeps top-left. Thickness
+	// takes the wider adjacent side so a corner never reads thinner.
 	corners := [4]Border_Corner {
 		{tl, {rect.x + tl, rect.y + tl}, 180, 270, f32(max(w.top, w.left))},
 		{tr, {rect.x + rect.w - tr, rect.y + tr}, 270, 360, f32(max(w.top, w.right))},
@@ -457,22 +451,21 @@ render_arc :: proc(
 	radius, start_deg, end_deg, thickness: f32,
 	color: clay.Color,
 ) {
-	// Fills a quarter-annulus as geometry so it joins the straight border runs
-	// with no seam. (Old approach: stacked polylines staircased on the pixel grid.)
+	// Quarter-annulus as geometry, so it joins the straight border runs seamlessly.
 	fc := color_float(color)
 	fc_clear := fc
 	fc_clear.a = 0
 	r_out := radius
-	r_out_curve := r_out + BOUNDARY_BIAS_PX // matches the straight border runs; see BOUNDARY_BIAS_PX.
-	r_in := max(radius - thickness, 0) // inner ring lands on the straight-edge inner boundary.
+	r_out_curve := r_out + BOUNDARY_BIAS_PX // matches the straight runs
+	r_in := max(radius - thickness, 0) // lands on the straight-edge inner boundary
 
 	rad_start := start_deg * (math.PI / 180)
 	rad_end := end_deg * (math.PI / 180)
 	segments := clamp(int(radius * 1.5), SEGMENTS_BASE, ARC_SEGMENTS_MAX)
-	assert(segments <= ARC_SEGMENTS_MAX) // buffers below are sized for exactly this, checked before the first write.
+	assert(segments <= ARC_SEGMENTS_MAX) // buffers below are sized for exactly this
 
 	// Feather is carved out of [r_in, r_out], not added past it, so the stroke's
-	// radius matches the straight runs. r_in_core only applies when r_in > 0.
+	// radius matches the straight runs.
 	feather := feather_clamp(thickness)
 	r_out_core := max(r_out_curve - feather, r_in)
 	r_in_core := r_in
@@ -481,8 +474,8 @@ render_arc :: proc(
 	}
 	if r_in_core > r_out_core do r_in_core = r_out_core
 
-	// Opaque core plus a feather on each curved edge. End caps stay sharp on
-	// purpose — they butt against the straight border runs.
+	// Opaque core plus a feather per curved edge. End caps stay sharp: they butt
+	// against the straight border runs.
 	verts: [(ARC_SEGMENTS_MAX + 1) * 2 * 3]sdl.Vertex = ---
 	indices: [ARC_SEGMENTS_MAX * 6 * 3]c.int = ---
 	vc, ic := 0, 0
@@ -592,5 +585,5 @@ err_handler :: proc "c" (err: clay.ErrorData) {
 }
 
 
-// Keep SDL texture package loaded for texture rendering
+// Keeps the SDL image package linked in.
 _ :: img.LoadTexture
