@@ -2,17 +2,17 @@
 
 Coding style for Odin, written for humans and for LLMs. Inspired by [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), adapted to Odin. Where TigerStyle and idiomatic Odin disagree, lean toward idiomatic `core` code.
 
-It serves three goals, ordered most to least important.
+It serves three goals, ordered most to least important (though all VERY important).
 
 1. **Safety.** The program does what we think it does, and crashes loudly when it does not.
 2. **Performance.** Respect the machine, batch work, avoid secret costs.
-3. **Developer experience.** The code reads like prose and the next person or model can extend it.
+3. **Developer experience.** The code reads like prose and the next person or model can extend it easily (composable).
 
-**The prime directive.** Keep code small, composable, simple, and stupid, unless a name or comment justifies otherwise in the name of performance. No undefined behavior. No secret allocations. When you break a rule, say why in a comment on the line that breaks it.
+**The prime directive.** Keep code small, composable, simple, and stupid, unless a name or comment justifies otherwise in the name of performance. No undefined behavior. No secret allocations. When you break a rule, say why in a comment on the line that breaks it. Keep the comments small and concise, and to the point. Don't add extra fluff to the comments.
 
 ## 0. How To Use This Document
 
-- Read it once. Reread the checklist before every change.
+- Read it once. Reread the checklist before every change. If you only have budget for one section, read section 7.
 - Every rule has a rationale. If you do not understand the why, you cannot apply it well or know when to break it.
 - When you deviate, leave a comment starting with the reason.
 - These are defaults, not dogma. Performance critical code earns exceptions, in writing.
@@ -66,6 +66,15 @@ Safety is first because a fast program that is subtly wrong is worse than useles
   ```
 
 - **Assert the positive and the negative space.** Bugs live on the boundary between valid and invalid. Assert what you expect and reject what you do not.
+- **Assert a bound before the writes it guards, not after.** A postcondition like `assert(count <= CAP)` at the end of a fill loop reports damage that already happened, and reports nothing at all in a build with `-no-bounds-check`. Assert the precondition that makes the writes safe, up front, where it can still stop them.
+
+  ```odin
+  segments := clamp(int(radius * 0.5), SEGMENTS_BASE, SEGMENTS_MAX)
+  assert(segments <= SEGMENTS_MAX) // buffers are sized for exactly this, checked before the first write.
+  ```
+
+  Corollary: when the bound is already provable from a clamp, one precondition assert replaces a pile of trailing ones. Do not delete the check entirely just because it is currently unreachable, because the next edit to the clamp or the fill topology is what makes it reachable.
+
 - **Split compound assertions.** Prefer `assert(a); assert(b)` over `assert(a && b)` so a failure points at the exact condition.
 - **Assert implications on one line.** `if focused do assert(active_id != "")`.
 - **Assert compile time invariants** with `#assert`. They cost nothing at runtime, catch design drift before the program runs, and are never stripped.
@@ -113,11 +122,30 @@ Safety is first because a fast program that is subtly wrong is worse than useles
 ### 2.5 Memory, no secret allocations
 
 - **Know who owns every allocation and when it is freed.** Bracket a resource lifetime with blank lines, allocation on one side and its `defer delete` on the other, so a leak is visually obvious.
-- **Prefer caller owned memory over hidden global state.** A global `map[string]State` that clones keys, scans linearly, and juggles `delete` on teardown is a pile of secret allocations. Let the caller own the `State` and pass `^State`. Ownership is explicit, a default is plain struct initialization, and the bookkeeping is gone.
+- **Prefer caller owned memory over hidden global state, once the shape is known.** Global and static variables are a fine way to rough-draft state early, when you do not yet know the shape of the problem — cheap to iterate, nothing to thread through call sites. But a global `map[string]State` that clones keys, scans linearly, and juggles `delete` on teardown is a pile of secret allocations. Once the state stabilizes, factor it into a struct the caller owns and passes as `^State`. Ownership becomes explicit, a default is plain struct initialization, and the bookkeeping is gone.
 - **No per call allocation in a hot loop without a comment justifying it.** Helpers like `strings.concatenate` or `strings.clone` churn memory every call. A temp allocator makes them leak safe but they are still work. Precompute once, or state the cost is intentional and bounded.
 - **Use a scoped temp allocator for scratch** and free it all at once at the boundary with `free_all(context.temp_allocator)`. Anything returned that lives in temp memory must say so at the call site, for example `// Returned string aliases temp storage, clone to keep.`
 - **Name allocators by role.** Use `gpa` versus `arena` versus a temp allocator so the name tells the reader whether they must free.
 - **Zero your buffers, and beware buffer bleeds.** A fixed buffer used partially must have its unused tail handled deliberately, especially before it crosses a trust or serialization boundary.
+
+### 2.5.1 Foreign resource handles
+
+An allocator is not the only thing that owns memory. Every `Create*` from a C library hands you a handle you must return, and the compiler will not remind you.
+
+- **Write the `Destroy*` in the same commit as the `Create*`,** and tear down in reverse creation order. A handle derived from another handle dies first. A text engine built from a renderer is destroyed before the renderer; the library `Quit` that owns the subsystem goes last.
+- **Store the handle on the owning struct the moment it is created,** not at the end of a long `init`. Otherwise an early return between creation and assignment leaks it, and the shared cleanup proc cannot see it because the field is still `nil`.
+
+  ```odin
+  // Assign as you go, so device_destroy can clean up from any early return.
+  device.window = sdl.CreateWindow(...)
+  if device.window == nil { device_destroy(device); return false }
+
+  device.renderer = sdl.CreateRenderer(device.window, nil)
+  if device.renderer == nil { device_destroy(device); return false }
+  ```
+
+- **Make teardown nil safe and idempotent,** because it will be called on partially constructed state from those early returns.
+- **Do not `free` a handle you did not allocate,** and do not `free` an interior pointer. A subsystem struct embedded as a field of a parent struct is freed by whoever freed the parent. Its `*_shutdown` releases what it owns and nothing else.
 
 ### 2.6 Handle every error
 
@@ -191,7 +219,8 @@ Odin has opinions. Lean into them, because they encode much of the above for fre
 - Procedures use `snake_case`, like `reader_read_byte`.
 - Variables use `snake_case`, like `byte_offset` and `read_count`.
 - Constants use `SCREAMING_SNAKE_CASE`, like `DEFAULT_BUF_SIZE` and `MAX_DEPTH`.
-- Import names use `snake_case`, one word preferred, like `import str "core:strings"`.
+- **Do not alias an import; the package name is already the namespace.** Write `import "core:strings"` and call `strings.to_upper`, the way `core` does. An alias that merely repeats the package name, like `import assets "../assets"`, is noise on every file. Alias only to disambiguate two packages with the same base name, or to shorten a genuinely unwieldy foreign name, and keep the alias `snake_case` and one word where possible, like `sdl`, `ttf`, `img`.
+- **Prefer few, coarse packages over many single-purpose ones.** Packages are units of distribution, not organization: a package that exists to hold one five-line file is a folder tax, not a boundary. Split code into files within a package first; reach for a new package only when the code is meant to be imported, versioned, or reused independently of the rest.
 - Acronyms keep caps together, like `JSON_Value`, not `Json_Value`.
 - **The package is the namespace, so name procedures for their subject.** Odin has no methods, so prefix a procedure with its subject role, like `reader_init`, `reader_destroy`, `builder_make`, and `builder_reset`, called as `bufio.reader_init`. Pair `init` with `destroy` and `make` with `delete`. Do not name a bare `init` in a package that manages more than one type.
 - **Do not over abbreviate, but honor established short names.** Spell out `source` and `target` when derived names must line up, like `source_offset` and `target_offset`. Freely use the conventional short names every Odin reader knows, like `len`, `cap`, `ptr`, `buf`, `n`, `i`, `j`, `r` and `w` for read and write cursors, and `lo` and `hi`. Prefer a clear full word for a domain concept and a short name for a mechanical one.
@@ -246,6 +275,7 @@ Odin has opinions. Lean into them, because they encode much of the above for fre
 - In debug builds wrap `context.allocator` in a tracking allocator to catch leaks and bad frees. Keep it on for every debug run and watch the live allocation count.
 - Per scope temp memory is a batching win (see 4). Allocate freely into temp and free it all at once.
 - Library code takes an explicit `allocator` parameter and does not assume the caller temp allocator. Follow the shape `proc(..., allocator := context.allocator, loc := #caller_location)` returning an `Allocator_Error`, so the caller owns the lifetime. The temp allocator is a caller side convenience. Do not bake it into a reusable procedure whose caller may want a different lifetime.
+- Application code is the counterpart: install the persistent and temp allocators once at the boundary and lean on `context`, rather than threading a persistent allocator through every subsystem. Default to `context.allocator`, and reach for a dedicated arena or pool only where one data structure earns it, not as one global funnel for every allocation.
 
 ### 3.6 Use `when` for compile time branching
 
@@ -317,10 +347,11 @@ Odin has opinions. Lean into them, because they encode much of the above for fre
 
 ## 5. Style By The Numbers
 
-- **Compile clean** with strict flags. Use at least `-strict-style -vet`, and consider `-vet-tabs -disallow-do -warnings-as-errors`. Treat every warning as an error. These catch unused variables, shadowing, bad indentation, and more.
-- **Tabs for indentation, spaces for alignment.** Indent with tabs and align continuation lines and columns with spaces so alignment survives any tab width.
+- **Compile clean** with strict flags. Use at least `-strict-style -vet`, and consider `-vet-tabs -warnings-as-errors`. Treat every warning as an error. These catch unused variables, shadowing, bad indentation, and more.
+- **`do` is for a single trailing statement, and never nests.** `if !ok do return false` reads better than four lines of braces and is idiomatic Odin. `for f in fonts do if f != nil do close(f)` is two decisions hidden on one line, which is the readability failure `-disallow-do` exists to prevent. Prefer the one line form for a single guard or a single assignment; brace it the moment a second decision appears. Do not enable `-disallow-do` unless you intend to give up the guard form too.
+- **Tabs for indentation, spaces for alignment.** Indent with tabs and align continuation lines and columns with spaces so alignment survives any tab width. Enforce it with `-vet-tabs` rather than by review, so it cannot drift.
 - **About 100 columns, soft.** Nothing important should hide behind a horizontal scrollbar. Wrap long signatures or calls with a trailing comma and let the formatter finish.
-- **About 70 lines per procedure, soft.** There is a real cognitive cliff when a function stops fitting on a screen. Split by pushing control flow up and nonbranchy fragments down. Good shape is an inverted hourglass, few params, a simple return, a meaty middle.
+- **About 70 lines per procedure, soft.** There is a real cognitive cliff when a function stops fitting on a screen. Split by pushing control flow up and nonbranchy fragments down. Good shape is an inverted hourglass, few params, a simple return, a meaty middle. A flat, non-branchy proc — sequential setup, table construction, a layout tree — earns more slack than a proc full of decisions, since length there costs less than length in a proc full of decisions; the cognitive cliff comes from branching, not line count alone.
 - **Braces at the end of the line** for both procs and types.
 - **Declare variables at the smallest scope**, as close to first use as possible. Do not introduce a variable early or leave it lingering.
 - **Comments are prose.** Capital letter, full stop, and a space after `//`. End of line comments may be terse phrases. Explain why, and explain how for tests.
@@ -348,13 +379,16 @@ Odin has opinions. Lean into them, because they encode much of the above for fre
 
 - [ ] No secret allocations, and every alloc has a known owner and a visible free.
 - [ ] Per scope scratch uses a temp allocator, and nothing owned by temp escapes its scope unflagged.
-- [ ] Caller owned state preferred over hidden global state.
+- [ ] Global/static state used only for early rough-draft prototyping, or graduated into caller owned state once its shape is known.
+- [ ] Every foreign `Create*` has its `Destroy*`, torn down in reverse order, with handles assigned as created so early returns can clean up.
+- [ ] Nothing `free`s an interior pointer or a handle it did not allocate.
 
 **Composability & Simplicity**
 
 - [ ] Small procs over plain data, and table driven over copy pasted `switch` logic.
 - [ ] Prefer passing `^State` over reaching into hidden global state.
-- [ ] About 70 lines per proc, about 100 columns per line, hourglass shape.
+- [ ] Few, coarse packages; files preferred over new packages for organization.
+- [ ] About 70 lines per proc (more for flat, non-branchy procs), about 100 columns per line, hourglass shape.
 
 **Odin idiom**
 
@@ -393,8 +427,16 @@ Read this only if your program keeps mutable state alive across a boundary that 
 
 When you must have long lived global state, make it disciplined.
 
-1. **Concentrate persistent state in one owned graph** reachable from a single root. Everything that must survive a reload, a save, or a subsystem restart lives there.
+1. **Concentrate persistent state in one owned graph** reachable from a single root. Everything that must survive a reload or a save lives there. State that must also outlive a restart which frees that root, like OS or GPU handles (a window, a renderer), belongs one tier up in the host or loader that owns the root, passed into the app per call so there is nothing to repoint.
 2. **Package globals are caches of a pointer, not owners.** If a global points at state that must persist, repoint it after any event that can zero it, in an explicit `*_reload` step. Add such a global and you must add its repoint line, or you get silent corruption.
 3. **Guard layout and version compatibility across boundaries.** When state crosses a reload or serialization boundary, verify layout and version on both sides, for example hash the layout of the old and new build and refuse an incompatible swap. This is a paired assertion across the boundary.
 4. **Keep `init`, `shutdown`, and `reload` symmetric and nil guarded.** Every `*_shutdown` checks `if x == nil do return` and frees exactly what its `*_init` allocated. Watch the per cycle leak count trend to zero.
 5. **Keep the host and loader dumb and defensive.** Prefer reflection driven contract checks that reject a partially bound API rather than call a nil proc, so the loader does not need editing every time the contract grows.
+6. **Anything you register with a third party must be re registered after a reload.** A callback or pointer you hand to a foreign library, an OS hook, or a registry is stored by them, and it keeps pointing into the module that registered it. Unload that module and the library still holds the old address. Note that relocating your own state is not sufficient, because the procedure pointer dangles by itself. Keep every registration in one list beside the `*_reload` proc so the two cannot drift. When the library takes a callback only in its `Initialize` and exposes no setter, re initializing over the same backing memory is the only way to re point it, and losing that subsystem's internal state is the price. Pay it, and guard the re initialization with a paired assertion that the new build wants the same memory size the old one allocated, per rule 3.
+
+7. **Know which side's `context` you are running under, and measure it rather than reasoning about it.** A loader and a dynamically loaded module each link `base:runtime`, so it is tempting to assume its globals, including the default temporary allocator arena, are duplicated. Whether they actually are depends on the platform and how the module was linked, and the answer decides who is responsible for freeing scratch memory. Two things make this easy to get wrong in the head and easy to settle at runtime:
+
+   - An exported proc with Odin calling convention receives the caller's `context` as an implicit argument, so it allocates wherever the loader points. A `proc "c"` callback has no implicit context, so a `context = runtime.default_context()` inside it builds one from the module's own globals. These are only the same arena if the underlying symbol resolved to one definition.
+   - **Comparing procedure pointers across the boundary does not tell you anything.** A function reference taken inside a module goes through a binding stub, so it will not compare equal to the loader's address for the same procedure even when both reach the same code. Compare _data_ addresses instead.
+
+   So print `context.temp_allocator.data` from both sides and compare. If the addresses match there is one arena and whoever calls `free_all` covers everyone. If they differ, the module owns its own scratch lifetime and must free it. Sample usage at the _end_ of the module's update, not the start, or the loader's `free_all` will have already run and every reading will be zero.

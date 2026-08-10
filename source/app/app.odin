@@ -1,127 +1,293 @@
 package app
 
-import editor "../editor"
-import platform "../platform"
-import project "../project"
-import render "../render"
-import ui "../ui"
+import "../platform"
 import "base:runtime"
+import "core:fmt"
+import sdl "vendor:sdl3"
 
-@(private)
-_ :: runtime.Type_Info
+// Clay needs a few frames per event for hover/scroll to settle.
+FRAMES_AFTER_INPUT :: 3
 
-App_Memory :: struct {
-	render_mem:  ^render.Render_Memory,
-	editor_mem:  ^editor.Editor_Memory,
-	project_mem: ^project.Project_Memory,
-	ui_mem:      ^ui.UI_Memory,
+IDLE_TIMEOUT_MS :: 100
+
+// Clamps dt so animation never integrates across an idle gap.
+DT_MAX: f32 : 1.0 / 15.0
+
+App_Flag :: enum u8 {
+	Should_Shutdown,
+	Should_Restart,
+	Should_Reload,
+	Should_Reload_Assets,
+	Should_Reload_Clay,
 }
-mem: ^App_Memory
+App_Flags :: distinct bit_set[App_Flag;u8]
 
-when ODIN_DEBUG {
-	@(export)
-	app_memory_layout_hash :: proc() -> u64 {
-		FNV_OFFSET :: u64(1469598103934665603)
-		seen := make(map[typeid]bool, 64, context.temp_allocator) // host will free each loop
-		return layout_hash(type_info_of(App_Memory), FNV_OFFSET, &seen)
+App :: struct {
+	// Borrowed from host; stashed so the resize-watch callback can reach it.
+	device:       ^platform.Device,
+	time_prev_ns: u64,
+	dt:           f32,
+	frames_owed:  int,
+	rendering:    bool,
+	flags:        App_Flags,
+	input:        platform.Input,
+	assets:       Assets,
+	gfx:          Gfx,
+	editor:       Editor,
+	project:      Project,
+	ui:           Ui,
+}
+app: ^App
+
+@(export, require_results)
+app_init :: proc(device: ^platform.Device) -> bool {
+	app = new(App, context.allocator)
+	app.device = device
+
+	w, h, size_ok := platform.window_size(device)
+	if !size_ok {
+		fmt.eprintln("Failed to compute output size on device")
+		return false
 	}
 
-	layout_hash :: proc(ti: ^runtime.Type_Info, seed: u64, seen: ^map[typeid]bool) -> u64 {
-		PRIME :: u64(1099511628211)
-		if ti == nil do return seed // rawptr elem, empty proc results, etc.
-		h := (seed ~ u64(ti.size)) * PRIME
-		if seen[ti.id] do return h // already walked this type
-		seen[ti.id] = true
+	assets_ok := assets_load(&app.assets, device)
+	if !assets_ok {
+		fmt.println("Failed to load app assets")
+		return false
+	}
 
-		#partial switch v in ti.variant {
-		case runtime.Type_Info_Named:
-			h = layout_hash(v.base, h, seen)
-		case runtime.Type_Info_Struct:
-			for i in 0 ..< int(v.field_count) {
-				h = (h ~ u64(v.offsets[i])) * PRIME
-				h = layout_hash(v.types[i], h, seen)
-			}
-		case runtime.Type_Info_Union:
-			for variant in v.variants do h = layout_hash(variant, h, seen)
-		case runtime.Type_Info_Array:
-			h = layout_hash(v.elem, h, seen)
-		case runtime.Type_Info_Enumerated_Array:
-			h = layout_hash(v.elem, h, seen)
-		case runtime.Type_Info_Slice:
-			h = layout_hash(v.elem, h, seen)
-		case runtime.Type_Info_Dynamic_Array:
-			h = layout_hash(v.elem, h, seen)
-		case runtime.Type_Info_Map:
-			h = layout_hash(v.key, h, seen)
-			h = layout_hash(v.value, h, seen)
-		case runtime.Type_Info_Pointer:
-			h = layout_hash(v.elem, h, seen) // nil for rawptr -> stops
-		case runtime.Type_Info_Multi_Pointer:
-			h = layout_hash(v.elem, h, seen)
+	frame := frame_make(app, device, {f32(w), f32(h)})
+	gfx_ok := gfx_init(&app.gfx, &frame)
+	if !gfx_ok {
+		fmt.eprintln("Failed to initialize gfx")
+		return false
+	}
+
+	ui_ok := ui_init(&app.ui)
+	if !ui_ok {
+		fmt.eprintln("Failed to initialize core ui")
+		return false
+	}
+
+	editor_ok := editor_init(&app.editor, &app.project)
+	if !editor_ok {
+		fmt.eprintln("Failed to initialize the editor")
+		return false
+	}
+
+	app.time_prev_ns = sdl.GetTicksNS()
+
+	platform.window_set_render_callback(app_render_c)
+
+	return true
+}
+
+@(export)
+app_update :: proc(device: ^platform.Device) {
+	when ODIN_DEBUG {
+		app.flags -= {.Should_Reload, .Should_Restart}
+	}
+
+	platform.input_frame_begin(&app.input)
+
+	// Mid-burst polls so the burst runs at display rate; idle sleeps.
+	timeout := i32(0) if app.frames_owed > 0 else i32(IDLE_TIMEOUT_MS)
+
+	event: sdl.Event
+	if sdl.WaitEventTimeout(&event, timeout) {
+		platform.input_event_process(&app.input, &event)
+		for sdl.PollEvent(&event) {
+			platform.input_event_process(&app.input, &event)
 		}
-		return h
+		app.frames_owed = FRAMES_AFTER_INPUT
+	} else if app.ui.focused != "" {
+		// Keep the caret blinking while a field holds focus.
+		app.frames_owed = 1
+	}
+
+	if status_expired(&app.editor) do app.frames_owed = max(app.frames_owed, 1)
+
+	if app.input.scale_changed {
+		if !platform.device_refresh_scale(device) {
+			fmt.eprintln("Failed to refresh device scale")
+		}
+		app.flags += {.Should_Reload_Assets}
+	}
+
+	if app.input.quit do app.flags += {.Should_Shutdown}
+	when ODIN_DEBUG {
+		if platform.key_pressed(&app.input, .F5) do app.flags += {.Should_Reload}
+		if platform.key_pressed(&app.input, .F6) do app.flags += {.Should_Restart}
+	}
+
+
+	if app.flags & {.Should_Reload_Assets, .Should_Reload_Clay} != {} {
+		if !app_reload_subsystems(device) do app.flags += {.Should_Shutdown}
+		app.frames_owed = FRAMES_AFTER_INPUT
+	}
+
+	if app.frames_owed == 0 do return
+	app.frames_owed -= 1
+	app_render(device)
+}
+
+@(private = "file")
+app_render :: proc(device: ^platform.Device) {
+	// RenderPresent pumps events and can re-enter via the resize watch;
+	// a nested clay.BeginLayout corrupts the command buffer.
+	if app.rendering do return
+	app.rendering = true
+	defer app.rendering = false
+
+	now_ns := sdl.GetTicksNS()
+	app.dt = min(f32(now_ns - app.time_prev_ns) / 1_000_000_000.0, DT_MAX)
+	app.time_prev_ns = now_ns
+
+	w_px, h_px, size_ok := platform.render_output_size(device)
+	if !size_ok {
+		fmt.eprintln("Failed to query render output size")
+		return
+	}
+	scale := app.assets.scale
+	assert(scale > 0)
+	w := f32(w_px) / scale
+	h := f32(h_px) / scale
+
+	frame := frame_make(app, device, {w, h})
+	ctx := ctx_make(&app.ui, &frame)
+
+	platform.reposition_traffic_lights(device.window, TOOLBAR_HEIGHT)
+
+	gfx_frame_begin(&frame)
+	ui_frame_start(&ctx)
+	ui_update(&ctx)
+	editor_frame(&app.editor, &ctx)
+	ui_frame_end(&ctx)
+	gfx_frame_end(&frame)
+
+	when ODIN_DEBUG {
+		if app.input.text.dropped > 0 {
+			fmt.eprintfln("[input] dropped %d events this frame", app.input.text.dropped)
+		}
 	}
 }
 
-@(export)
-app_init :: proc() {
-	mem = new(App_Memory)
-	platform.window_init()
-	mem.render_mem = render.render_init()
-	mem.ui_mem = ui.ui_init()
-	mem.editor_mem = editor.editor_init(mem.project_mem)
-}
-
-@(export)
-app_update :: proc() {
-	render.frame_begin()
-	ui.ui_frame_start()
-	ui.ui_update()
-	editor.editor_frame()
-	ui.ui_frame_end()
-	render.frame_end()
+// Resize-watch trampoline. Runs with default_context, not the host's
+// tracking allocator, so the render path must stay allocation-free.
+@(private = "file")
+app_render_c :: proc "c" () {
+	context = runtime.default_context()
+	if app == nil || app.device == nil do return
+	app_render(app.device)
+	free_all(context.temp_allocator)
 }
 
 @(export)
 app_shutdown :: proc() {
-	project.project_shutdown(mem.project_mem)
-	editor.editor_shutdown()
-	ui.ui_shutdown()
-	render.render_shutdown()
-	platform.window_shutdown()
-	free(mem)
-	mem = nil
+	if app == nil do return
+	// TODO: Check for unsaved project, pause close until saved or force close
+	ui_shutdown(&app.ui, app.device)
+	gfx_shutdown(&app.gfx)
+	assets_unload(&app.assets)
+	free(app)
+	app = nil
 }
 
 @(export)
 app_memory :: proc() -> rawptr {
-	return mem
+	return app
 }
 
 @(export)
-app_hot_reloaded :: proc(m: rawptr) {
-	mem = (^App_Memory)(m)
-	render.render_reload(mem.render_mem)
-	ui.ui_reload(mem.ui_mem)
-	editor.editor_reload(mem.editor_mem)
+app_hot_reloaded :: proc(m: rawptr, assets_changed: bool) {
+	app = (^App)(m)
+	app.flags += {.Should_Reload_Clay}
+	if assets_changed do app.flags += {.Should_Reload_Assets}
+	platform.window_set_render_callback(app_render_c)
 }
 
 @(export)
 app_should_run :: proc() -> bool {
-	return !platform.window_should_close()
+	return .Should_Shutdown not_in app.flags
 }
 
 @(export)
 app_force_reload :: proc() -> bool {
-	return platform.key_press(.F5)
+	return .Should_Reload in app.flags
 }
 
 @(export)
 app_force_restart :: proc() -> bool {
-	return platform.key_press(.F6)
+	return .Should_Restart in app.flags
 }
 
 @(export)
 app_memory_size :: proc() -> int {
-	return size_of(App_Memory)
+	return size_of(App)
+}
+
+@(export)
+app_device_create :: proc() -> ^platform.Device {
+	device := new(platform.Device, context.allocator)
+	device_ok := platform.device_create(
+		device,
+		WINDOW_TITLE,
+		WINDOW_WIDTH,
+		WINDOW_HEIGHT,
+		TOOLBAR_HEIGHT,
+	)
+	if !device_ok do return nil
+	return device
+}
+
+@(export)
+app_device_destroy :: proc(device: ^platform.Device) {
+	platform.device_destroy(device)
+	free(device)
+}
+
+@(require_results)
+app_reload_subsystems :: proc(device: ^platform.Device) -> bool {
+	if .Should_Reload_Clay in app.flags {
+		app.flags -= {.Should_Reload_Clay}
+
+		w, h, size_ok := platform.window_size(device)
+		if !size_ok {
+			fmt.eprintln("Failed to query window size during clay reload")
+			return false
+		}
+
+		// gfx reload re-registers clay's measure_text and error callbacks.
+		if !gfx_reload(&app.gfx, &app.assets, {f32(w), f32(h)}) do return false
+	}
+
+	if .Should_Reload_Assets in app.flags {
+		app.flags -= {.Should_Reload_Assets}
+
+		text_cache_clear(&app.gfx.text_cache)
+
+		assets_unload(&app.assets)
+		if !assets_load(&app.assets, device) {
+			fmt.eprintln("Failed to reload assets")
+			return false
+		}
+	}
+	return true
+}
+
+@(private = "file")
+frame_make :: proc(app: ^App, device: ^platform.Device, screen: [2]f32) -> Frame {
+	return {
+		gfx = &app.gfx,
+		device = device,
+		assets = &app.assets,
+		input = &app.input,
+		screen = screen,
+		dt = app.dt,
+	}
+}
+
+@(private = "file")
+ctx_make :: proc(u: ^Ui, frame: ^Frame) -> Ctx {
+	return {ui = u, frame = frame}
 }

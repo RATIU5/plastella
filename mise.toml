@@ -1,78 +1,86 @@
 [tools]
-odin = "dev-2026-05"
+odin = "dev-2026-07a"
 watchexec = "latest"
+# cmake + ninja exist only to build the vendored SDL3 (scripts/vendor-sdl.sh)
+cmake = "latest"
+ninja = "latest"
 
-# os() resolves at parse time; $(odin root) at runtime so it uses mise's pinned odin.
+# Per-OS strings resolve once here at load time; tasks and scripts reference them by name.
 [env]
 APP_NAME = "plastella"
 HR_OUT = "build/hot_reload"
 EXE = "app-hr.bin"
-DLL_EXT = "{% if os() == 'macos' %}.dylib{% elif os() == 'windows' %}.dll{% else %}.so{% endif %}"
+SDL_VERSION = "3.4.12"
+# Satellite libs to vendor, "<name>:<version>" — expands to repo SDL_<name>, tarball
+# SDL3_<name>, cmake -DSDL<NAME>_VENDORED=ON. Add one here and rerun `mise run setup`;
+# no linker flags to touch (Odin's `foreign import "system:SDL3_<name>"` emits the -l).
+SDL_SATELLITES = "ttf:3.2.2 image:3.4.4"
+SDL_DIR = "vendor/sdl3/{% if os() == 'macos' %}macos{% else %}linux{% endif %}"
+DLL_EXT = "{% if os() == 'macos' %}.dylib{% else %}.so{% endif %}"
+# find + rpath the SDL3 libs staged next to the binary; $ORIGIN stays literal — the loader resolves it
+SDL_LDFLAGS = "{% if os() == 'macos' %}-L{{ config_root }}/{{ env.SDL_DIR }} -Wl,-rpath,@loader_path{% else %}-L{{ config_root }}/{{ env.SDL_DIR }} -Wl,-rpath=$ORIGIN{% endif %}"
+# standalone executables additionally embed Info.plist on macOS
+EXE_LDFLAGS = "{{ env.SDL_LDFLAGS }}{% if os() == 'macos' %} -sectcreate __TEXT __info_plist Info.plist{% endif %}"
+# the SDL3 + SDL3_ttf shared libs to stage next to built binaries
+SDL_GLOB = "{% if os() == 'macos' %}libSDL3*.dylib{% else %}libSDL3*.so*{% endif %}"
+
+[tasks.setup]
+description = "Build the vendored SDL3 + satellite shared libs (run once, or after a version bump)"
+# mise.toml as a source so editing SDL_SATELLITES / SDL_VERSION re-runs the vendor script
+sources = ["mise.toml"]
+outputs = ["{{ env.SDL_DIR }}/.stamp"]
+run = "bash scripts/vendor-sdl.sh"
 
 [tasks.build-app]
 description = "Compile source/ into a reloadable app DLL (triggers a live hot reload)"
 alias = "reload"
+depends = ["setup"]
 # every package the app dll pulls in — glob so new packages don't need a manual add
 sources = ["source/**/*.odin", "!source/host/*.odin"]
-# must match the name source/app/app.odin load()s at runtime
 outputs = ["{{ env.HR_OUT }}/{{ env.APP_NAME }}{{ env.DLL_EXT }}"]
-run = [
-  "mkdir -p $HR_OUT",
-  # linux: stage raylib .so next to the dll so $ORIGIN rpath finds it
-  "{% if os() == 'linux' %}mkdir -p $HR_OUT/linux && cp -rn $(odin root)/vendor/raylib/linux/libraylib*.so* $HR_OUT/linux{% else %}true{% endif %}",
-  # compile to a temp name first...
-  # \$ORIGIN must stay escaped so the shell doesn't expand it — the linker resolves it at load time (dll-relative)
-  "odin build source/app -extra-linker-flags:\"{% if os() == 'macos' %}-Wl,-rpath $(odin root)/vendor/raylib/macos{% else %}-Wl,-rpath=\\$ORIGIN/linux{% endif %}\" -define:RAYLIB_SHARED=true -build-mode:dll -out:$HR_OUT/${APP_NAME}_tmp$DLL_EXT -strict-style -vet -debug",
-  # ...then atomic-rename so the host never loads a half-written dll
-  "mv $HR_OUT/${APP_NAME}_tmp$DLL_EXT $HR_OUT/$APP_NAME$DLL_EXT",
-]
+run = "bash scripts/build-app.sh"
+
+[tasks.test]
+description = "Run the source/app package tests (state-level; no window)"
+depends = ["setup"]
+run = '''
+mkdir -p build/test
+# shellcheck disable=SC2086 # SDL_GLOB must glob-expand
+cp -a "$SDL_DIR"/$SDL_GLOB build/test/
+odin test source/app -extra-linker-flags:"$SDL_LDFLAGS" \
+  -out:build/test/${APP_NAME}_test -strict-style -vet -debug
+'''
 
 [tasks.build-host]
 description = "Compile the hot-reload host executable"
 sources = ["source/host/*.odin"]
 outputs = ["{{ env.HR_OUT }}/{{ env.EXE }}"]
-run = [
-  "mkdir -p $HR_OUT",
-  "odin build source/host -out:$HR_OUT/$EXE{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -debug",
-  # symlink so resources/ is reachable by relative path (exe chdirs to its own dir)
-  "rm -rf $HR_OUT/resources && ln -s ../../resources $HR_OUT/resources",
-]
+run = "bash scripts/build-host.sh"
 
-# App runs foreground — backgrounding a GUI app trips SIGTTOU/HUP and freezes the window.
-# Watcher runs in the background; trap kills it on exit so it doesn't keep rebuilding.
 [tasks.dev]
 description = "Build + run with automatic hot reload (watches source/)"
 depends = ["build-app", "build-host"]
-run = '''
-watchexec --watch source --exts odin --debounce 200ms -- mise run build-app &
-watcher=$!
-# kill watcher; remove numbered DLL copies left behind by unclean exits
-trap 'kill $watcher 2>/dev/null; rm -f "$HR_OUT"/${APP_NAME}_[0-9]*$DLL_EXT' EXIT INT TERM
-# run from $HR_OUT (subshell) so the host finds plastella.dylib + resources/ by relative path
-(cd "$HR_OUT" && ./"$EXE")
-'''
+run = "bash scripts/dev.sh"
+
+[tasks."dev:debug"]
+description = "Same as dev, but under lldb — prints a symbolized backtrace on a crash"
+depends = ["build-app", "build-host"]
+env = { LLDB = "1" }
+run = "bash scripts/dev.sh"
 
 [tasks.run]
 description = "Build + run the standalone (non-hot-reload) app"
 alias = "r"
-run = [
-  "mkdir -p build/debug",
-  "odin build source/release -out:build/debug/$APP_NAME.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet",
-  "rm -rf build/debug/resources && ln -s ../../resources build/debug/resources",
-  "./build/debug/$APP_NAME.bin",
-]
+depends = ["setup"]
+run = "bash scripts/run-debug.sh"
 
 [tasks.build]
 description = "Build an optimized release into build/release/"
 alias = "b"
+depends = ["setup"]
 sources = ["source/**/*.odin", "resources/**/*"]
 outputs = ["build/release/{{ env.APP_NAME }}.bin"]
-run = [
-  "rm -rf build/release",
-  "mkdir -p build/release",
-  "odin build source/release -out:build/release/$APP_NAME.bin{% if os() == 'macos' %} -extra-linker-flags:\"-sectcreate __TEXT __info_plist Info.plist\"{% endif %} -strict-style -vet -no-bounds-check -o:speed",
-  "cp -R resources build/release/",
-]
+run = "bash scripts/build-release.sh"
 
 [tasks.stop]
 description = "Kill the running hot-reload app and clean up per-reload DLL copies"

@@ -15,18 +15,27 @@ App_API :: struct {
 	lib:                dynlib.Library,
 	version:            int,
 	mod_time:           time.Time,
-	init:               proc(),
-	update:             proc(),
+	last_alloc_len:     int,
+	device_create:      proc() -> rawptr,
+	device_destroy:     proc(d: rawptr),
+	init:               proc(d: rawptr) -> bool,
+	update:             proc(d: rawptr),
 	shutdown:           proc(),
 	should_run:         proc() -> bool,
 	force_reload:       proc() -> bool,
 	force_restart:      proc() -> bool,
 	memory:             proc() -> rawptr,
-	hot_reloaded:       proc(m: rawptr),
+	hot_reloaded:       proc(m: rawptr, assets_reloaded: bool),
 	memory_size:        proc() -> int,
 	memory_layout_hash: proc() -> u64,
+	assets_table_hash:  proc() -> u64,
 }
 
+#assert(ODIN_OS == .Darwin, "macOS-only support at this time")
+
+/*
+	This main can only run when `ODIN_DEBUG == true`
+*/
 main :: proc() {
 	track: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&track, context.allocator)
@@ -39,57 +48,83 @@ main :: proc() {
 	}
 
 	version := 0
-	api, ok := load_api(version)
-	assert(ok, "could not load the app library")
-	api.init()
+	api, ok := load_api(version, &track)
+	if !ok {
+		fmt.eprintln("Failed to load API properly, see above")
+		return
+	}
+
+	device := api.device_create()
+	if device == nil {
+		fmt.eprintln("Failed to create device")
+		return
+	}
+
+	app_ok := api.init(device)
+
+	defer api.device_destroy(device)
+	defer api.shutdown()
+
+	if !app_ok do return
 
 	for api.should_run() {
-		api.update()
+		api.update(device)
 		mod, err := os.last_write_time_by_name(DLL)
 		recompiled := err == nil && mod != api.mod_time
 
 		switch {
 		case api.force_restart():
-			hard_restart(&api, &version, &track)
+			hard_restart(&api, &version, &track, device)
 		case recompiled || api.force_reload():
 			reload(&api, &version, &track)
 		}
 
 		free_all(context.temp_allocator)
 	}
-	api.shutdown()
 }
 
-load_api :: proc(version: int) -> (api: App_API, ok: bool) {
+@(require_results)
+load_api :: proc(version: int, track: ^mem.Tracking_Allocator) -> (api: App_API, ok: bool) {
 	mod, mod_err := os.last_write_time_by_name(DLL)
 	if mod_err != nil {
-		fmt.eprintln("cannot stat", DLL, mod_err); return
+		fmt.eprintln("Cannot stat", DLL, mod_err)
+		return
 	}
 
 	copy_name := fmt.tprintf("./%s_%d%s", APP_NAME, version, DLL_EXT)
 	data, read_err := os.read_entire_file(DLL, context.allocator)
-	if read_err != nil do return
+	if read_err != nil {
+		fmt.eprintfln("Failed to read %s: %v", DLL, read_err)
+		return
+	}
 	defer delete(data)
-	if os.write_entire_file(copy_name, data) != nil do return
+	if err := os.write_entire_file(copy_name, data); err != nil {
+		fmt.eprintfln("Failed to copy %s: %v", copy_name, err)
+		return
+	}
 
 	count, syms_ok := dynlib.initialize_symbols(&api, copy_name, "app_", "lib")
 	if !syms_ok || count == 0 {
 		os.remove(copy_name)
+		fmt.eprintln("Failed to initialize API symbols for 'app_'")
 		return
 	}
 	if !api_complete(api) {
-		fmt.eprintln("dll missing exports — stale or misnamed build?")
+		fmt.eprintln("DLL missing exports; stale or misnamed build?")
 		if api.lib != nil do dynlib.unload_library(api.lib)
 		os.remove(copy_name)
 		return
 	}
+
 	api.version = version
 	api.mod_time = mod
+	api.last_alloc_len = len(track.allocation_map)
 	return api, true
 }
 
 // Reject a partially-bound dll: initialize_symbols leaves missing procs nil and still
 // returns ok. Reflection means this never needs editing as the contract grows.
+@(require_results)
 api_complete :: proc(a: App_API) -> bool {
 	a := a
 	base := uintptr(&a)
@@ -101,7 +136,7 @@ api_complete :: proc(a: App_API) -> bool {
 }
 
 reload :: proc(api: ^App_API, version: ^int, track: ^mem.Tracking_Allocator) {
-	new_api, ok := load_api(version^ + 1)
+	new_api, ok := load_api(version^ + 1, track)
 	if !ok do return
 
 	incompatible :=
@@ -118,20 +153,27 @@ reload :: proc(api: ^App_API, version: ^int, track: ^mem.Tracking_Allocator) {
 		return
 	}
 
+	assets_changed := new_api.assets_table_hash() != api.assets_table_hash()
+
 	state := api.memory()
 	old := api^
 	api^ = new_api
-	api.hot_reloaded(state)
+	api.hot_reloaded(state, assets_changed)
 	version^ += 1
 	dynlib.unload_library(old.lib)
 	os.remove(fmt.tprintf("%s_%d%s", APP_NAME, old.version, DLL_EXT))
-	check_reload_leaks(track)
+	check_reload_leaks(track, api)
 }
 
-hard_restart :: proc(api: ^App_API, version: ^int, track: ^mem.Tracking_Allocator) {
-	new_api, ok := load_api(version^ + 1)
+hard_restart :: proc(
+	api: ^App_API,
+	version: ^int,
+	track: ^mem.Tracking_Allocator,
+	device: rawptr,
+) {
+	new_api, ok := load_api(version^ + 1, track)
 	if !ok do return
-	do_restart(api, version, new_api, track)
+	do_restart(api, version, new_api, track, device)
 }
 
 do_restart :: proc(
@@ -139,19 +181,32 @@ do_restart :: proc(
 	version: ^int,
 	new_api: App_API,
 	track: ^mem.Tracking_Allocator,
+	device: rawptr,
 ) {
 	api.shutdown()
 	old := api^
 	api^ = new_api
-	api.init()
+	app_ok := api.init(device)
+	if !app_ok {
+		fmt.eprintln("Restart failed to re-init app; exiting")
+		dynlib.unload_library(new_api.lib)
+		os.remove(fmt.tprintf("%s_%d%s", APP_NAME, new_api.version, DLL_EXT))
+		dynlib.unload_library(old.lib)
+		os.remove(fmt.tprintf("%s_%d%s", APP_NAME, old.version, DLL_EXT))
+		os.exit(1)
+	}
 	version^ += 1
 	dynlib.unload_library(old.lib)
 	os.remove(fmt.tprintf("%s_%d%s", APP_NAME, old.version, DLL_EXT))
-	check_reload_leaks(track)
+	check_reload_leaks(track, api)
 }
 
-check_reload_leaks :: proc(track: ^mem.Tracking_Allocator) {
-	for bad in track.bad_free_array do fmt.eprintfln("bad free during reload at %v", bad.location)
+check_reload_leaks :: proc(track: ^mem.Tracking_Allocator, api: ^App_API) {
+	for bad in track.bad_free_array do fmt.eprintfln("[WARNING] Bad free during reload at %v", bad.location)
 	clear(&track.bad_free_array)
-	fmt.eprintfln("live allocations after reload: %d", len(track.allocation_map))
+	curr_alloc_len := len(track.allocation_map)
+	if curr_alloc_len > api.last_alloc_len {
+		fmt.eprintfln("[WARNING] Live allocations after reload: %d", curr_alloc_len)
+		api.last_alloc_len = curr_alloc_len
+	}
 }

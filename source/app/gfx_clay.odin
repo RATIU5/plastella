@@ -1,0 +1,596 @@
+package app
+
+import "../../vendor/clay"
+import "../platform"
+import "base:runtime"
+import "core:c"
+import "core:fmt"
+import "core:math"
+import sdl "vendor:sdl3"
+import img "vendor:sdl3/image"
+import "vendor:sdl3/ttf"
+
+SEGMENTS_BASE :: 16
+SEGMENTS_MAX :: 32
+ARC_SEGMENTS_MAX :: 32
+
+// Curve antialiasing tuning, in device pixels. Tweak by eye and rebuild.
+
+// Distance over which a curved edge fades out. Flat edges stay sharp.
+FEATHER_PX :: 1.0
+
+// Cap on how much of the thickness/radius the feather may eat (see feather_clamp).
+FEATHER_CORE_FRACTION :: 0.25
+
+// Nudges the curve outward onto the straight edges it's tangent to: RenderGeometry
+// rasterizes coverage a hair inside RenderFillRect's.
+BOUNDARY_BIAS_PX :: 0.45
+
+// Fraction of a curve's segments, at each end, easing back to opaque so a feather
+// band meets a straight unfeathered edge without a snap.
+SEAM_TAPER_FRACTION :: 0.2
+
+// fill_rounded_rect buffers: fixed geometry + per-corner fan + feather band.
+VERTS_MAX :: 12 + 8 * SEGMENTS_MAX + 4 * 2 * (SEGMENTS_MAX + 1)
+INDICES_MAX :: 30 + 12 * SEGMENTS_MAX + 4 * 6 * SEGMENTS_MAX
+
+// Dev tracing only.
+@(private = "file")
+had_error: bool
+
+// Built once so measure_text, which clay calls many times per layout, does not
+// construct a Context per call. File-scope because a hot reload must re-set it.
+@(private = "file")
+measure_ctx: runtime.Context
+
+@(require_results)
+clay_init :: proc(frame: ^Frame) -> (^clay.Context, [^]u8) {
+	measure_ctx = context
+	min_size := clay.MinMemorySize()
+	clay_mem := make([^]u8, min_size)
+	arena := clay.CreateArenaWithCapacityAndMemory(cast(c.size_t)min_size, clay_mem)
+
+	ctx := clay.Initialize(
+		arena,
+		{f32(frame.screen.x), f32(frame.screen.y)},
+		{handler = err_handler, userData = &had_error},
+	)
+
+	if ctx == nil || had_error {
+		fmt.eprintln("[clay] initalization failed\n")
+		if clay_mem != nil {
+			free(clay_mem)
+		}
+		return nil, nil
+	}
+
+	clay.SetMeasureTextFunction(measure_text, frame.assets)
+
+	return ctx, clay_mem
+}
+
+@(require_results)
+clay_reload :: proc(gfx: ^Gfx, asts: ^Assets, screen: [2]f32) -> bool {
+	measure_ctx = context
+
+	size := clay.MinMemorySize()
+	if size != gfx.clay_mem_size {
+		fmt.eprintfln(
+			"[clay] arena size changed %d -> %d; restart required (F6)",
+			gfx.clay_mem_size,
+			size,
+		)
+		return false
+	}
+
+	had_error = false
+	arena := clay.CreateArenaWithCapacityAndMemory(c.size_t(size), gfx.clay_mem)
+	ctx := clay.Initialize(
+		arena,
+		{screen.x, screen.y},
+		{handler = err_handler, userData = nil},
+	)
+	if ctx == nil || had_error do return false
+
+	gfx.clay_ctx = ctx
+	clay.SetMeasureTextFunction(measure_text, asts)
+	return true
+}
+
+clay_frame_begin :: proc(frame: ^Frame) {
+	had_error = false
+	clay.SetLayoutDimensions({width = frame.screen.x, height = frame.screen.y})
+	clay.SetPointerState(frame.input.mouse.pos, platform.mouse_pressed(frame.input, .Left))
+	clay.UpdateScrollContainers(true, frame.input.mouse.wheel, frame.dt)
+	clay.BeginLayout()
+}
+
+clay_frame_end :: proc(frame: ^Frame) {
+	commands := clay.EndLayout(frame.dt)
+	clay_render_commands(&commands, frame)
+}
+
+clay_shutdown :: proc(gfx: ^Gfx) {
+	free(gfx.clay_mem)
+}
+
+measure_text :: proc "c" (
+	str: clay.StringSlice,
+	cfg: ^clay.TextElementConfig,
+	user_data: rawptr,
+) -> clay.Dimensions {
+	context = measure_ctx
+	a := cast(^Assets)user_data
+	assert(int(cfg.fontId) < len(a.fonts))
+	font := a.fonts[Text(cfg.fontId)]
+
+	box_h, _ := text_metrics(Text(cfg.fontId), a)
+
+	if str.length == 0 {
+		return {0, box_h}
+	}
+
+	w, h: c.int
+	if !ttf.GetStringSize(font, (cstring)(str.chars), uint(str.length), &w, &h) {
+		sdl.LogError(i32(sdl.LogCategory.ERROR), "Failed to measure text: %s", sdl.GetError())
+	}
+
+	return {f32(w) / a.scale, box_h}
+}
+
+clay_render_commands :: proc(commands: ^clay.ClayArray(clay.RenderCommand), frame: ^Frame) {
+	d := frame.assets.scale
+	sdl.SetRenderDrawBlendMode(frame.device.renderer, sdl.BLENDMODE_BLEND)
+
+	for i in 0 ..< commands.length {
+		cmd := clay.RenderCommandArray_Get(commands, i)
+		b := cmd.boundingBox
+		rect := sdl.FRect {
+			math.round(b.x * d),
+			math.round(b.y * d),
+			math.round(b.width * d),
+			math.round(b.height * d),
+		}
+
+		switch cmd.commandType {
+		case .Rectangle:
+			cfg := cmd.renderData.rectangle
+			cfg.cornerRadius = scale_radius(cfg.cornerRadius, d)
+			render_rectangle(frame.device.renderer, rect, cfg)
+		case .Text:
+			render_text(rect, cmd.renderData.text, frame)
+		case .Image:
+			slice := (^Texture_Slice)(cmd.renderData.image.imageData)
+			dst := rect
+			src: sdl.FRect
+			sdl.RectToFRect(slice.crop, &src)
+			tint := color_u8(clay.Color(slice.tint))
+			sdl.SetTextureColorMod(slice.tex, tint.r, tint.g, tint.b)
+			sdl.SetTextureAlphaMod(slice.tex, tint.a)
+			sdl.RenderTexture(frame.device.renderer, slice.tex, &src, &dst)
+		case .Border:
+			cfg := cmd.renderData.border
+			cfg.cornerRadius = scale_radius(cfg.cornerRadius, d)
+			cfg.width = scale_border_width(cfg.width, d)
+			render_border(frame.device.renderer, rect, cfg)
+		case .ScissorStart:
+			clip := sdl.Rect{i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h)}
+			sdl.SetRenderClipRect(frame.device.renderer, &clip)
+		case .ScissorEnd:
+			sdl.SetRenderClipRect(frame.device.renderer, nil)
+		case .None, .Custom, .OverlayColorStart, .OverlayColorEnd:
+		}
+	}
+}
+
+@(private = "file")
+Fill_Corner :: struct {
+	center:    sdl.FPoint,
+	radius:    f32,
+	rad_start: f32,
+	rad_end:   f32,
+}
+
+@(private = "file")
+render_rectangle :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.RectangleRenderData) {
+	radius := cfg.cornerRadius
+	if max(radius.topLeft, radius.topRight, radius.bottomLeft, radius.bottomRight) > 0 {
+		fill_rounded_rect(renderer, rect, radius, cfg.backgroundColor)
+		return
+	}
+	col := color_u8(cfg.backgroundColor)
+	sdl.SetRenderDrawColor(renderer, col.r, col.g, col.b, col.a)
+	r := rect
+	sdl.RenderFillRect(renderer, &r)
+}
+
+@(private = "file")
+fill_rounded_rect :: proc(
+	renderer: ^sdl.Renderer,
+	rect: sdl.FRect,
+	radius: clay.CornerRadius,
+	color: clay.Color,
+) {
+	fc := color_float(color)
+	fc_clear := fc
+	fc_clear.a = 0
+
+	r_max := min(rect.w, rect.h) / 2
+	tl := clamp(radius.topLeft, 0, r_max)
+	tr := clamp(radius.topRight, 0, r_max)
+	br := clamp(radius.bottomRight, 0, r_max)
+	bl := clamp(radius.bottomLeft, 0, r_max)
+
+	segments := clamp(int(max(tl, tr, br, bl) * 0.5), SEGMENTS_BASE, SEGMENTS_MAX)
+	assert(segments <= SEGMENTS_MAX)
+
+	// Angles are SDL screen space (y down), so 180-270 sweeps top-left.
+	corners := [4]Fill_Corner {
+		{{rect.x + tl, rect.y + tl}, tl, math.PI, math.PI * 1.5},
+		{{rect.x + rect.w - tr, rect.y + tr}, tr, math.PI * 1.5, math.TAU},
+		{{rect.x + rect.w - br, rect.y + rect.h - br}, br, 0, math.PI * 0.5},
+		{{rect.x + bl, rect.y + rect.h - bl}, bl, math.PI * 0.5, math.PI},
+	}
+
+	verts: [VERTS_MAX]sdl.Vertex = ---
+	indices: [INDICES_MAX]c.int = ---
+
+	for corner, i in corners do verts[i] = {corner.center, fc, {0, 0}}
+	vc := 4
+
+	indices[0], indices[1], indices[2] = 0, 1, 3
+	indices[3], indices[4], indices[5] = 1, 2, 3
+	ic := 6
+
+	for corner, i in corners {
+		if corner.radius <= 0 do continue
+
+		rr_curve := corner.radius + BOUNDARY_BIAS_PX
+		// Feather is carved out of the fan, not added past rr_curve, so the corner's
+		// outer radius matches the straight sides.
+		rr_core := max(rr_curve - feather_clamp(rr_curve), 0)
+		step := (corner.rad_end - corner.rad_start) / f32(segments)
+
+		for j in 0 ..< segments {
+			a1 := corner.rad_start + f32(j) * step
+			a2 := a1 + step
+			p1 := sdl.FPoint {
+				corner.center.x + math.cos(a1) * rr_core,
+				corner.center.y + math.sin(a1) * rr_core,
+			}
+			p2 := sdl.FPoint {
+				corner.center.x + math.cos(a2) * rr_core,
+				corner.center.y + math.sin(a2) * rr_core,
+			}
+			verts[vc] = {p1, fc, {0, 0}}
+			verts[vc + 1] = {p2, fc, {0, 0}}
+			indices[ic], indices[ic + 1], indices[ic + 2] = c.int(i), c.int(vc), c.int(vc + 1)
+			vc += 2
+			ic += 3
+		}
+
+		emit_ring_band(
+			verts[:],
+			indices[:],
+			&vc,
+			&ic,
+			corner.center,
+			rr_curve,
+			rr_core,
+			fc_clear,
+			fc,
+			corner.rad_start,
+			corner.rad_end,
+			segments,
+		)
+	}
+
+	edges := [4]struct {
+		p0, p1: sdl.FPoint,
+		c0, c1: c.int,
+	} {
+		{{rect.x + tl, rect.y}, {rect.x + rect.w - tr, rect.y}, 0, 1}, // top
+		{{rect.x + rect.w, rect.y + tr}, {rect.x + rect.w, rect.y + rect.h - br}, 1, 2}, // right
+		{{rect.x + rect.w - br, rect.y + rect.h}, {rect.x + bl, rect.y + rect.h}, 2, 3}, // bottom
+		{{rect.x, rect.y + rect.h - bl}, {rect.x, rect.y + tl}, 3, 0}, // left
+	}
+
+	for e in edges {
+		v0, v1 := c.int(vc), c.int(vc + 1)
+		verts[vc] = {e.p0, fc, {0, 0}}
+		verts[vc + 1] = {e.p1, fc, {0, 0}}
+		indices[ic], indices[ic + 1], indices[ic + 2] = e.c0, v0, v1
+		indices[ic + 3], indices[ic + 4], indices[ic + 5] = e.c1, e.c0, v1
+		vc += 2
+		ic += 6
+	}
+
+	sdl.RenderGeometry(
+		renderer,
+		nil,
+		raw_data(verts[:]),
+		c.int(vc),
+		raw_data(indices[:]),
+		c.int(ic),
+	)
+}
+
+// Caps the feather so a thin stroke or small radius keeps an opaque core.
+@(private = "file")
+feather_clamp :: proc "contextless" (extent: f32) -> f32 {
+	return min(FEATHER_PX, extent * FEATHER_CORE_FRACTION)
+}
+
+// One ring of quads between two concentric arcs, appended at vc/ic.
+@(private = "file")
+emit_ring_band :: proc(
+	verts: []sdl.Vertex,
+	indices: []c.int,
+	vc, ic: ^int,
+	center: sdl.FPoint,
+	r_outer, r_inner: f32,
+	color_outer, color_inner: sdl.FColor,
+	rad_start, rad_end: f32,
+	segments: int,
+) {
+	// Eases the faded side back to opaque near each end. No-op on the core band,
+	// where both colors already share one alpha.
+	taper_segments := max(1, min(segments / 2, int(f32(segments) * SEAM_TAPER_FRACTION)))
+	opaque_alpha := max(color_outer.a, color_inner.a)
+
+	angle_step := (rad_end - rad_start) / f32(segments)
+	for i in 0 ..= segments {
+		angle := rad_start + f32(i) * angle_step
+		cos, sin := math.cos(angle), math.sin(angle)
+
+		t := f32(1)
+		if i < taper_segments {
+			t = f32(i) / f32(taper_segments)
+		} else if i > segments - taper_segments {
+			t = f32(segments - i) / f32(taper_segments)
+		}
+		co, ci := color_outer, color_inner
+		co.a = opaque_alpha + (color_outer.a - opaque_alpha) * t
+		ci.a = opaque_alpha + (color_inner.a - opaque_alpha) * t
+
+		verts[vc^] = {{center.x + cos * r_outer, center.y + sin * r_outer}, co, {0, 0}}
+		verts[vc^ + 1] = {{center.x + cos * r_inner, center.y + sin * r_inner}, ci, {0, 0}}
+		if i < segments {
+			o0, i0 := c.int(vc^), c.int(vc^ + 1)
+			o1, i1 := c.int(vc^ + 2), c.int(vc^ + 3)
+			indices[ic^], indices[ic^ + 1], indices[ic^ + 2] = o0, o1, i0
+			indices[ic^ + 3], indices[ic^ + 4], indices[ic^ + 5] = o1, i1, i0
+			ic^ += 6
+		}
+		vc^ += 2
+	}
+}
+
+@(private = "file")
+Border_Corner :: struct {
+	radius:    f32,
+	center:    sdl.FPoint,
+	start_deg: f32,
+	end_deg:   f32,
+	thickness: f32,
+}
+
+@(private = "file")
+render_border :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.BorderRenderData) {
+	col := color_u8(cfg.color)
+	sdl.SetRenderDrawColor(renderer, col.r, col.g, col.b, col.a)
+
+	// Clamped so two radii on one axis cannot overlap into a negative run.
+	r_max := min(rect.w, rect.h) / 2
+	tl := min(cfg.cornerRadius.topLeft, r_max)
+	tr := min(cfg.cornerRadius.topRight, r_max)
+	br := min(cfg.cornerRadius.bottomRight, r_max)
+	bl := min(cfg.cornerRadius.bottomLeft, r_max)
+
+	w := cfg.width
+
+	// Straight runs sit flush inside the rect, shortened by the radii on their axis.
+	if w.top > 0 {
+		side := sdl.FRect{rect.x + tl, rect.y, rect.w - tl - tr, f32(w.top)}
+		sdl.RenderFillRect(renderer, &side)
+	}
+	if w.bottom > 0 {
+		y := rect.y + rect.h - f32(w.bottom)
+		side := sdl.FRect{rect.x + bl, y, rect.w - bl - br, f32(w.bottom)}
+		sdl.RenderFillRect(renderer, &side)
+	}
+	if w.left > 0 {
+		side := sdl.FRect{rect.x, rect.y + tl, f32(w.left), rect.h - tl - bl}
+		sdl.RenderFillRect(renderer, &side)
+	}
+	if w.right > 0 {
+		x := rect.x + rect.w - f32(w.right)
+		side := sdl.FRect{x, rect.y + tr, f32(w.right), rect.h - tr - br}
+		sdl.RenderFillRect(renderer, &side)
+	}
+
+	// Angles are SDL screen space (y down), so 180-270 sweeps top-left. Thickness
+	// takes the wider adjacent side so a corner never reads thinner.
+	corners := [4]Border_Corner {
+		{tl, {rect.x + tl, rect.y + tl}, 180, 270, f32(max(w.top, w.left))},
+		{tr, {rect.x + rect.w - tr, rect.y + tr}, 270, 360, f32(max(w.top, w.right))},
+		{br, {rect.x + rect.w - br, rect.y + rect.h - br}, 0, 90, f32(max(w.bottom, w.right))},
+		{bl, {rect.x + bl, rect.y + rect.h - bl}, 90, 180, f32(max(w.bottom, w.left))},
+	}
+
+	for c in corners {
+		if c.radius <= 0 do continue
+		if c.thickness <= 0 do continue
+		render_arc(renderer, c.center, c.radius, c.start_deg, c.end_deg, c.thickness, cfg.color)
+	}
+}
+
+@(private = "file")
+render_text :: proc(rect: sdl.FRect, cfg: clay.TextRenderData, frame: ^Frame) {
+	assert(int(cfg.fontId) < len(frame.assets.fonts))
+
+	chars := ([^]u8)(cfg.stringContents.chars)
+	str := string(chars[:cfg.stringContents.length])
+	text := text_cache_get(
+		&frame.gfx.text_cache,
+		frame.device,
+		frame.assets,
+		str,
+		Text(cfg.fontId),
+	)
+	if text == nil do return
+
+	col := color_u8(cfg.textColor)
+	ttf.SetTextColor(text, col.r, col.g, col.b, col.a)
+
+	glyph_h: c.int
+	w: c.int
+	y := rect.y
+	if ttf.GetTextSize(text, &w, &glyph_h) do y = rect.y + rect.h - f32(glyph_h)
+
+	ttf.DrawRendererText(text, rect.x, y)
+}
+
+@(private = "file")
+render_arc :: proc(
+	renderer: ^sdl.Renderer,
+	center: sdl.FPoint,
+	radius, start_deg, end_deg, thickness: f32,
+	color: clay.Color,
+) {
+	// Quarter-annulus as geometry, so it joins the straight border runs seamlessly.
+	fc := color_float(color)
+	fc_clear := fc
+	fc_clear.a = 0
+	r_out := radius
+	r_out_curve := r_out + BOUNDARY_BIAS_PX // matches the straight runs
+	r_in := max(radius - thickness, 0) // lands on the straight-edge inner boundary
+
+	rad_start := start_deg * (math.PI / 180)
+	rad_end := end_deg * (math.PI / 180)
+	segments := clamp(int(radius * 1.5), SEGMENTS_BASE, ARC_SEGMENTS_MAX)
+	assert(segments <= ARC_SEGMENTS_MAX) // buffers below are sized for exactly this
+
+	// Feather is carved out of [r_in, r_out], not added past it, so the stroke's
+	// radius matches the straight runs.
+	feather := feather_clamp(thickness)
+	r_out_core := max(r_out_curve - feather, r_in)
+	r_in_core := r_in
+	if r_in > 0 {
+		r_in_core = min(r_in + feather, r_out_curve)
+	}
+	if r_in_core > r_out_core do r_in_core = r_out_core
+
+	// Opaque core plus a feather per curved edge. End caps stay sharp: they butt
+	// against the straight border runs.
+	verts: [(ARC_SEGMENTS_MAX + 1) * 2 * 3]sdl.Vertex = ---
+	indices: [ARC_SEGMENTS_MAX * 6 * 3]c.int = ---
+	vc, ic := 0, 0
+
+	if r_out_core > r_in_core {
+		emit_ring_band(
+			verts[:],
+			indices[:],
+			&vc,
+			&ic,
+			center,
+			r_out_core,
+			r_in_core,
+			fc,
+			fc,
+			rad_start,
+			rad_end,
+			segments,
+		)
+	}
+	emit_ring_band(
+		verts[:],
+		indices[:],
+		&vc,
+		&ic,
+		center,
+		r_out_curve,
+		r_out_core,
+		fc_clear,
+		fc,
+		rad_start,
+		rad_end,
+		segments,
+	)
+	if r_in > 0 && r_in_core > r_in {
+		emit_ring_band(
+			verts[:],
+			indices[:],
+			&vc,
+			&ic,
+			center,
+			r_in_core,
+			r_in,
+			fc,
+			fc_clear,
+			rad_start,
+			rad_end,
+			segments,
+		)
+	}
+
+	sdl.RenderGeometry(
+		renderer,
+		nil,
+		raw_data(verts[:]),
+		c.int(vc),
+		raw_data(indices[:]),
+		c.int(ic),
+	)
+}
+
+@(private = "file")
+color_float :: proc "contextless" (col: clay.Color) -> sdl.FColor {
+	return {col.r / 255, col.g / 255, col.b / 255, col.a / 255}
+}
+
+@(private = "file")
+color_u8 :: proc "contextless" (col: clay.Color) -> [4]u8 {
+	return {u8(col.r), u8(col.g), u8(col.b), u8(col.a)}
+}
+
+@(private = "file")
+scale_radius :: proc "contextless" (r: clay.CornerRadius, d: f32) -> clay.CornerRadius {
+	return {r.topLeft * d, r.topRight * d, r.bottomLeft * d, r.bottomRight * d}
+}
+
+@(private = "file")
+scale_width :: proc "contextless" (v: u16, d: f32) -> u16 {
+	if v == 0 do return 0
+	return u16(max(math.round(f32(v) * d), 1))
+}
+
+@(private = "file")
+scale_border_width :: proc "contextless" (w: clay.BorderWidth, d: f32) -> clay.BorderWidth {
+	return {
+		left = scale_width(w.left, d),
+		right = scale_width(w.right, d),
+		top = scale_width(w.top, d),
+		bottom = scale_width(w.bottom, d),
+		betweenChildren = scale_width(w.betweenChildren, d),
+	}
+}
+
+@(private = "file")
+err_handler :: proc "c" (err: clay.ErrorData) {
+	context = runtime.default_context()
+	had_error = true
+
+	msg := cast(string)(err.errorText.chars)[:err.errorText.length]
+	msg_full := fmt.tprintf("[clay] %v: %s\n", err.errorType, msg)
+
+	when ODIN_DEBUG {
+		panic(msg_full)
+	} else {
+		fmt.eprintln(msg_full)
+	}
+}
+
+
+// Keeps the SDL image package linked in.
+_ :: img.LoadTexture
