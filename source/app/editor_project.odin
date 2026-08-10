@@ -41,7 +41,7 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 				{
 					layout = {
 						sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()},
-						padding = {10, 10, 10, 10},
+						padding = {0, 0, 10, 10},
 						layoutDirection = .TopToBottom,
 						childGap = 1,
 					},

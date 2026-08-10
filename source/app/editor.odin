@@ -14,15 +14,16 @@ Toolbar_Tab :: enum u8 {
 }
 
 STATUS_TEXT_MAX :: 128
-STATUS_SHOW_MS :: u64(4000)
+STATUS_SHOW_MS :: u64(8000)
 
 Editor :: struct {
-	tab:             Toolbar_Tab,
-	status_buf:      [STATUS_TEXT_MAX]u8,
-	status_len:      int,
-	status_ms:       u64,
-	status_theme:    Status_Theme,
-	project:         ^Project,
+	tab:          Toolbar_Tab,
+	status_buf:   [STATUS_TEXT_MAX]u8,
+	status_len:   int,
+	status_ms:    u64,
+	status_theme: Status_Theme,
+	status_shown: bool,
+	project:      ^Project,
 }
 
 @(require_results)
@@ -64,12 +65,22 @@ status_text_set :: proc(editor: ^Editor, text: string, theme := Status_Theme.Inf
 	editor.status_len = copy(editor.status_buf[:], text)
 	editor.status_ms = sdl.GetTicks()
 	editor.status_theme = theme
+	editor.status_shown = true
 }
 
 @(require_results)
 status_text :: proc(editor: ^Editor) -> string {
-	if sdl.GetTicks() - editor.status_ms > STATUS_SHOW_MS do return ""
+	if !editor.status_shown do return ""
 	return string(editor.status_buf[:editor.status_len])
+}
+
+// Returns true once when the status expires, so the idle loop can spend one frame clearing it.
+@(require_results)
+status_expired :: proc(editor: ^Editor) -> bool {
+	if !editor.status_shown do return false
+	if sdl.GetTicks() - editor.status_ms <= STATUS_SHOW_MS do return false
+	editor.status_shown = false
+	return true
 }
 
 project_name_transform :: proc(s: ^Text_Edit, insert: string) -> string {

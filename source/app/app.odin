@@ -105,6 +105,8 @@ app_update :: proc(device: ^platform.Device) {
 		app.frames_owed = 1
 	}
 
+	if status_expired(&app.editor) do app.frames_owed = max(app.frames_owed, 1)
+
 	if app.input.scale_changed {
 		if !platform.device_refresh_scale(device) {
 			fmt.eprintln("Failed to refresh device scale")

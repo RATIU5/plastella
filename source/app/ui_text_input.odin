@@ -235,7 +235,9 @@ text_input :: proc(
 
 	editing := te.id == id
 	text_str := value
-	if editing do text_str = strings.to_string(te.builder)
+	// Cloned: clay holds this pointer until render, and a later field stealing focus
+	// this frame resets the shared builder underneath it.
+	if editing do text_str = strings.clone(strings.to_string(te.builder), context.temp_allocator)
 	else if result.submitted do text_str = result.text
 
 	// Cache may evict, so fetch once a frame and pass it down. Left nil when empty:

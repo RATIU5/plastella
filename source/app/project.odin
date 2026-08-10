@@ -7,12 +7,13 @@ Project :: struct {
 	initialized: bool,
 	name_buf:    [PROJECT_NAME_MAX]u8,
 	name_len:    int,
-	loc_buf:     []u8,
+	loc_buf:     [TEXT_INPUT_MAX_BYTES]u8,
 	loc_len:     int,
 }
 
 project_init :: proc(prj: ^Project, name: string = "Untitled Project") {
 	project_name_set(prj, name)
+	project_loc_set(prj, "~/Plastella Projects/")
 	prj.initialized = true
 }
 
