@@ -17,44 +17,55 @@ Button_Style :: struct {
 }
 
 Button_Theme :: enum u8 {
-	Default,
+	Icon,
 	Wide_Action,
 	Seg_Ctrl_Text,
+	Status_Error,
 }
 
 @(rodata)
 button_styles := [Button_Theme]Button_Style {
-	.Default = {
-		font = .UI_REG_13,
-		padding = {12, 12, 6, 6},
+	.Icon = {
+		font = .UI_REG_12,
+		padding = {7, 7, 7, 7},
 		bg_color = {
-			.Normal = COLOR_TRANSPARENT,
-			.Hover = COLOR_GREY_805,
-			.Active = COLOR_GREY_850,
-			.Engaged = COLOR_TRANSPARENT,
-			.Engaged_Hover = COLOR_GREY_805,
-			.Engaged_Active = COLOR_GREY_850,
-			.Focus = COLOR_GREY_805,
-			.Focus_Hover = COLOR_GREY_805,
-			.Focus_Active = COLOR_GREY_850,
-			.Disabled = COLOR_TRANSPARENT,
-		},
-		fg_color = {
-			.Normal = COLOR_GREY_340,
-			.Hover = COLOR_GREY_290,
-			.Active = COLOR_GREY_290,
+			.Normal = COLOR_GREY_740,
+			.Hover = COLOR_GREY_710,
+			.Active = COLOR_ACCENT,
 			.Engaged = COLOR_ACCENT,
 			.Engaged_Hover = COLOR_ACCENT,
 			.Engaged_Active = COLOR_ACCENT,
-			.Focus = COLOR_GREY_240,
-			.Focus_Hover = COLOR_GREY_240,
-			.Focus_Active = COLOR_GREY_240,
-			.Disabled = COLOR_GREY_605,
+			.Focus = COLOR_ACCENT,
+			.Focus_Hover = COLOR_ACCENT,
+			.Focus_Active = COLOR_ACCENT,
+			.Disabled = COLOR_GREY_805,
 		},
+		fg_color = {
+			.Normal = COLOR_GREY_150,
+			.Hover = COLOR_GREY_150,
+			.Active = COLOR_GREY_150,
+			.Engaged = COLOR_GREY_150,
+			.Engaged_Hover = COLOR_GREY_150,
+			.Engaged_Active = COLOR_GREY_150,
+			.Focus = COLOR_GREY_150,
+			.Focus_Hover = COLOR_GREY_150,
+			.Focus_Active = COLOR_GREY_150,
+			.Disabled = COLOR_GREY_500,
+		},
+		border_color = {
+			.Normal = COLOR_TRANSPARENT,
+			.Hover = COLOR_TRANSPARENT,
+			.Active = COLOR_TRANSPARENT,
+			.Engaged = COLOR_TRANSPARENT,
+			.Engaged_Hover = COLOR_TRANSPARENT,
+			.Engaged_Active = COLOR_TRANSPARENT,
+			.Focus = COLOR_TRANSPARENT,
+			.Focus_Hover = COLOR_TRANSPARENT,
+			.Focus_Active = COLOR_TRANSPARENT,
+			.Disabled = COLOR_TRANSPARENT,
+		},
+		border_width = {1, 1, 1, 1, 0},
 		radius = {5, 5, 5, 5},
-		child_align = {.Center, .Center},
-		child_gap = 8,
-		sizing = .Fit,
 	},
 	.Wide_Action = {
 		font = .UI_REG_13,
@@ -120,14 +131,50 @@ button_styles := [Button_Theme]Button_Style {
 		child_gap = 8,
 		sizing = .Fit,
 	},
+	.Status_Error = {
+		font = .UI_REG_12,
+		padding = {4, 4, 4, 4},
+		bg_color = {
+			.Normal = COLOR_ERROR_760,
+			.Hover = COLOR_GREY_805,
+			.Active = COLOR_GREY_850,
+			.Engaged = COLOR_TRANSPARENT,
+			.Engaged_Hover = COLOR_GREY_805,
+			.Engaged_Active = COLOR_GREY_850,
+			.Focus = COLOR_GREY_805,
+			.Focus_Hover = COLOR_GREY_805,
+			.Focus_Active = COLOR_GREY_850,
+			.Disabled = COLOR_TRANSPARENT,
+		},
+		fg_color = {
+			.Normal = COLOR_ERROR_150,
+			.Hover = COLOR_GREY_290,
+			.Active = COLOR_GREY_290,
+			.Engaged = COLOR_ACCENT,
+			.Engaged_Hover = COLOR_ACCENT,
+			.Engaged_Active = COLOR_ACCENT,
+			.Focus = COLOR_GREY_240,
+			.Focus_Hover = COLOR_GREY_240,
+			.Focus_Active = COLOR_GREY_240,
+			.Disabled = COLOR_GREY_605,
+		},
+		radius = {5, 5, 5, 5},
+		child_align = {.Center, .Center},
+		child_gap = 8,
+		sizing = .Grow,
+	},
 }
 
-Button_Option :: enum u8 {
-	DISABLED,
-	SELECTED,
+Button_Opts :: struct {
+	theme:    Button_Theme,
+	disabled: bool,
+	// Only for buttons that stay picked, like a segmented control tab.
+	selected: bool,
+	// nil rounds every corner and draws every edge; set them to sit flush with a
+	// neighbour.
+	corners:  Maybe(Corners),
+	borders:  Maybe(Edges),
 }
-
-Button_Options :: bit_set[Button_Option;u8]
 
 Button_State :: struct {
 	clicked: bool,
@@ -135,20 +182,19 @@ Button_State :: struct {
 	fg:      clay.Color,
 }
 
-// Children go in the caller's `if btn, open := button(...); open { ... }` block;
-// button_end closes the element when that scope exits.
+// Label-only button: returns whether it was clicked this frame.
+button :: proc(ctx: ^Ctx, id: string, label: string, opts := Button_Opts{}) -> bool {
+	btn, _ := button_box(ctx, id, opts)
+	text(ctx.frame.assets, label, btn.font, btn.fg, .Center, .None)
+	return btn.clicked
+}
+
+// Custom children go in the caller's `if btn, open := button_box(...); open { ... }`
+// block; button_end closes the element when that scope exits.
 @(deferred_none = button_end)
-button :: proc(
-	ctx: ^Ctx,
-	id: string,
-	theme: Button_Theme,
-	options: Button_Options = {},
-) -> (
-	Button_State,
-	bool,
-) {
-	disabled := .DISABLED in options
-	selected := .SELECTED in options
+button_box :: proc(ctx: ^Ctx, id: string, opts := Button_Opts{}) -> (Button_State, bool) {
+	disabled := opts.disabled
+	selected := opts.selected
 	hover := !disabled && pointer_over(id)
 	active := !disabled && active_over(ctx.frame, id)
 	register_focusable(ctx, id)
@@ -165,7 +211,7 @@ button :: proc(
 	}
 
 	st := color_state(active, hover, selected, focus, disabled)
-	style := button_styles[theme]
+	style := button_styles[opts.theme]
 
 	clay._OpenElementWithId(clay.ID(id))
 	clay.ConfigureOpenElement(
@@ -176,9 +222,12 @@ button :: proc(
 				childGap = style.child_gap,
 				sizing = sizing_to_clay(style.sizing),
 			},
-			border = {width = style.border_width, color = style.border_color[st]},
+			border = {
+				width = border_width_mask(style.border_width, opts.borders),
+				color = style.border_color[st],
+			},
 			backgroundColor = style.bg_color[st],
-			cornerRadius = style.radius,
+			cornerRadius = corner_radius_mask(style.radius, opts.corners),
 		},
 	)
 

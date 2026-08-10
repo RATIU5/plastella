@@ -7,6 +7,8 @@ import sdl "vendor:sdl3"
 Ui :: struct {
 	focused:          string,
 	tab_next:         bool,
+	// Backwards past the first widget: resolved to the last one at frame end.
+	tab_wrap_prev:    bool,
 	tab_first:        string,
 	tab_prev:         string,
 	// Set while the focused widget renders; reconciled in ui_frame_end.
@@ -38,22 +40,40 @@ ui_frame_start :: proc(ctx: ^Ctx) {
 	ctx.ui.tab_prev = ""
 	ctx.ui.focus_seen = false
 	ctx.ui.wants_text_input = false
+	// Nothing focused: tab enters at the top of the tree, shift-tab at the bottom.
 	if ctx.ui.focused == "" && platform.key_pressed(ctx.frame.input, .TAB) {
-		ctx.ui.tab_next = true
+		if tab_shift(ctx) {
+			ctx.ui.tab_wrap_prev = true
+		} else {
+			ctx.ui.tab_next = true
+		}
 	}
+}
+
+@(private = "file", require_results)
+tab_shift :: proc(ctx: ^Ctx) -> bool {
+	return(
+		platform.key_down(ctx.frame.input, .LSHIFT) ||
+		platform.key_down(ctx.frame.input, .RSHIFT) \
+	)
 }
 
 ui_frame_end :: proc(ctx: ^Ctx) {
 	ui := ctx.ui
 
-	// A tab wrap targets a widget that hasn't registered yet, so count it as seen.
-	took_tab := ui.tab_next
-	if took_tab {
+	// A tab wrap targets a widget that already registered (or hasn't yet), so it
+	// can't have been seen; tab_prev is the last widget of the frame.
+	took_tab := ui.tab_next || ui.tab_wrap_prev
+	switch {
+	case ui.tab_next:
 		ui.focused = ui.tab_first
-		ui.tab_next = false
-	} else if !ui.focus_seen {
+	case ui.tab_wrap_prev:
+		ui.focused = ui.tab_prev
+	case !ui.focus_seen:
 		ui.focused = ""
 	}
+	ui.tab_next = false
+	ui.tab_wrap_prev = false
 
 	ui_sync_text_input(ui, ctx.frame.device.window, !took_tab && ui.wants_text_input)
 }
@@ -106,12 +126,12 @@ register_focusable :: proc(ctx: ^Ctx, id: string) -> bool {
 	if ctx.ui.tab_first == "" do ctx.ui.tab_first = id
 
 	if !took_focus && ctx.ui.focused == id && platform.key_pressed(ctx.frame.input, .TAB) {
-		shift :=
-			platform.key_down(ctx.frame.input, .LSHIFT) ||
-			platform.key_down(ctx.frame.input, .RSHIFT)
-		if shift {
+		if tab_shift(ctx) {
+			// The previous widget already drew, so mark it seen here or frame end
+			// would drop the focus it just gained.
 			ctx.ui.focused = ctx.ui.tab_prev
-			if ctx.ui.tab_prev == "" do ctx.ui.tab_next = false
+			ctx.ui.focus_seen = ctx.ui.tab_prev != ""
+			ctx.ui.tab_wrap_prev = ctx.ui.tab_prev == ""
 		} else {
 			ctx.ui.tab_next = true
 		}

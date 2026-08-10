@@ -37,108 +37,165 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 			) {
 				text(ctx.frame.assets, "Project Details", .UI_BLD_13, COLOR_GREY_150)
 
-				if clay.UI(clay.ID("project:settings:project_name"))(
+				if clay.UI(clay.ID("project:settings:inputs"))(
 				{
 					layout = {
-						sizing = {width = clay.SizingGrow(), height = clay.SizingFit()},
-						layoutDirection = .LeftToRight,
-						childAlignment = {x = .Center, y = .Center},
-						childGap = 10,
+						sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()},
+						padding = {10, 10, 10, 10},
+						layoutDirection = .TopToBottom,
+						childGap = 1,
 					},
 				},
 				) {
-					if clay.UI(clay.ID("project:settings:project_name:left"))(
+					if clay.UI(clay.ID("project:settings:project_name"))(
 					{
 						layout = {
 							sizing = {width = clay.SizingGrow(), height = clay.SizingFit()},
 							layoutDirection = .LeftToRight,
-							childAlignment = {x = .Left, y = .Center},
+							childAlignment = {y = .Center},
+							childGap = 20,
 						},
 					},
 					) {
-						text(ctx.frame.assets, "Project Name", .UI_REG_13, COLOR_GREY_340)
-					}
-					proj_name := text_input(
-						ctx,
-						"project:settings:name_input",
-						project_name_get(edtr.project),
+						if clay.UI(clay.ID("project:settings:project_name:left"))(
 						{
-							placeholder = "Untitled Project",
-							width = f32(200),
-							submits = true,
-							transform = project_name_transform,
-						},
-					)
-					if proj_name.submitted {
-						name := strings.trim_space(proj_name.text)
-						if name == "" {
-							status_text_set(edtr, "Project name cannot be empty", .Error)
-						} else {
-							project_name_set(edtr.project, name)
-						}
-					}
-					if proj_name.rejected {
-						status_text_set(
-							edtr,
-							fmt.tprintf(
-								"Project name is limited to %d characters",
-								PROJECT_NAME_MAX_RUNES,
-							),
-							.Warning,
-						)
-					}
-				}
-
-				if clay.UI(clay.ID("project:settings:project_loc"))(
-				{
-					layout = {
-						sizing = {width = clay.SizingGrow(), height = clay.SizingFit()},
-						layoutDirection = .LeftToRight,
-						childAlignment = {x = .Center, y = .Center},
-						childGap = 10,
-					},
-				},
-				) {
-					if clay.UI(clay.ID("project:settings:project_loc:left"))(
-					{
-						layout = {
-							sizing = {width = clay.SizingGrow(), height = clay.SizingFit()},
-							layoutDirection = .LeftToRight,
-							childAlignment = {x = .Left, y = .Center},
-						},
-					},
-					) {
-						text(ctx.frame.assets, "Project Location", .UI_REG_13, COLOR_GREY_340)
-					}
-
-					if clay.UI(clay.ID("project:settings:loc_input:right"))({}) {
-						proj_loc := text_input(
-							ctx,
-							"project:settings:loc_input",
-							project_loc_get(edtr.project),
-							{
-								placeholder = "~/Plastella Projects/",
-								width = f32(200),
-								submits = true,
+							layout = {
+								sizing = {width = clay.SizingGrow(), height = clay.SizingFit()},
+								layoutDirection = .LeftToRight,
+								childAlignment = {x = .Right, y = .Center},
 							},
-						)
+						},
+						) {
+							text(ctx.frame.assets, "Project Name", .UI_REG_13, COLOR_GREY_340)
+						}
 
-						// TODO: Add icon button for opening file picker here
-
-						if proj_loc.submitted {
-							path := strings.trim_space(proj_loc.text)
-							if path == "" {
-								status_text_set(edtr, "Project location cannot be empty", .Error)
-							} else {
-								project_loc_set(edtr.project, path)
+						if clay.UI(clay.ID("project:settings:project_name:right"))(
+						{
+							layout = {
+								sizing = {
+									width = clay.SizingFixed(250),
+									height = clay.SizingFit(),
+								},
+								layoutDirection = .LeftToRight,
+								childAlignment = {x = .Right, y = .Center},
+								childGap = 1,
+							},
+						},
+						) {
+							proj_name := text_input(
+								ctx,
+								"project:settings:name_input",
+								project_name_get(edtr.project),
+								{
+									placeholder = "Untitled Project",
+									width = .Grow,
+									submits = true,
+									transform = project_name_transform,
+									corners = Corners{.Top_Right, .Top_Left},
+								},
+							)
+							if proj_name.submitted {
+								name := strings.trim_space(proj_name.text)
+								if name == "" {
+									status_text_set(edtr, "Project name cannot be empty", .Error)
+								} else {
+									project_name_set(edtr.project, name)
+								}
+							}
+							if proj_name.rejected {
+								status_text_set(
+									edtr,
+									fmt.tprintf(
+										"Project name is limited to %d characters",
+										PROJECT_NAME_MAX_RUNES,
+									),
+									.Warning,
+								)
 							}
 						}
-						if proj_loc.rejected {
-							status_text_set(
-								edtr,
-								"Project location is not a valid path on your system",
-								.Warning,
+					}
+
+					if clay.UI(clay.ID("project:settings:project_loc"))(
+					{
+						layout = {
+							sizing = {width = clay.SizingGrow(), height = clay.SizingFit()},
+							layoutDirection = .LeftToRight,
+							childAlignment = {y = .Center},
+							childGap = 20,
+						},
+					},
+					) {
+						if clay.UI(clay.ID("project:settings:project_loc:left"))(
+						{
+							layout = {
+								sizing = {width = clay.SizingGrow(), height = clay.SizingFit()},
+								layoutDirection = .LeftToRight,
+								childAlignment = {x = .Right, y = .Center},
+							},
+						},
+						) {
+							text(ctx.frame.assets, "Project Location", .UI_REG_13, COLOR_GREY_340)
+						}
+
+						if clay.UI(clay.ID("project:settings:loc_input:right"))(
+						{
+							layout = {
+								sizing = {
+									width = clay.SizingFixed(250),
+									height = clay.SizingFit(),
+								},
+								layoutDirection = .LeftToRight,
+								childAlignment = {x = .Right, y = .Center},
+								childGap = 1,
+							},
+						},
+						) {
+							proj_loc := text_input(
+								ctx,
+								"project:settings:loc_input",
+								project_loc_get(edtr.project),
+								{
+									placeholder = "~/Plastella Projects/",
+									width = .Grow,
+									submits = true,
+									corners = Corners{.Bottom_Left},
+								},
 							)
+
+							if btn, open := button_box(
+								ctx,
+								"project:settings:loc_button",
+								{corners = Corners{.Bottom_Right}},
+							); open {
+								icon_h := f32(text_styles[btn.font].size)
+								icon(
+									ctx,
+									"project:settings:loc_button:icon",
+									.Project,
+									icon_h,
+									btn.fg,
+								)
+							}
+
+							if proj_loc.submitted {
+								path := strings.trim_space(proj_loc.text)
+								if path == "" {
+									status_text_set(
+										edtr,
+										"Project location cannot be empty",
+										.Error,
+									)
+								} else {
+									project_loc_set(edtr.project, path)
+								}
+							}
+							if proj_loc.rejected {
+								status_text_set(
+									edtr,
+									"Project location is not a valid path on your system",
+									.Warning,
+								)
+							}
 						}
 					}
 				}
@@ -177,7 +234,11 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 					},
 				},
 				) {
-					if btn, open := button(ctx, "no_project:button_new", .Wide_Action); open {
+					if btn, open := button_box(
+						ctx,
+						"no_project:button_new",
+						{theme = .Wide_Action},
+					); open {
 						if clay.UI(clay.ID("no_project:button_new:left"))(
 						{layout = {sizing = {width = clay.SizingGrow()}, childGap = 6}},
 						) {
@@ -188,7 +249,11 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 
 						if btn.clicked do project_init(edtr.project)
 					}
-					if btn, open := button(ctx, "no_project:button_open", .Wide_Action); open {
+					if btn, open := button_box(
+						ctx,
+						"no_project:button_open",
+						{theme = .Wide_Action},
+					); open {
 						if clay.UI(clay.ID("no_project:button_open:left"))(
 						{layout = {sizing = {width = clay.SizingGrow()}, childGap = 6}},
 						) {

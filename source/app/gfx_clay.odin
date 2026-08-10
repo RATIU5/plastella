@@ -184,9 +184,18 @@ clay_render_commands :: proc(commands: ^clay.ClayArray(clay.RenderCommand), fram
 }
 
 @(private = "file")
+Fill_Corner :: struct {
+	center:    sdl.FPoint,
+	radius:    f32,
+	rad_start: f32,
+	rad_end:   f32,
+}
+
+@(private = "file")
 render_rectangle :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.RectangleRenderData) {
-	if cfg.cornerRadius.topLeft > 0 {
-		fill_rounded_rect(renderer, rect, cfg.cornerRadius.topLeft, cfg.backgroundColor)
+	radius := cfg.cornerRadius
+	if max(radius.topLeft, radius.topRight, radius.bottomLeft, radius.bottomRight) > 0 {
+		fill_rounded_rect(renderer, rect, radius, cfg.backgroundColor)
 		return
 	}
 	col := color_u8(cfg.backgroundColor)
@@ -199,81 +208,79 @@ render_rectangle :: proc(renderer: ^sdl.Renderer, rect: sdl.FRect, cfg: clay.Rec
 fill_rounded_rect :: proc(
 	renderer: ^sdl.Renderer,
 	rect: sdl.FRect,
-	radius: f32,
+	radius: clay.CornerRadius,
 	color: clay.Color,
 ) {
 	fc := color_float(color)
 	fc_clear := fc
 	fc_clear.a = 0
-	rr := min(radius, min(rect.w, rect.h) / 2)
-	rr_curve := rr + BOUNDARY_BIAS_PX
-	// Feather is carved out of the fan, not added past rr_curve, so the corner's
-	// outer radius matches the straight sides.
-	rr_core := max(rr_curve - feather_clamp(rr_curve), 0)
-	segments := clamp(int(rr * 0.5), SEGMENTS_BASE, SEGMENTS_MAX)
+
+	r_max := min(rect.w, rect.h) / 2
+	tl := clamp(radius.topLeft, 0, r_max)
+	tr := clamp(radius.topRight, 0, r_max)
+	br := clamp(radius.bottomRight, 0, r_max)
+	bl := clamp(radius.bottomLeft, 0, r_max)
+
+	segments := clamp(int(max(tl, tr, br, bl) * 0.5), SEGMENTS_BASE, SEGMENTS_MAX)
 	assert(segments <= SEGMENTS_MAX)
+
+	// Angles are SDL screen space (y down), so 180-270 sweeps top-left.
+	corners := [4]Fill_Corner {
+		{{rect.x + tl, rect.y + tl}, tl, math.PI, math.PI * 1.5},
+		{{rect.x + rect.w - tr, rect.y + tr}, tr, math.PI * 1.5, math.TAU},
+		{{rect.x + rect.w - br, rect.y + rect.h - br}, br, 0, math.PI * 0.5},
+		{{rect.x + bl, rect.y + rect.h - bl}, bl, math.PI * 0.5, math.PI},
+	}
 
 	verts: [VERTS_MAX]sdl.Vertex = ---
 	indices: [INDICES_MAX]c.int = ---
 
-	verts[0] = {{rect.x + rr, rect.y + rr}, fc, {0, 0}}
-	verts[1] = {{rect.x + rect.w - rr, rect.y + rr}, fc, {0, 0}}
-	verts[2] = {{rect.x + rect.w - rr, rect.y + rect.h - rr}, fc, {0, 0}}
-	verts[3] = {{rect.x + rr, rect.y + rect.h - rr}, fc, {0, 0}}
+	for corner, i in corners do verts[i] = {corner.center, fc, {0, 0}}
 	vc := 4
 
 	indices[0], indices[1], indices[2] = 0, 1, 3
 	indices[3], indices[4], indices[5] = 1, 2, 3
 	ic := 6
 
-	corners := [4]struct {
-		cx, cy, sx, sy: f32,
-	} {
-		{rect.x + rr, rect.y + rr, -1, -1}, // top-left
-		{rect.x + rect.w - rr, rect.y + rr, 1, -1}, // top-right
-		{rect.x + rect.w - rr, rect.y + rect.h - rr, 1, 1}, // bot-right
-		{rect.x + rr, rect.y + rect.h - rr, -1, 1}, // bot-left
-	}
+	for corner, i in corners {
+		if corner.radius <= 0 do continue
 
-	step := (math.PI * 0.5) / f32(segments)
-	for i in 0 ..< segments {
-		a1 := f32(i) * step
-		a2 := f32(i + 1) * step
-		for corner, j in corners {
+		rr_curve := corner.radius + BOUNDARY_BIAS_PX
+		// Feather is carved out of the fan, not added past rr_curve, so the corner's
+		// outer radius matches the straight sides.
+		rr_core := max(rr_curve - feather_clamp(rr_curve), 0)
+		step := (corner.rad_end - corner.rad_start) / f32(segments)
+
+		for j in 0 ..< segments {
+			a1 := corner.rad_start + f32(j) * step
+			a2 := a1 + step
 			p1 := sdl.FPoint {
-				corner.cx + math.cos(a1) * rr_core * corner.sx,
-				corner.cy + math.sin(a1) * rr_core * corner.sy,
+				corner.center.x + math.cos(a1) * rr_core,
+				corner.center.y + math.sin(a1) * rr_core,
 			}
 			p2 := sdl.FPoint {
-				corner.cx + math.cos(a2) * rr_core * corner.sx,
-				corner.cy + math.sin(a2) * rr_core * corner.sy,
+				corner.center.x + math.cos(a2) * rr_core,
+				corner.center.y + math.sin(a2) * rr_core,
 			}
 			verts[vc] = {p1, fc, {0, 0}}
 			verts[vc + 1] = {p2, fc, {0, 0}}
-			indices[ic], indices[ic + 1], indices[ic + 2] = c.int(j), c.int(vc), c.int(vc + 1)
+			indices[ic], indices[ic + 1], indices[ic + 2] = c.int(i), c.int(vc), c.int(vc + 1)
 			vc += 2
 			ic += 3
 		}
-	}
 
-	// Feather ring per corner, opaque rr_core to transparent rr_curve. Degrees
-	// follow `corners` order (TL, TR, BR, BL) with y growing downward.
-	feather_ranges := [4][2]f32{{180, 270}, {270, 360}, {0, 90}, {90, 180}}
-	for corner, j in corners {
-		lo := feather_ranges[j][0] * (math.PI / 180)
-		hi := feather_ranges[j][1] * (math.PI / 180)
 		emit_ring_band(
 			verts[:],
 			indices[:],
 			&vc,
 			&ic,
-			{corner.cx, corner.cy},
+			corner.center,
 			rr_curve,
 			rr_core,
 			fc_clear,
 			fc,
-			lo,
-			hi,
+			corner.rad_start,
+			corner.rad_end,
 			segments,
 		)
 	}
@@ -282,10 +289,10 @@ fill_rounded_rect :: proc(
 		p0, p1: sdl.FPoint,
 		c0, c1: c.int,
 	} {
-		{{rect.x + rr, rect.y}, {rect.x + rect.w - rr, rect.y}, 0, 1}, // top
-		{{rect.x + rect.w, rect.y + rr}, {rect.x + rect.w, rect.y + rect.h - rr}, 1, 2}, // right
-		{{rect.x + rect.w - rr, rect.y + rect.h}, {rect.x + rr, rect.y + rect.h}, 2, 3}, // bottom
-		{{rect.x, rect.y + rect.h - rr}, {rect.x, rect.y + rr}, 3, 0}, // left
+		{{rect.x + tl, rect.y}, {rect.x + rect.w - tr, rect.y}, 0, 1}, // top
+		{{rect.x + rect.w, rect.y + tr}, {rect.x + rect.w, rect.y + rect.h - br}, 1, 2}, // right
+		{{rect.x + rect.w - br, rect.y + rect.h}, {rect.x + bl, rect.y + rect.h}, 2, 3}, // bottom
+		{{rect.x, rect.y + rect.h - bl}, {rect.x, rect.y + tl}, 3, 0}, // left
 	}
 
 	for e in edges {

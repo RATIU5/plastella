@@ -35,6 +35,10 @@ Input_Opts :: struct {
 	// Enter and blur commit; Escape backs out.
 	submits:     bool,
 	transform:   Input_Transform,
+	// nil rounds every corner and draws every edge; set them to sit flush with a
+	// neighbour. A focused field always draws all four edges.
+	corners:     Maybe(Corners),
+	borders:     Maybe(Edges),
 }
 
 Input_Style :: struct {
@@ -70,17 +74,17 @@ TEXT_INPUT_MAX_BYTES :: 256
 input_styles := [Input_Theme]Input_Style {
 	.Default = {
 		font = .UI_REG_13,
-		padding = {10, 10, 6, 6},
+		padding = {5, 5, 5, 5},
 		bg_color = {
-			.Normal = COLOR_GREY_850,
-			.Hover = COLOR_GREY_850,
-			.Active = COLOR_GREY_850,
-			.Engaged = COLOR_GREY_850,
-			.Engaged_Hover = COLOR_GREY_850,
-			.Engaged_Active = COLOR_GREY_850,
-			.Focus = COLOR_GREY_850,
-			.Focus_Hover = COLOR_GREY_850,
-			.Focus_Active = COLOR_GREY_850,
+			.Normal = COLOR_GREY_740,
+			.Hover = COLOR_GREY_710,
+			.Active = COLOR_GREY_935,
+			.Engaged = COLOR_GREY_935,
+			.Engaged_Hover = COLOR_GREY_935,
+			.Engaged_Active = COLOR_GREY_935,
+			.Focus = COLOR_GREY_935,
+			.Focus_Hover = COLOR_GREY_935,
+			.Focus_Active = COLOR_GREY_935,
 			.Disabled = COLOR_GREY_805,
 		},
 		fg_color = {
@@ -96,18 +100,18 @@ input_styles := [Input_Theme]Input_Style {
 			.Disabled = COLOR_GREY_500,
 		},
 		border_color = {
-			.Normal = COLOR_GREY_760,
-			.Hover = COLOR_GREY_710,
-			.Active = COLOR_GREY_760,
+			.Normal = COLOR_TRANSPARENT,
+			.Hover = COLOR_TRANSPARENT,
+			.Active = COLOR_TRANSPARENT,
 			.Engaged = COLOR_ACCENT,
 			.Engaged_Hover = COLOR_ACCENT,
 			.Engaged_Active = COLOR_ACCENT,
 			.Focus = COLOR_ACCENT,
 			.Focus_Hover = COLOR_ACCENT,
 			.Focus_Active = COLOR_ACCENT,
-			.Disabled = COLOR_GREY_805,
+			.Disabled = COLOR_ACCENT,
 		},
-		ph_color = COLOR_GREY_445,
+		ph_color = COLOR_GREY_395,
 		border_width = {1, 1, 1, 1, 0},
 		radius = {5, 5, 5, 5},
 	},
@@ -195,8 +199,7 @@ text_input :: proc(
 
 	// Blur commits; Escape and window focus loss (see ui_update) revert instead.
 	if te.id == id && !focus {
-		backed_out :=
-			platform.key_pressed(ctx.frame.input, .ESCAPE) || ctx.frame.input.focus_lost
+		backed_out := platform.key_pressed(ctx.frame.input, .ESCAPE) || ctx.frame.input.focus_lost
 		text_edit_end(te, !backed_out)
 	}
 	if focus && te.id != id {
@@ -285,6 +288,8 @@ text_input :: proc(
 			caret_x = caret_x,
 			scroll_x = te.scroll_x if editing else 0,
 			focus = editing,
+			radius = corner_radius_mask(style.radius, opts.corners),
+			border_width = border_width_mask(style.border_width, nil if focus else opts.borders),
 		},
 	)
 
@@ -294,18 +299,20 @@ text_input :: proc(
 
 @(private = "file")
 Input_Draw :: struct {
-	id:          string,
-	style:       Input_Style,
-	text:        string,
-	placeholder: string,
-	width:       Sizing,
-	shaped:      ^ttf.Text,
-	fg:          clay.Color,
-	bg:          clay.Color,
-	border:      clay.Color,
-	caret_x:     f32,
-	scroll_x:    f32,
-	focus:       bool,
+	id:           string,
+	style:        Input_Style,
+	text:         string,
+	placeholder:  string,
+	width:        Sizing,
+	shaped:       ^ttf.Text,
+	fg:           clay.Color,
+	bg:           clay.Color,
+	border:       clay.Color,
+	caret_x:      f32,
+	scroll_x:     f32,
+	focus:        bool,
+	radius:       clay.CornerRadius,
+	border_width: clay.BorderWidth,
 }
 
 @(private = "file")
@@ -317,9 +324,9 @@ input_draw :: proc(ctx: ^Ctx, s: ^Text_Edit, d: Input_Draw) {
 			sizing = sizing_to_clay(d.width),
 			childAlignment = {y = .Center},
 		},
-		border = {width = d.style.border_width, color = d.border},
+		border = {width = d.border_width, color = d.border},
 		backgroundColor = d.bg,
-		cornerRadius = d.style.radius,
+		cornerRadius = d.radius,
 	},
 	) {
 		row_h := input_row_height(d.style.font, ctx.frame.assets)
@@ -545,12 +552,7 @@ input_extend_word_selection :: proc(s: ^Text_Edit, at: int) {
 
 // Byte offset of the cluster boundary nearest target_x, in logical px.
 @(private = "file", require_results)
-input_hit_test :: proc(
-	s: ^Text_Edit,
-	shaped: ^ttf.Text,
-	asts: ^Assets,
-	target_x: f32,
-) -> int {
+input_hit_test :: proc(s: ^Text_Edit, shaped: ^ttf.Text, asts: ^Assets, target_x: f32) -> int {
 	if shaped == nil || target_x <= 0 do return 0
 
 	sub: ttf.SubString
@@ -590,13 +592,7 @@ nav_keys := [?]Nav_Key {
 
 // Replays this frame's events in order; unlike key_pressed they carry OS auto-repeat.
 @(private = "file")
-input_handle_keys :: proc(
-	ctx: ^Ctx,
-	s: ^Text_Edit,
-	submit_on_enter: bool,
-) -> (
-	submitted: bool,
-) {
+input_handle_keys :: proc(ctx: ^Ctx, s: ^Text_Edit, submit_on_enter: bool) -> (submitted: bool) {
 	input := ctx.frame.input
 
 	for press in input.text.events[:input.text.events_len] {

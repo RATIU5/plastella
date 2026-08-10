@@ -67,12 +67,11 @@ segmented_control :: proc(
 	) {
 		for tab in T {
 			item := tabs[tab]
-			sel := tab == active
-			options: Button_Options
-			if sel do options += {.SELECTED}
-			if item.disabled do options += {.DISABLED}
-
-			if btn, open := button(ctx, item.id, st.button, options); open {
+			if btn, open := button_box(
+				ctx,
+				item.id,
+				{theme = st.button, selected = tab == active, disabled = item.disabled},
+			); open {
 				switch c in item.content {
 				case string:
 					text(ctx.frame.assets, c, btn.font, btn.fg, .Center, .None)
