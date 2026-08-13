@@ -36,6 +36,9 @@ App :: struct {
 	editor:       Editor,
 	project:      Project,
 	ui:           Ui,
+	// The host's context, captured at init so `"c"` callbacks get the debug
+	// tracking allocator. Lives in host memory, so it survives a hot reload.
+	ctx:          runtime.Context,
 }
 app: ^App
 
@@ -43,6 +46,7 @@ app: ^App
 app_init :: proc(device: ^platform.Device) -> bool {
 	app = new(App, context.allocator)
 	app.device = device
+	app.ctx = context
 
 	w, h, size_ok := platform.window_size(device)
 	if !size_ok {

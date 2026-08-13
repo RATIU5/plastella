@@ -104,11 +104,7 @@ ui_sync_text_input :: proc(ui: ^Ui, window: ^sdl.Window, want: bool) {
 	}
 
 	if !ok {
-		fmt.eprintfln(
-			"failed to %s text input: %s",
-			"start" if want else "stop",
-			sdl.GetError(),
-		)
+		fmt.eprintfln("failed to %s text input: %s", "start" if want else "stop", sdl.GetError())
 		return
 	}
 	ui.text_input_on = want

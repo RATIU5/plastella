@@ -3,6 +3,7 @@ package app
 import "../../vendor/clay"
 import "core:fmt"
 import "core:strings"
+import sdl "vendor:sdl3"
 
 project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 	if edtr.project == nil do return
@@ -203,6 +204,19 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 										icon_h,
 										btn.fg,
 									)
+
+									if btn.clicked {
+										sdl.ShowOpenFolderDialog(
+											project_path_cb,
+											nil,
+											app.device.window,
+											strings.clone_to_cstring(
+												project_loc_get(edtr.project),
+												context.temp_allocator,
+											),
+											false,
+										)
+									}
 								}
 
 								if proj_loc.submitted {
@@ -303,4 +317,12 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 			}
 		}
 	}
+}
+
+@(private = "file")
+project_path_cb :: proc "c" (_: rawptr, file_list: [^]cstring, _: i32) {
+	context = app.ctx
+	if file_list == nil || file_list[0] == nil do return
+	project_loc_set(&app.project, string(file_list[0]))
+	app.frames_owed = max(app.frames_owed, 1)
 }
