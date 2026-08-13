@@ -10,6 +10,7 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 
 	if edtr.project.initialized {
 		if edtr.tab == .Project {
+			// OVERVIEW
 			if clay.UI(clay.ID("project:overview"))(
 			{
 				layout = {
@@ -25,6 +26,7 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 
 			}
 
+			// SETTINGS
 			if clay.UI(clay.ID("project:settings"))(
 			{
 				layout = {
@@ -207,7 +209,7 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 
 									if btn.clicked {
 										sdl.ShowOpenFolderDialog(
-											project_path_cb,
+											project_path_set_cb,
 											nil,
 											app.device.window,
 											strings.clone_to_cstring(
@@ -312,6 +314,10 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 							)
 						}
 						text(ctx.frame.assets, "Cmd + O", .UI_REG_12, btn.fg)
+
+						if btn.clicked {
+							// TODO: Open a project file here
+						}
 					}
 				}
 			}
@@ -320,7 +326,7 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 }
 
 @(private = "file")
-project_path_cb :: proc "c" (_: rawptr, file_list: [^]cstring, _: i32) {
+project_path_set_cb :: proc "c" (_: rawptr, file_list: [^]cstring, _: i32) {
 	context = app.ctx
 	if file_list == nil || file_list[0] == nil do return
 	project_loc_set(&app.project, string(file_list[0]))
