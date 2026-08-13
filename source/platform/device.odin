@@ -17,6 +17,9 @@ Device :: struct {
 
 // title/width/height/toolbar_height are app config, not platform's to own
 // (ODIN_STYLE.md 3.1: platform stays Plastella-agnostic) - the caller supplies them.
+WINDOW_MIN_W :: i32(560)
+WINDOW_MIN_H :: i32(400)
+
 @(require_results)
 device_create :: proc(
 	device: ^Device,
@@ -37,6 +40,9 @@ device_create :: proc(
 		device_destroy(device)
 		return false
 	}
+
+	// Below this the panels' content minimums stop fitting, whatever the layout does.
+	sdl.SetWindowMinimumSize(device.window, WINDOW_MIN_W, WINDOW_MIN_H)
 
 	device.renderer = sdl.CreateRenderer(device.window, nil)
 	if device.renderer == nil {

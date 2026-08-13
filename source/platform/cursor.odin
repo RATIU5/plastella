@@ -8,6 +8,8 @@ Cursor :: enum u8 {
 	Pointer,
 	Text,
 	Not_Allowed,
+	Resize_EW,
+	Resize_NS,
 }
 
 @(rodata)
@@ -16,6 +18,8 @@ cursor_sdl_kind := [Cursor]sdl.SystemCursor {
 	.Pointer     = .POINTER,
 	.Text        = .TEXT,
 	.Not_Allowed = .NOT_ALLOWED,
+	.Resize_EW   = .EW_RESIZE,
+	.Resize_NS   = .NS_RESIZE,
 }
 
 cursor_apply :: proc(device: ^Device, cursor: Cursor) {
