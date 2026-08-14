@@ -2,6 +2,7 @@ package app
 
 import "../../vendor/clay"
 import "core:fmt"
+import "core:strconv"
 import "core:strings"
 import sdl "vendor:sdl3"
 
@@ -82,9 +83,9 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 					},
 					) {
 
-						text(ctx.frame.assets, "Project Details", .UI_BLD_13, COLOR_GREY_150)
+						text(ctx.frame.assets, "Project", .UI_BLD_13, COLOR_GREY_150)
 
-						if clay.UI(clay.ID("project:settings:inputs"))(
+						if clay.UI(clay.ID("project:settings:location_inputs"))(
 						{
 							layout = {
 								sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()},
@@ -284,6 +285,167 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 								}
 							}
 						}
+
+						text(ctx.frame.assets, "Configuration", .UI_BLD_13, COLOR_GREY_150)
+
+						if clay.UI(clay.ID("project:settings:config_inputs"))(
+						{
+							layout = {
+								sizing = {width = clay.SizingGrow(), height = clay.SizingGrow()},
+								layoutDirection = .TopToBottom,
+								childGap = 1,
+							},
+						},
+						) {
+							if clay.UI(clay.ID("project:settings:project_tilesize"))(
+							{
+								layout = {
+									sizing = {
+										width = clay.SizingGrow(),
+										height = clay.SizingFit(),
+									},
+									layoutDirection = .LeftToRight,
+									childAlignment = {y = .Center},
+									childGap = 20,
+								},
+							},
+							) {
+								if clay.UI(clay.ID("project:settings:project_tile_size:left"))(
+								{
+									layout = {
+										sizing = {
+											width = clay.SizingGrow(),
+											height = clay.SizingFit(),
+										},
+										layoutDirection = .LeftToRight,
+										childAlignment = {x = .Right, y = .Center},
+									},
+								},
+								) {
+									text(ctx.frame.assets, "Tile Size", .UI_REG_13, COLOR_GREY_340)
+								}
+
+								if clay.UI(clay.ID("project:settings:project_tile_size:right"))(
+								{
+									layout = {
+										sizing = {
+											width = clay.SizingGrow({min = 120, max = 250}),
+											height = clay.SizingFit(),
+										},
+										layoutDirection = .LeftToRight,
+										childAlignment = {x = .Right, y = .Center},
+										childGap = 1,
+									},
+								},
+								) {
+									tile_size := number_input(
+										ctx,
+										"project:settings:tile_size_input",
+										project_tile_size_get(edtr.project),
+										{
+											step_proc = increment_tile_size,
+											lo = f32(16),
+											hi = f32(256),
+											format = tile_size_fmt,
+											width = .Grow,
+										},
+									)
+									if tile_size.changed {
+										project_tile_size_set(edtr.project, tile_size.value)
+									}
+									if tile_size.invalid {
+										status_text_set(edtr, "Tile size must be a number", .Error)
+									}
+									if tile_size.clamped {
+										status_text_set(
+											edtr,
+											fmt.tprintf(
+												"Tile size must be between %d and %d",
+												16,
+												256,
+											),
+											.Warning,
+										)
+									}
+								}
+							}
+
+							if clay.UI(clay.ID("project:settings:project_start_lives"))(
+							{
+								layout = {
+									sizing = {
+										width = clay.SizingGrow(),
+										height = clay.SizingFit(),
+									},
+									layoutDirection = .LeftToRight,
+									childAlignment = {y = .Center},
+									childGap = 20,
+								},
+							},
+							) {
+								if clay.UI(clay.ID("project:settings:project_start_lives:left"))(
+								{
+									layout = {
+										sizing = {
+											width = clay.SizingGrow(),
+											height = clay.SizingFit(),
+										},
+										layoutDirection = .LeftToRight,
+										childAlignment = {x = .Right, y = .Center},
+									},
+								},
+								) {
+									text(
+										ctx.frame.assets,
+										"Starting Lives",
+										.UI_REG_13,
+										COLOR_GREY_340,
+									)
+								}
+
+								if clay.UI(clay.ID("project:settings:project_start_lives:right"))(
+								{
+									layout = {
+										sizing = {
+											width = clay.SizingGrow({min = 120, max = 250}),
+											height = clay.SizingFit(),
+										},
+										layoutDirection = .LeftToRight,
+										childAlignment = {x = .Right, y = .Center},
+										childGap = 1,
+									},
+								},
+								) {
+									lives := number_input(
+										ctx,
+										"project:settings:start_lives_input",
+										f32(project_start_lives_get(edtr.project)),
+										{step = 1, lo = f32(1), hi = f32(99), width = .Grow},
+									)
+									if lives.changed {
+										project_start_lives_set(edtr.project, i16(lives.value))
+									}
+									if lives.invalid {
+										status_text_set(
+											edtr,
+											"Starting lives must be a number",
+											.Error,
+										)
+									}
+									if lives.clamped {
+										status_text_set(
+											edtr,
+											fmt.tprintf(
+												"Starting lives must be between %d and %d",
+												1,
+												99,
+											),
+											.Warning,
+										)
+									}
+								}
+							}
+						}
 					}
 				}
 			}
@@ -394,4 +556,14 @@ project_path_set_cb :: proc "c" (_: rawptr, file_list: [^]cstring, _: i32) {
 	if file_list == nil || file_list[0] == nil do return
 	project_loc_set(&app.project, string(file_list[0]))
 	app.frames_owed = max(app.frames_owed, 1)
+}
+
+tile_size_fmt :: proc(value: f32, buf: []u8) -> string {
+	n := len(strconv.write_int(buf, i64(value), 10))
+	n += copy(buf[n:], " px")
+	return string(buf[:n])
+}
+
+increment_tile_size :: proc(val: f32, dir: int) -> f32 {
+	return val * 4 if dir > 0 else val / 4
 }

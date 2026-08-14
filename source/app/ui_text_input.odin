@@ -54,6 +54,8 @@ Input_Style :: struct {
 
 Input_Theme :: enum u8 {
 	Default,
+	// Frameless: the caller draws the box, as number_input does around its arrows.
+	Bare,
 }
 
 Click_Mode :: enum u8 {
@@ -114,6 +116,46 @@ input_styles := [Input_Theme]Input_Style {
 		ph_color = COLOR_GREY_395,
 		border_width = {1, 1, 1, 1, 0},
 		radius = {5, 5, 5, 5},
+	},
+	.Bare = {
+		font = .UI_REG_13,
+		bg_color = {
+			.Normal = COLOR_TRANSPARENT,
+			.Hover = COLOR_TRANSPARENT,
+			.Active = COLOR_TRANSPARENT,
+			.Engaged = COLOR_TRANSPARENT,
+			.Engaged_Hover = COLOR_TRANSPARENT,
+			.Engaged_Active = COLOR_TRANSPARENT,
+			.Focus = COLOR_TRANSPARENT,
+			.Focus_Hover = COLOR_TRANSPARENT,
+			.Focus_Active = COLOR_TRANSPARENT,
+			.Disabled = COLOR_TRANSPARENT,
+		},
+		fg_color = {
+			.Normal = COLOR_GREY_150,
+			.Hover = COLOR_GREY_150,
+			.Active = COLOR_GREY_150,
+			.Engaged = COLOR_GREY_150,
+			.Engaged_Hover = COLOR_GREY_150,
+			.Engaged_Active = COLOR_GREY_150,
+			.Focus = COLOR_GREY_150,
+			.Focus_Hover = COLOR_GREY_150,
+			.Focus_Active = COLOR_GREY_150,
+			.Disabled = COLOR_GREY_500,
+		},
+		border_color = {
+			.Normal = COLOR_TRANSPARENT,
+			.Hover = COLOR_TRANSPARENT,
+			.Active = COLOR_TRANSPARENT,
+			.Engaged = COLOR_TRANSPARENT,
+			.Engaged_Hover = COLOR_TRANSPARENT,
+			.Engaged_Active = COLOR_TRANSPARENT,
+			.Focus = COLOR_TRANSPARENT,
+			.Focus_Hover = COLOR_TRANSPARENT,
+			.Focus_Active = COLOR_TRANSPARENT,
+			.Disabled = COLOR_TRANSPARENT,
+		},
+		ph_color = COLOR_GREY_395,
 	},
 }
 

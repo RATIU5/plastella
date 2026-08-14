@@ -16,6 +16,7 @@ Ui :: struct {
 	wants_text_input: bool,
 	text_input_on:    bool,
 	text_edit:        Text_Edit,
+	number:           Number_Drag,
 }
 
 Ctx :: struct {
