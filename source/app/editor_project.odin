@@ -12,16 +12,30 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 		if edtr.tab == .Project {
 			if clay.UI(clay.ID("project:row_top"))(
 			{
-				layout = {
-					sizing = {width = clay.SizingGrow(), height = grid_row(&edtr.grid, 0)},
-					childGap = 0,
-				},
+				layout = grid_group_layout(
+					.LeftToRight,
+					{
+						width = clay.SizingGrow(),
+						height = grid_row(
+							&edtr.grid,
+							"top",
+							{frac = 0.8, min_frac = 0.2, min_px = 250},
+						),
+					},
+				),
 			},
 			) {
 				if clay.UI(clay.ID("project:overview"))(
 				{
 					layout = {
-						sizing = {width = grid_col(&edtr.grid, 0), height = clay.SizingGrow()},
+						sizing = {
+							width = grid_col(
+								&edtr.grid,
+								"overview",
+								{frac = 0.7, min_frac = 0.3, min_px = 250},
+							),
+							height = clay.SizingGrow(),
+						},
 						padding = {10, 10, 10, 10},
 						layoutDirection = .TopToBottom,
 						childGap = 15,
@@ -33,13 +47,20 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 
 				}
 
-				grid_seam(ctx, &edtr.grid, "main_area", .X, 0)
+				grid_seam(ctx, &edtr.grid, .X, "overview")
 
 				// SETTINGS
 				if clay.UI(clay.ID("project:settings"))(
 				{
 					layout = {
-						sizing = {width = grid_col(&edtr.grid, 1), height = clay.SizingGrow()},
+						sizing = {
+							width = grid_col(
+								&edtr.grid,
+								"settings",
+								{frac = 0.3, min_frac = 0.3, min_px = 300},
+							),
+							height = clay.SizingGrow(),
+						},
 						padding = {10, 10, 10, 10},
 						layoutDirection = .TopToBottom,
 						childGap = 10,
@@ -267,12 +288,19 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 				}
 			}
 
-			grid_seam(ctx, &edtr.grid, "main_area", .Y, 0)
+			grid_seam(ctx, &edtr.grid, .Y, "top")
 
 			if clay.UI(clay.ID("project:bottom"))(
 			{
 				layout = {
-					sizing = {width = clay.SizingGrow(), height = grid_row(&edtr.grid, 1)},
+					sizing = {
+						width = clay.SizingGrow(),
+						height = grid_row(
+							&edtr.grid,
+							"bottom",
+							{frac = 0.2, min_frac = 0.15, min_px = 200, max_px = 400},
+						),
+					},
 					padding = {10, 10, 10, 10},
 					layoutDirection = .TopToBottom,
 					childGap = 15,
