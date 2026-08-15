@@ -32,56 +32,71 @@ double_step :: proc(value: f32, dir: int) -> f32 {
 	return value * 2 if dir > 0 else value * 0.5
 }
 
-// The scrub rate eases in from the press point, mirrors across it, saturates at
-// the far edge, and the outer half is boosted well past the plain cubic.
+// Deflection sets a rate: nothing in the deadzone, mirrored across the origin,
+// never slower as it grows, and saturating at the far edge.
 @(test)
 test_number_scrub_rate_curve :: proc(t: ^testing.T) {
 	MAX :: NUMBER_SCRUB_MAX_PX
+	CAP :: f32(30)
 
-	testing.expect(t, number_scrub_rate(0, NUMBER_SCRUB_RATE_MAX) == 0, "moved at the origin")
-	testing.expect(
-		t,
-		number_scrub_rate(NUMBER_SCRUB_DEAD_PX, NUMBER_SCRUB_RATE_MAX) == 0,
-		"moved inside the deadzone",
-	)
-	testing.expect(
-		t,
-		number_scrub_rate(-NUMBER_SCRUB_DEAD_PX, NUMBER_SCRUB_RATE_MAX) == 0,
-		"moved inside the deadzone",
-	)
+	testing.expect(t, number_scrub_rate(0, CAP) == 0, "moved at the origin")
+	testing.expect(t, number_scrub_rate(NUMBER_SCRUB_DEAD_PX, CAP) == 0, "moved in the deadzone")
 
 	// Clearing the deadzone must move the value, not stall in a flat curve.
-	just_out := number_scrub_rate(NUMBER_SCRUB_DEAD_PX + 1, NUMBER_SCRUB_RATE_MAX)
+	just_out := number_scrub_rate(NUMBER_SCRUB_DEAD_PX + 1, CAP)
 	testing.expectf(t, just_out >= NUMBER_SCRUB_RATE_MIN, "stalled at %v steps/s", just_out)
 
-	// Direction only flips the sign.
-	for px in ([?]f32{10, 50, 99, MAX, MAX * 10}) {
-		testing.expectf(
-			t,
-			number_scrub_rate(-px, NUMBER_SCRUB_RATE_MAX) ==
-			-number_scrub_rate(px, NUMBER_SCRUB_RATE_MAX),
-			"%v is not mirrored",
-			px,
-		)
-	}
-
-	// Strictly faster the further out, until it saturates.
 	prev := f32(0)
 	for px := NUMBER_SCRUB_DEAD_PX + 1; px <= MAX; px += 1 {
-		rate := number_scrub_rate(px, NUMBER_SCRUB_RATE_MAX)
+		rate := number_scrub_rate(px, CAP)
 		testing.expectf(t, rate > prev, "rate did not grow at %v (%v <= %v)", px, rate, prev)
+		testing.expectf(t, number_scrub_rate(-px, CAP) == -rate, "%v is not mirrored", px)
 		prev = rate
 	}
-	testing.expect(
-		t,
-		number_scrub_rate(MAX * 10, NUMBER_SCRUB_RATE_MAX) == prev,
-		"rate kept growing past the max",
-	)
+
+	testing.expectf(t, prev == CAP, "full deflection is %v, want the cap %v", prev, CAP)
+	testing.expect(t, number_scrub_rate(MAX * 10, CAP) == CAP, "rate kept growing past the max")
 
 	// Past halfway the boost ramps in, so the far edge dwarfs the midpoint.
-	half := number_scrub_rate(MAX * 0.5, NUMBER_SCRUB_RATE_MAX)
-	full := number_scrub_rate(MAX, NUMBER_SCRUB_RATE_MAX)
-	testing.expectf(t, full > half * 8, "boost too weak: %v vs %v", full, half)
+	half := number_scrub_rate(MAX * 0.5, CAP)
+	testing.expectf(t, prev > half * 6, "boost too weak: %v vs %v", prev, half)
+}
+
+// The cap comes from the size of the range, so a short ladder ticks over slowly,
+// a long range flies, and neither sags as it approaches a bound.
+@(test)
+test_number_scrub_rate_max_follows_range :: proc(t: ^testing.T) {
+	// 16 -> 64 -> 256: two rungs.
+	ladder := Number_Opts {
+		step_proc = quad_step,
+		lo        = f32(16),
+		hi        = f32(256),
+	}
+	testing.expect(t, number_steps_to_end(16, 1, ladder) == 2, "up span from 16")
+	testing.expect(t, number_steps_to_end(64, 1, ladder) == 1, "up span from 64")
+	testing.expect(t, number_steps_to_end(16, -1, ladder) == 0, "down span from 16")
+
+	rungs := number_scrub_rate_max(ladder)
+	testing.expectf(t, rungs == 2 / NUMBER_SCRUB_SWEEP_S, "ladder paces at %v", rungs)
+
+	long := Number_Opts {
+		step = 1,
+		lo   = f32(1),
+		hi   = f32(99),
+	}
+	testing.expectf(
+		t,
+		number_scrub_rate_max(long) > rungs * 20,
+		"a long range must scrub far faster than a short ladder",
+	)
+
+	// An open end has no range to pace against, so it scrubs at full speed.
+	testing.expect(t, number_scrub_rate_max({step = 1}) == NUMBER_SCRUB_RATE_MAX, "unbounded")
+	testing.expect(
+		t,
+		number_scrub_rate_max({step = 1, lo = f32(0)}) == NUMBER_SCRUB_RATE_MAX,
+		"half-open",
+	)
 }
 
 // The default format seeds the text field, so it must parse back and carry no sign.
@@ -116,7 +131,7 @@ test_number_parse_reverts_bad_commits :: proc(t: ^testing.T) {
 	} {
 		{"42", 42, false, false},
 		{"  42  ", 42, false, false},
-		{"7.5", 7.5, false, false},
+		{"7.5", 8, false, false},
 		{"", 5, true, false},
 		{"-", 5, true, false},
 		{".", 5, true, false},
@@ -128,7 +143,7 @@ test_number_parse_reverts_bad_commits :: proc(t: ^testing.T) {
 	}
 
 	for c, i in cases {
-		got, invalid, clamped := number_parse(c.text, 5, opts)
+		got, invalid, clamped, _ := number_parse(c.text, 5, opts)
 		testing.expectf(t, got == c.want, "case %d (%q): got %v, want %v", i, c.text, got, c.want)
 		testing.expectf(t, invalid == c.invalid, "case %d (%q): invalid %v", i, c.text, invalid)
 		testing.expectf(t, clamped == c.clamped, "case %d (%q): clamped %v", i, c.text, clamped)
@@ -173,51 +188,63 @@ test_number_repeat_schedule :: proc(t: ^testing.T) {
 	testing.expect(t, !ended, "short click must keep its release")
 }
 
-// A step_proc with only a few rungs must scrub slowly enough to land on the
-// middle ones, while a long range keeps the full rate.
+quad_step :: proc(value: f32, dir: int) -> f32 {
+	return value * 4 if dir > 0 else value / 4
+}
+
+// A committed number must land on a value the steps can produce: the nearest
+// rung of a ladder, or the nearest multiple of a scalar step from `lo`.
 @(test)
-test_number_scrub_rate_max_follows_range :: proc(t: ^testing.T) {
-	// 16 -> 64 -> 256: two transitions.
+test_number_snap_to_reachable :: proc(t: ^testing.T) {
 	ladder := Number_Opts {
 		step_proc = quad_step,
 		lo        = f32(16),
 		hi        = f32(256),
 	}
-	testing.expectf(
-		t,
-		number_range_steps(ladder) == 2,
-		"ladder span = %v, want 2",
-		number_range_steps(ladder),
-	)
 
-	// Full deflection sweeps the range in about the sweep time, not instantly.
-	// The floor rate eats a little of the span, so allow a quarter of slack.
-	edge := number_scrub_rate(NUMBER_SCRUB_MAX_PX, number_scrub_rate_max(ladder))
-	want := 2 / NUMBER_SCRUB_SWEEP_S
-	testing.expectf(t, edge <= want, "ladder edge rate %v exceeds %v", edge, want)
-	testing.expectf(t, edge >= want * 0.75, "ladder edge rate %v is far under %v", edge, want)
-
-	long := Number_Opts {
-		step = 1,
-		lo   = f32(1),
-		hi   = f32(99),
+	rungs := [?]struct {
+		value, want: f32,
+	} {
+		{16, 16},
+		{64, 64},
+		{256, 256},
+		{100, 64},
+		{17, 16},
+		{63, 64},
+		{200, 256},
+		// Ties round down, to the rung already passed.
+		{40, 16},
 	}
-	testing.expect(t, number_range_steps(long) == 98, "long span is wrong")
-	testing.expect(
-		t,
-		number_scrub_rate(NUMBER_SCRUB_MAX_PX, number_scrub_rate_max(long)) > edge * 20,
-		"a long range must scrub far faster than a short ladder",
-	)
+	for c, i in rungs {
+		got := number_snap(c.value, ladder)
+		testing.expectf(
+			t,
+			got == c.want,
+			"rung %d: snap(%v) = %v, want %v",
+			i,
+			c.value,
+			got,
+			c.want,
+		)
+	}
 
-	// An open-ended range has no span to pace against.
-	testing.expect(t, number_range_steps({step = 1, lo = f32(0)}) == 0, "half-open span")
-	testing.expect(
-		t,
-		number_scrub_rate_max({step = 1}) == NUMBER_SCRUB_RATE_MAX,
-		"unbounded throttled",
-	)
-}
+	// Scalar steps grid off `lo`, so an odd start stays reachable.
+	grid := Number_Opts {
+		step = 5,
+		lo   = f32(2),
+		hi   = f32(97),
+	}
+	for c, i in ([?][2]f32{{2, 2}, {7, 7}, {8, 7}, {10, 12}, {96, 97}}) {
+		got := number_snap(c[0], grid)
+		testing.expectf(t, got == c[1], "grid %d: snap(%v) = %v, want %v", i, c[0], got, c[1])
+	}
 
-quad_step :: proc(value: f32, dir: int) -> f32 {
-	return value * 4 if dir > 0 else value / 4
+	// A commit reports the snap so the caller can say why it moved.
+	value, invalid, clamped, snapped := number_parse("100", 16, ladder)
+	testing.expectf(t, value == 64, "commit landed on %v", value)
+	testing.expect(t, !invalid && !clamped, "100 is a number and is in range")
+	testing.expect(t, snapped, "off-ladder commit was not reported")
+
+	value, _, _, snapped = number_parse("64", 16, ladder)
+	testing.expect(t, value == 64 && !snapped, "an on-ladder commit must not report a snap")
 }

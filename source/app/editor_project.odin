@@ -356,6 +356,13 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 									if tile_size.invalid {
 										status_text_set(edtr, "Tile size must be a number", .Error)
 									}
+									if tile_size.snapped {
+										status_text_set(
+											edtr,
+											"Tile size must be a power of four",
+											.Warning,
+										)
+									}
 									if tile_size.clamped {
 										status_text_set(
 											edtr,

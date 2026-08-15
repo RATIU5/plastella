@@ -40,7 +40,7 @@ NUMBER_DRAG_SLOP_PX :: f32(3)
 NUMBER_SCRUB_DEAD_PX :: f32(1)
 NUMBER_SCRUB_MAX_PX :: f32(100)
 NUMBER_SCRUB_RATE_MIN :: f32(1.5)
-NUMBER_SCRUB_RATE_MAX :: f32(30)
+NUMBER_SCRUB_RATE_MAX :: f32(60)
 NUMBER_SCRUB_SWEEP_S :: f32(0.8)
 NUMBER_SCRUB_BOOST :: f32(4)
 // 0 is a straight line, 1 is fully quadratic.
@@ -58,6 +58,7 @@ Number_Result :: struct {
 	rejected: bool,
 	invalid:  bool,
 	clamped:  bool,
+	snapped:  bool,
 }
 
 // Drag to scrub, arrows to step, click to type. The caller keeps owning `value`;
@@ -216,7 +217,7 @@ number_edit :: proc(
 
 	result.rejected = res.rejected
 	if res.submitted {
-		out, result.invalid, result.clamped = number_parse(res.text, value, opts)
+		out, result.invalid, result.clamped, result.snapped = number_parse(res.text, value, opts)
 	}
 	return
 }
@@ -231,12 +232,40 @@ number_parse :: proc(
 	out: f32,
 	invalid: bool,
 	clamped: bool,
+	snapped: bool,
 ) {
 	v, ok := strconv.parse_f32(strings.trim_space(text))
-	if !ok do return fallback, true, false
+	if !ok do return fallback, true, false, false
 
-	out = number_clamp(v, opts.lo, opts.hi)
-	return out, false, out != v
+	bounded := number_clamp(v, opts.lo, opts.hi)
+	out = number_snap(bounded, opts)
+	return out, false, bounded != v, out != bounded
+}
+
+// The nearest value the steps can actually produce, so a typed number cannot
+// land between two rungs of a ladder or off the grid of a scalar step.
+@(require_results)
+number_snap :: proc(value: f32, opts: Number_Opts) -> f32 {
+	lo, has_lo := opts.lo.?
+
+	if opts.step_proc == nil {
+		step := opts.step if opts.step > 0 else 1
+		base := lo if has_lo else 0
+		return number_clamp(base + math.round((value - base) / step) * step, opts.lo, opts.hi)
+	}
+	// A ladder is only walkable from a known start.
+	if !has_lo do return value
+
+	prev := lo
+	for _ in 0 ..< NUMBER_STEP_MAX {
+		next := number_clamp(opts.step_proc(prev, 1), opts.lo, opts.hi)
+		if next == prev do break
+		if next >= value {
+			return prev if value - prev <= next - value else next
+		}
+		prev = next
+	}
+	return prev
 }
 
 @(private = "file")
@@ -323,7 +352,8 @@ number_drag :: proc(ctx: ^Ctx, id: string, value: f32, opts: Number_Opts) -> (ou
 	// The pointer sets a rate, not a position, so the clock must keep running.
 	app.frames_owed = max(app.frames_owed, 1)
 
-	drag.accum += number_scrub_rate(delta_px, number_scrub_rate_max(opts)) * ctx.frame.dt
+	rate := number_scrub_rate(delta_px, number_scrub_rate_max(opts))
+	drag.accum += rate * ctx.frame.dt
 	steps := math.trunc(drag.accum)
 	drag.accum -= steps
 	if steps != 0 do out = number_stepped(value, int(steps), opts)
@@ -331,9 +361,9 @@ number_drag :: proc(ctx: ^Ctx, id: string, value: f32, opts: Number_Opts) -> (ou
 }
 
 // Steps per second for a pointer `delta_px` from where the press landed: an
-// ease-in curve from a floor rate, with the outer half ramping into
-// NUMBER_SCRUB_BOOST on top of it. Leaving the deadzone always moves the value,
-// slowly; a curve that starts at zero reads as a much wider dead spot.
+// ease-in curve from a floor rate up to `rate_max`, with the outer half ramping
+// into NUMBER_SCRUB_BOOST. Leaving the deadzone always moves the value, slowly;
+// a curve that starts at zero reads as a much wider dead spot.
 @(require_results)
 number_scrub_rate :: proc(delta_px, rate_max: f32) -> f32 {
 	mag := min(abs(delta_px), NUMBER_SCRUB_MAX_PX)
@@ -342,39 +372,42 @@ number_scrub_rate :: proc(delta_px, rate_max: f32) -> f32 {
 	t := (mag - NUMBER_SCRUB_DEAD_PX) / (NUMBER_SCRUB_MAX_PX - NUMBER_SCRUB_DEAD_PX)
 	curve := t * (1 - NUMBER_SCRUB_EASE) + t * t * NUMBER_SCRUB_EASE
 	if t > 0.5 do curve *= 1 + NUMBER_SCRUB_BOOST * (t - 0.5) * 2
+	curve /= 1 + NUMBER_SCRUB_BOOST
 
 	rate_min := min(NUMBER_SCRUB_RATE_MIN, rate_max * 0.25)
 	rate := rate_min + curve * (rate_max - rate_min)
 	return -rate if delta_px < 0 else rate
 }
 
-// The curve's pre-boost ceiling. A bounded range is paced so that full
-// deflection, boost included, sweeps it in about NUMBER_SCRUB_SWEEP_S, which is
-// what makes the middle of a three-value ladder landable.
+// Full deflection crosses the whole range in about NUMBER_SCRUB_SWEEP_S, so a
+// two-rung ladder ticks over slowly while a hundred-step range flies. It is the
+// range, not the steps left ahead, so the scrub does not sag near a bound.
 @(require_results)
 number_scrub_rate_max :: proc(opts: Number_Opts) -> f32 {
-	span := number_range_steps(opts)
-	if span <= 0 do return NUMBER_SCRUB_RATE_MAX
-	return min(span / NUMBER_SCRUB_SWEEP_S / (1 + NUMBER_SCRUB_BOOST), NUMBER_SCRUB_RATE_MAX)
+	lo, has_lo := opts.lo.?
+	_, has_hi := opts.hi.?
+	if !has_lo || !has_hi do return NUMBER_SCRUB_RATE_MAX
+
+	span := max(number_steps_to_end(lo, 1, opts), 1)
+	return min(span / NUMBER_SCRUB_SWEEP_S, NUMBER_SCRUB_RATE_MAX)
 }
 
-// Steps between lo and hi, or 0 when either end is open. The ladder is walked
-// because step_proc need not be uniform.
+// Steps from `from` to the bound in `dir`, or 0 when that end is open. The
+// ladder is walked because step_proc need not be uniform.
 @(require_results)
-number_range_steps :: proc(opts: Number_Opts) -> f32 {
-	lo, has_lo := opts.lo.?
-	hi, has_hi := opts.hi.?
-	if !has_lo || !has_hi do return 0
+number_steps_to_end :: proc(from: f32, dir: int, opts: Number_Opts) -> f32 {
+	end, ok := (opts.hi if dir > 0 else opts.lo).?
+	if !ok do return 0
 
 	if opts.step_proc == nil {
 		step := opts.step if opts.step > 0 else 1
-		return (hi - lo) / step
+		return abs(end - from) / step
 	}
 
-	v := lo
+	v := from
 	for n in 0 ..< NUMBER_STEP_MAX {
-		next := number_clamp(opts.step_proc(v, 1), opts.lo, opts.hi)
-		if next <= v do return f32(n)
+		next := number_clamp(opts.step_proc(v, dir), opts.lo, opts.hi)
+		if next == v do return f32(n)
 		v = next
 	}
 	return f32(NUMBER_STEP_MAX)
