@@ -33,33 +33,47 @@ double_step :: proc(value: f32, dir: int) -> f32 {
 }
 
 // Deflection sets a rate: nothing in the deadzone, mirrored across the origin,
-// never slower as it grows, and saturating at the far edge.
+// linear as it grows, saturating at the far edge, and cut short by a narrow field.
 @(test)
 test_number_scrub_rate_curve :: proc(t: ^testing.T) {
 	MAX :: NUMBER_SCRUB_MAX_PX
 	CAP :: f32(30)
 
-	testing.expect(t, number_scrub_rate(0, CAP) == 0, "moved at the origin")
-	testing.expect(t, number_scrub_rate(NUMBER_SCRUB_DEAD_PX, CAP) == 0, "moved in the deadzone")
+	testing.expect(t, number_scrub_rate(0, MAX, CAP) == 0, "moved at the origin")
+	testing.expect(
+		t,
+		number_scrub_rate(NUMBER_SCRUB_DEAD_PX, MAX, CAP) == 0,
+		"moved in the deadzone",
+	)
 
 	// Clearing the deadzone must move the value, not stall in a flat curve.
-	just_out := number_scrub_rate(NUMBER_SCRUB_DEAD_PX + 1, CAP)
+	just_out := number_scrub_rate(NUMBER_SCRUB_DEAD_PX + 1, MAX, CAP)
 	testing.expectf(t, just_out >= NUMBER_SCRUB_RATE_MIN, "stalled at %v steps/s", just_out)
 
 	prev := f32(0)
 	for px := NUMBER_SCRUB_DEAD_PX + 1; px <= MAX; px += 1 {
-		rate := number_scrub_rate(px, CAP)
+		rate := number_scrub_rate(px, MAX, CAP)
 		testing.expectf(t, rate > prev, "rate did not grow at %v (%v <= %v)", px, rate, prev)
-		testing.expectf(t, number_scrub_rate(-px, CAP) == -rate, "%v is not mirrored", px)
+		testing.expectf(t, number_scrub_rate(-px, MAX, CAP) == -rate, "%v is not mirrored", px)
 		prev = rate
 	}
 
 	testing.expectf(t, prev == CAP, "full deflection is %v, want the cap %v", prev, CAP)
-	testing.expect(t, number_scrub_rate(MAX * 10, CAP) == CAP, "rate kept growing past the max")
+	testing.expect(t, number_scrub_rate(MAX * 10, MAX, CAP) == CAP, "rate kept growing past the max")
 
-	// Past halfway the boost ramps in, so the far edge dwarfs the midpoint.
-	half := number_scrub_rate(MAX * 0.5, CAP)
-	testing.expectf(t, prev > half * 6, "boost too weak: %v vs %v", prev, half)
+	// Linear: the midpoint sits halfway between the floor and the cap.
+	floor := min(NUMBER_SCRUB_RATE_MIN, CAP * 0.25)
+	mid := number_scrub_rate((MAX + NUMBER_SCRUB_DEAD_PX) * 0.5, MAX, CAP)
+	testing.expectf(t, abs(mid - (floor + CAP) * 0.5) < 0.01, "midpoint %v is not linear", mid)
+
+	// A narrow field tops out below the cap however far the pointer travels.
+	narrow := number_scrub_rate(MAX * 10, MAX * 0.5, CAP)
+	testing.expectf(t, narrow < CAP * 0.6, "narrow field reached %v of cap %v", narrow, CAP)
+	testing.expectf(
+		t,
+		narrow == number_scrub_rate(MAX * 0.5, MAX * 0.5, CAP),
+		"narrow field kept growing past its width",
+	)
 }
 
 // The cap comes from the size of the range, so a short ladder ticks over slowly,

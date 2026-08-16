@@ -38,13 +38,12 @@ Number_Drag :: struct {
 
 NUMBER_DRAG_SLOP_PX :: f32(3)
 NUMBER_SCRUB_DEAD_PX :: f32(1)
+// Travel from the press that earns full speed, and the fallback span for the
+// frame before clay knows the field's width.
 NUMBER_SCRUB_MAX_PX :: f32(100)
 NUMBER_SCRUB_RATE_MIN :: f32(1.5)
-NUMBER_SCRUB_RATE_MAX :: f32(60)
-NUMBER_SCRUB_SWEEP_S :: f32(0.8)
-NUMBER_SCRUB_BOOST :: f32(4)
-// 0 is a straight line, 1 is fully quadratic.
-NUMBER_SCRUB_EASE :: f32(0.35)
+NUMBER_SCRUB_RATE_MAX :: f32(18)
+NUMBER_SCRUB_SWEEP_S :: f32(2.5)
 NUMBER_FMT_MAX_BYTES :: 32
 NUMBER_STEP_MAX :: 64
 NUMBER_ARROW_GAP :: u16(4)
@@ -352,7 +351,12 @@ number_drag :: proc(ctx: ^Ctx, id: string, value: f32, opts: Number_Opts) -> (ou
 	// The pointer sets a rate, not a position, so the clock must keep running.
 	app.frames_owed = max(app.frames_owed, 1)
 
-	rate := number_scrub_rate(delta_px, number_scrub_rate_max(opts))
+	// Travel stops counting after one field width, so a narrow field never
+	// reaches the speeds a wide one does.
+	el := clay.GetElementData(clay.ID(id))
+	span := el.boundingBox.width if el.found else NUMBER_SCRUB_MAX_PX
+
+	rate := number_scrub_rate(delta_px, span, number_scrub_rate_max(opts))
 	drag.accum += rate * ctx.frame.dt
 	steps := math.trunc(drag.accum)
 	drag.accum -= steps
@@ -360,22 +364,18 @@ number_drag :: proc(ctx: ^Ctx, id: string, value: f32, opts: Number_Opts) -> (ou
 	return
 }
 
-// Steps per second for a pointer `delta_px` from where the press landed: an
-// ease-in curve from a floor rate up to `rate_max`, with the outer half ramping
-// into NUMBER_SCRUB_BOOST. Leaving the deadzone always moves the value, slowly;
-// a curve that starts at zero reads as a much wider dead spot.
+// Steps per second for a pointer `delta_px` from where the press landed: linear
+// from a floor rate at the deadzone edge to `rate_max` at NUMBER_SCRUB_MAX_PX,
+// and no further than `span_px` of travel. Leaving the deadzone always moves the
+// value, slowly; a curve that starts at zero reads as a much wider dead spot.
 @(require_results)
-number_scrub_rate :: proc(delta_px, rate_max: f32) -> f32 {
-	mag := min(abs(delta_px), NUMBER_SCRUB_MAX_PX)
+number_scrub_rate :: proc(delta_px, span_px, rate_max: f32) -> f32 {
+	mag := min(abs(delta_px), span_px)
 	if mag <= NUMBER_SCRUB_DEAD_PX do return 0
 
-	t := (mag - NUMBER_SCRUB_DEAD_PX) / (NUMBER_SCRUB_MAX_PX - NUMBER_SCRUB_DEAD_PX)
-	curve := t * (1 - NUMBER_SCRUB_EASE) + t * t * NUMBER_SCRUB_EASE
-	if t > 0.5 do curve *= 1 + NUMBER_SCRUB_BOOST * (t - 0.5) * 2
-	curve /= 1 + NUMBER_SCRUB_BOOST
-
+	t := min((mag - NUMBER_SCRUB_DEAD_PX) / (NUMBER_SCRUB_MAX_PX - NUMBER_SCRUB_DEAD_PX), 1)
 	rate_min := min(NUMBER_SCRUB_RATE_MIN, rate_max * 0.25)
-	rate := rate_min + curve * (rate_max - rate_min)
+	rate := rate_min + t * (rate_max - rate_min)
 	return -rate if delta_px < 0 else rate
 }
 
