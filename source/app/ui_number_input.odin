@@ -31,7 +31,9 @@ Number_Drag :: struct {
 	accum:       f32,
 	moved:       bool,
 	enter_sel:   string,
+	// The caller's id, never a temp sub-id: a temp string dies with the frame.
 	repeat_id:   string,
+	repeat_dir:  int,
 	repeat_next: u64,
 	repeated:    bool,
 }
@@ -43,6 +45,8 @@ NUMBER_SCRUB_DEAD_PX :: f32(1)
 NUMBER_SCRUB_MAX_PX :: f32(100)
 NUMBER_SCRUB_RATE_MIN :: f32(1.5)
 NUMBER_SCRUB_RATE_MAX :: f32(18)
+// Floor for the per-range cap, so a range of a few rungs still scrubs briskly.
+NUMBER_SCRUB_RATE_MAX_MIN :: f32(4)
 NUMBER_SCRUB_SWEEP_S :: f32(2.5)
 NUMBER_FMT_MAX_BYTES :: 32
 NUMBER_STEP_MAX :: 64
@@ -83,7 +87,9 @@ number_input :: proc(
 	hover := !opts.disabled && pointer_over(frame_id)
 	// Only the number area presses the frame; an arrow click is the arrow's own.
 	active := !opts.disabled && (ctx.ui.number.id == id || active_over(ctx.frame, id))
-	st := color_state(active, hover, false, focus, opts.disabled)
+	// A live scrub lights the frame like an edit does.
+	scrubbing := !opts.disabled && ctx.ui.number.id == id
+	st := color_state(active, hover, scrubbing, focus, opts.disabled)
 
 	// text_input owns clay.ID indices 1..4 of `id`.
 	if clay.UI(clay.ID(frame_id))(
@@ -100,7 +106,7 @@ number_input :: proc(
 			childGap = NUMBER_ARROW_GAP,
 		},
 		border = {
-			width = border_width_mask(style.border_width, nil if focus else opts.borders),
+			width = border_width_mask(style.border_width, nil if focus || scrubbing else opts.borders),
 			color = style.border_color[st],
 		},
 		backgroundColor = style.bg_color[st],
@@ -108,7 +114,7 @@ number_input :: proc(
 	},
 	) {
 		// ponytail: placeholders until the atlas has chevrons.
-		if number_arrow(ctx, number_sub_id(id, "dec"), "<", opts.disabled) {
+		if number_arrow(ctx, id, -1, "<", opts.disabled) {
 			result.value = number_stepped(value, -1, opts)
 		}
 
@@ -120,7 +126,7 @@ number_input :: proc(
 		}
 		if field != value do result.value = field
 
-		if number_arrow(ctx, number_sub_id(id, "inc"), ">", opts.disabled) {
+		if number_arrow(ctx, id, 1, ">", opts.disabled) {
 			result.value = number_stepped(value, 1, opts)
 		}
 	}
@@ -131,18 +137,23 @@ number_input :: proc(
 
 // Steps once per click, then at a fixed rate while the button stays held.
 @(private = "file")
-number_arrow :: proc(ctx: ^Ctx, id: string, label: string, disabled: bool) -> bool {
+number_arrow :: proc(ctx: ^Ctx, id: string, dir: int, label: string, disabled: bool) -> bool {
 	if disabled do return false
 
-	clicked := button(ctx, id, label, {theme = .Number_Arrow})
+	btn_id := number_sub_id(id, "inc" if dir > 0 else "dec")
+	clicked := button(ctx, btn_id, label, {theme = .Number_Arrow})
+	n := &ctx.ui.number
+	// A widening number shifts the arrow out from under a still-held pointer, so a
+	// run that has started only needs the button to stay pressed.
+	owns := n.repeat_id == id && n.repeat_dir == dir
 	held :=
-		ctx.frame.gfx.interaction.pressed_id[.Left] == id &&
+		ctx.frame.gfx.interaction.pressed_id[.Left] == btn_id &&
 		platform.mouse_down(ctx.frame.input, .Left) &&
-		pointer_over(id)
+		(pointer_over(btn_id) || owns)
 	// A held button emits no events, so the repeat clock needs frames of its own.
 	if held do app.frames_owed = max(app.frames_owed, 1)
 
-	fire, ended_run := number_repeat(&ctx.ui.number, id, held, sdl.GetTicks())
+	fire, ended_run := number_repeat(n, id, dir, held, sdl.GetTicks())
 	if ended_run do return false
 	return fire || clicked
 }
@@ -152,15 +163,18 @@ number_arrow :: proc(ctx: ^Ctx, id: string, label: string, disabled: bool) -> bo
 number_repeat :: proc(
 	n: ^Number_Drag,
 	id: string,
+	dir: int,
 	held: bool,
 	now: u64,
 ) -> (
 	fire: bool,
 	ended_run: bool,
 ) {
+	owns := n.repeat_id == id && n.repeat_dir == dir
 	if held {
-		if n.repeat_id != id {
+		if !owns {
 			n.repeat_id = id
+			n.repeat_dir = dir
 			n.repeat_next = now + NUMBER_REPEAT_DELAY_MS
 			n.repeated = false
 			return
@@ -172,7 +186,7 @@ number_repeat :: proc(
 		return true, false
 	}
 
-	if n.repeat_id != id do return
+	if !owns do return
 	n.repeat_id = ""
 	ended_run = n.repeated
 	n.repeated = false
@@ -221,7 +235,9 @@ number_edit :: proc(
 	return
 }
 
-// Anything parse_f32 refuses keeps `fallback`, so a bad commit reverts.
+// Anything parse_f32 refuses keeps `fallback`, and so does an out-of-range
+// number: reverting says "that is not allowed" where a silent clamp would read
+// as the field accepting a number the caller never typed.
 @(require_results)
 number_parse :: proc(
 	text: string,
@@ -236,9 +252,10 @@ number_parse :: proc(
 	v, ok := strconv.parse_f32(strings.trim_space(text))
 	if !ok do return fallback, true, false, false
 
-	bounded := number_clamp(v, opts.lo, opts.hi)
-	out = number_snap(bounded, opts)
-	return out, false, bounded != v, out != bounded
+	if number_clamp(v, opts.lo, opts.hi) != v do return fallback, false, true, false
+
+	out = number_snap(v, opts)
+	return out, false, false, out != v
 }
 
 // The nearest value the steps can actually produce, so a typed number cannot
@@ -301,7 +318,7 @@ number_display :: proc(ctx: ^Ctx, id: string, value: f32, opts: Number_Opts) -> 
 				attachTo = .Parent,
 				clipTo = .AttachedParent,
 				zIndex = 2,
-				attachment = {element = .LeftTop, parent = .LeftTop},
+				attachment = {element = .CenterTop, parent = .CenterTop},
 				offset = {0, -(box_h - glyph_h)},
 				pointerCaptureMode = .Passthrough,
 			},
@@ -325,7 +342,7 @@ number_drag :: proc(ctx: ^Ctx, id: string, value: f32, opts: Number_Opts) -> (ou
 	if state.pressed_id[.Left] == "" &&
 	   pointer_over(id) &&
 	   platform.mouse_pressed(ctx.frame.input, .Left) {
-		state.pressed_id[.Left] = id
+		press_set(state, .Left, id)
 		drag^ = {
 			id      = id,
 			start_x = ctx.frame.input.mouse.pos.x,
@@ -380,7 +397,8 @@ number_scrub_rate :: proc(delta_px, span_px, rate_max: f32) -> f32 {
 }
 
 // Full deflection crosses the whole range in about NUMBER_SCRUB_SWEEP_S, so a
-// two-rung ladder ticks over slowly while a hundred-step range flies. It is the
+// short ladder ticks over slowly while a hundred-step range flies, but never
+// below NUMBER_SCRUB_RATE_MAX_MIN or a three-value range feels stuck. It is the
 // range, not the steps left ahead, so the scrub does not sag near a bound.
 @(require_results)
 number_scrub_rate_max :: proc(opts: Number_Opts) -> f32 {
@@ -389,7 +407,7 @@ number_scrub_rate_max :: proc(opts: Number_Opts) -> f32 {
 	if !has_lo || !has_hi do return NUMBER_SCRUB_RATE_MAX
 
 	span := max(number_steps_to_end(lo, 1, opts), 1)
-	return min(span / NUMBER_SCRUB_SWEEP_S, NUMBER_SCRUB_RATE_MAX)
+	return clamp(span / NUMBER_SCRUB_SWEEP_S, NUMBER_SCRUB_RATE_MAX_MIN, NUMBER_SCRUB_RATE_MAX)
 }
 
 // Steps from `from` to the bound in `dir`, or 0 when that end is open. The

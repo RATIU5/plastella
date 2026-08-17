@@ -315,7 +315,7 @@ grid_drag :: proc(ctx: ^Ctx, grid: ^Grid, tracks: []Track, axis: Axis, i: int) {
 
 	claimable := state.pressed_id[.Left] == ""
 	if claimable && pointer_over(id) && platform.mouse_pressed(ctx.frame.input, .Left) {
-		state.pressed_id[.Left] = id
+		press_set(state, .Left, id)
 	}
 	// interaction_end is never called, so the seam drops its own press.
 	if state.pressed_id[.Left] == id && !platform.mouse_down(ctx.frame.input, .Left) {

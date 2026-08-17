@@ -90,8 +90,9 @@ test_number_scrub_rate_max_follows_range :: proc(t: ^testing.T) {
 	testing.expect(t, number_steps_to_end(64, 1, ladder) == 1, "up span from 64")
 	testing.expect(t, number_steps_to_end(16, -1, ladder) == 0, "down span from 16")
 
+	// 2 rungs / sweep is below the floor, so a tiny range takes the floor.
 	rungs := number_scrub_rate_max(ladder)
-	testing.expectf(t, rungs == 2 / NUMBER_SCRUB_SWEEP_S, "ladder paces at %v", rungs)
+	testing.expectf(t, rungs == NUMBER_SCRUB_RATE_MAX_MIN, "ladder paces at %v", rungs)
 
 	long := Number_Opts {
 		step = 1,
@@ -100,7 +101,7 @@ test_number_scrub_rate_max_follows_range :: proc(t: ^testing.T) {
 	}
 	testing.expectf(
 		t,
-		number_scrub_rate_max(long) > rungs * 20,
+		number_scrub_rate_max(long) > rungs * 2,
 		"a long range must scrub far faster than a short ladder",
 	)
 
@@ -151,9 +152,9 @@ test_number_parse_reverts_bad_commits :: proc(t: ^testing.T) {
 		{".", 5, true, false},
 		{"1.2.3", 5, true, false},
 		{"12-", 5, true, false},
-		{"0", 1, false, true},
-		{"-8", 1, false, true},
-		{"1000", 99, false, true},
+		{"0", 5, false, true},
+		{"-8", 5, false, true},
+		{"1000", 5, false, true},
 	}
 
 	for c, i in cases {
@@ -171,33 +172,33 @@ test_number_repeat_schedule :: proc(t: ^testing.T) {
 	n: Number_Drag
 	ID :: "inc"
 
-	fire, ended := number_repeat(&n, ID, true, 1000)
+	fire, ended := number_repeat(&n, ID, 1, true, 1000)
 	testing.expect(t, !fire && !ended, "press itself must not repeat")
 
 	for now in u64(1001) ..= 1000 + NUMBER_REPEAT_DELAY_MS - 1 {
-		fire, ended = number_repeat(&n, ID, true, now)
+		fire, ended = number_repeat(&n, ID, 1, true, now)
 		testing.expectf(t, !fire, "fired at %d, before the delay elapsed", now)
 	}
 
-	fire, ended = number_repeat(&n, ID, true, 1000 + NUMBER_REPEAT_DELAY_MS)
+	fire, ended = number_repeat(&n, ID, 1, true, 1000 + NUMBER_REPEAT_DELAY_MS)
 	testing.expect(t, fire, "no fire once the delay elapsed")
 
-	fire, _ = number_repeat(&n, ID, true, 1000 + NUMBER_REPEAT_DELAY_MS + 1)
+	fire, _ = number_repeat(&n, ID, 1, true, 1000 + NUMBER_REPEAT_DELAY_MS + 1)
 	testing.expect(t, !fire, "fired faster than the rate")
 
 	rate_at := 1000 + NUMBER_REPEAT_DELAY_MS + NUMBER_REPEAT_RATE_MS
-	fire, _ = number_repeat(&n, ID, true, rate_at)
+	fire, _ = number_repeat(&n, ID, 1, true, rate_at)
 	testing.expect(t, fire, "no fire at the rate boundary")
 
 	// Release: the click that ends a repeat run is not another step.
-	fire, ended = number_repeat(&n, ID, false, rate_at + 1)
+	fire, ended = number_repeat(&n, ID, 1, false, rate_at + 1)
 	testing.expect(t, !fire, "fired after release")
 	testing.expect(t, ended, "release after repeats must be swallowed")
 
 	// A short click never repeats, so its release still counts.
 	n = {}
-	_, _ = number_repeat(&n, ID, true, 5000)
-	fire, ended = number_repeat(&n, ID, false, 5010)
+	_, _ = number_repeat(&n, ID, 1, true, 5000)
+	fire, ended = number_repeat(&n, ID, 1, false, 5010)
 	testing.expect(t, !fire, "short click fired a repeat")
 	testing.expect(t, !ended, "short click must keep its release")
 }
