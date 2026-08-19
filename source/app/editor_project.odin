@@ -348,6 +348,7 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 											hi = f32(256),
 											format = tile_size_fmt,
 											width = .Grow,
+											corners = Corners{.Top_Left, .Top_Right},
 										},
 									)
 									if tile_size.changed {
@@ -427,7 +428,13 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 										ctx,
 										"project:settings:start_lives_input",
 										f32(project_start_lives_get(edtr.project)),
-										{step = 1, lo = f32(1), hi = f32(99), width = .Grow},
+										{
+											step = 1,
+											lo = f32(1),
+											hi = f32(99),
+											width = .Grow,
+											corners = Corners{.Bottom_Left, .Bottom_Right},
+										},
 									)
 									if lives.changed {
 										project_start_lives_set(edtr.project, i16(lives.value))
