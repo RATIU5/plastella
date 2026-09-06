@@ -31,7 +31,7 @@ load_textures :: proc(a: ^Assets, device: ^platform.Device) -> bool {
 			unload_textures(a)
 			return false
 		}
-		sdl.SetTextureScaleMode(a.textures[type], .NEAREST)
+		sdl.SetTextureScaleMode(a.textures[type], .LINEAR)
 	}
 	return true
 }

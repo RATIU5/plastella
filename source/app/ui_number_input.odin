@@ -51,6 +51,7 @@ NUMBER_SCRUB_SWEEP_S :: f32(2.5)
 NUMBER_FMT_MAX_BYTES :: 32
 NUMBER_STEP_MAX :: 64
 NUMBER_ARROW_GAP :: u16(4)
+NUMBER_ARROW_ICON_PX :: f32(13)
 NUMBER_REPEAT_DELAY_MS :: u64(75)
 NUMBER_REPEAT_RATE_MS :: u64(50)
 NUMBER_FRAME_PAD :: u16(3)
@@ -106,15 +107,17 @@ number_input :: proc(
 			childGap = NUMBER_ARROW_GAP,
 		},
 		border = {
-			width = border_width_mask(style.border_width, nil if focus || scrubbing else opts.borders),
+			width = border_width_mask(
+				style.border_width,
+				nil if focus || scrubbing else opts.borders,
+			),
 			color = style.border_color[st],
 		},
 		backgroundColor = style.bg_color[st],
 		cornerRadius = corner_radius_mask(style.radius, opts.corners),
 	},
 	) {
-		// ponytail: placeholders until the atlas has chevrons.
-		if number_arrow(ctx, id, -1, "<", opts.disabled) {
+		if number_arrow(ctx, id, -1, .Chev_Left_Small, opts.disabled) {
 			result.value = number_stepped(value, -1, opts)
 		}
 
@@ -126,7 +129,7 @@ number_input :: proc(
 		}
 		if field != value do result.value = field
 
-		if number_arrow(ctx, id, 1, ">", opts.disabled) {
+		if number_arrow(ctx, id, 1, .Chev_Right_Small, opts.disabled) {
 			result.value = number_stepped(value, 1, opts)
 		}
 	}
@@ -137,11 +140,15 @@ number_input :: proc(
 
 // Steps once per click, then at a fixed rate while the button stays held.
 @(private = "file")
-number_arrow :: proc(ctx: ^Ctx, id: string, dir: int, label: string, disabled: bool) -> bool {
+number_arrow :: proc(ctx: ^Ctx, id: string, dir: int, glyph: Ui_Icons, disabled: bool) -> bool {
 	if disabled do return false
 
 	btn_id := number_sub_id(id, "inc" if dir > 0 else "dec")
-	clicked := button(ctx, btn_id, label, {theme = .Number_Arrow})
+	clicked: bool
+	if btn, open := button_box(ctx, btn_id, {theme = .Number_Arrow}); open {
+		icon(ctx, btn_id, glyph, NUMBER_ARROW_ICON_PX, btn.fg)
+		clicked = btn.clicked
+	}
 	n := &ctx.ui.number
 	// A widening number shifts the arrow out from under a still-held pointer, so a
 	// run that has started only needs the button to stay pressed.

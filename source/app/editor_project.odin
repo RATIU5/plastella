@@ -527,7 +527,7 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 						if clay.UI(clay.ID("no_project:button_new:left"))(
 						{layout = {sizing = {width = clay.SizingGrow()}, childGap = 6}},
 						) {
-							icon(ctx, "no_project:button_new:icon", .Add, 14, btn.fg)
+							icon(ctx, "no_project:button_new:icon", .Plus_Large, 14, btn.fg)
 							text(ctx.frame.assets, "New Project", btn.font, btn.fg, .Center, .None)
 						}
 						text(ctx.frame.assets, "Cmd + N", .UI_REG_12, btn.fg)
