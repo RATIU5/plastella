@@ -240,12 +240,11 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 										"project:settings:loc_button",
 										{corners = Corners{.Bottom_Right}},
 									); open {
-										icon_h := f32(text_styles[btn.font].size)
 										icon(
 											ctx,
 											"project:settings:loc_button:icon",
 											.Project,
-											icon_h,
+											.Small,
 											btn.fg,
 										)
 
@@ -527,7 +526,7 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 						if clay.UI(clay.ID("no_project:button_new:left"))(
 						{layout = {sizing = {width = clay.SizingGrow()}, childGap = 6}},
 						) {
-							icon(ctx, "no_project:button_new:icon", .Plus_Large, 14, btn.fg)
+							icon(ctx, "no_project:button_new:icon", .Plus_Large, .Small, btn.fg)
 							text(ctx.frame.assets, "New Project", btn.font, btn.fg, .Center, .None)
 						}
 						text(ctx.frame.assets, "Cmd + N", .UI_REG_12, btn.fg)
@@ -542,7 +541,7 @@ project_view :: proc(ctx: ^Ctx, edtr: ^Editor) {
 						if clay.UI(clay.ID("no_project:button_open:left"))(
 						{layout = {sizing = {width = clay.SizingGrow()}, childGap = 6}},
 						) {
-							icon(ctx, "no_project:button_open:icon", .Project, 14, btn.fg)
+							icon(ctx, "no_project:button_open:icon", .Project, .Small, btn.fg)
 							text(
 								ctx.frame.assets,
 								"Open Project",

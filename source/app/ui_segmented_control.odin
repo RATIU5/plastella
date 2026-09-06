@@ -76,8 +76,7 @@ segmented_control :: proc(
 				case string:
 					text(ctx.frame.assets, c, btn.font, btn.fg, .Center, .None)
 				case Ui_Icons:
-					icon_h := f32(text_styles[btn.font].size)
-					icon(ctx, item.id, c, icon_h, btn.fg)
+					icon(ctx, item.id, c, .Small, btn.fg)
 				}
 
 				if btn.clicked && !item.disabled do result = tab

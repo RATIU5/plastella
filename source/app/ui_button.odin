@@ -28,7 +28,9 @@ Button_Theme :: enum u8 {
 button_styles := [Button_Theme]Button_Style {
 	.Icon = {
 		font = .UI_REG_12,
-		padding = {7, 7, 7, 7},
+		// 16px icon + 5 a side = the same 26px box as the 12px icon it replaced,
+		// which is what keeps an icon button level with a text input beside it.
+		padding = {5, 5, 5, 5},
 		bg_color = {
 			.Normal = COLOR_GREY_740,
 			.Hover = COLOR_GREY_710,
@@ -70,7 +72,7 @@ button_styles := [Button_Theme]Button_Style {
 	},
 	.Number_Arrow = {
 		font = .UI_REG_12,
-		padding = {4, 4, 1, 1},
+		padding = {1, 1, 1, 1},
 		bg_color = {
 			.Normal = COLOR_TRANSPARENT,
 			.Hover = COLOR_GREY_710,
@@ -244,7 +246,10 @@ button_box :: proc(ctx: ^Ctx, id: string, opts := Button_Opts{}) -> (Button_Stat
 	register_focusable(ctx, id)
 	focus := ctx.ui.focused == id
 
-	if hover do ctx.frame.cursor = .Pointer
+	// Another element holding the press owns the pointer, and its cursor: a number
+	// being scrubbed keeps the resize arrows even where the drag crosses a button.
+	pressed := ctx.frame.gfx.interaction.pressed_id[.Left]
+	if hover && (pressed == "" || pressed == id) do ctx.frame.cursor = .Pointer
 
 	is_clicked := !disabled && clicked(ctx.frame, id)
 	if !disabled &&
